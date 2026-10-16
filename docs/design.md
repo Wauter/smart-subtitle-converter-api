@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Owner | Wauter De Bruyne |
-| Status | Draft v0.2 (design phase) |
+| Status | v1 implemented (see §13 for where the code differs from this design) |
 | Date | 2026-10-16 |
 | Upstream | [SubtitleEdit/subtitleedit](https://github.com/SubtitleEdit/subtitleedit) (MIT), reviewed at `main` @ `f9a41e0` |
 | Repos | `subtitleedit-api` (service), `subtitleedit-mcp` (MCP server) |
@@ -426,3 +426,27 @@ Errors are surfaced as `isError: true` with the ProblemDetails `code`, `hint` an
 - Will upstream accept a `libseconv` package and a registration hook? Ask the maintainer (Nikolaj Olsson) before investing in option B.
 - Which licence applies to our own repos? MIT is the easy choice, and upstream's MIT notice must be retained in image labels and the NOTICE file.
 - Should we support `FixCommonOcrErrors` (English Hunspell bundle) in V1.x via option B, or keep it for the OCR phase?
+
+## 13. V1 implementation notes and deviations
+
+Recorded while building v1 (2026-10-16). Where these conflict with earlier sections, this section wins.
+
+| # | Area | Design said | V1 does | Why |
+|---|---|---|---|---|
+| 1 | libse pin (§0, §2) | NuGet `libse` 5.3.0 | **5.1.0** | 5.3.0 is only the version in upstream `main`; the newest published package is 5.1.0 (built from `5f0238b`). Bump when upstream publishes. The libse *assembly* version reads 5.0.0, so `X-Libse-Version`/`/healthz` report the package version stamped at build time. |
+| 2 | Operations adapter (§2.1) | Mirror seconv on libse main | Mirrors seconv, minus what 5.1.0 lacks: no `FixMisreadQuotes` FCE rule; `RemoveFormatting` rules mapped onto `HtmlUtil` (no `RemoveFormattingUtil` in 5.1.0); FCE runs without a names list (`EmptyFixCallback.Names` doesn't exist in 5.1.0). | Published API. Re-align on the next bump. |
+| 3 | Image size (§3) | 100–150 MB, CI fails above 170 MB | amd64 **179 MB** (≈76 MB compressed), arm64 **187 MB** (≈72 MB compressed); CI gate **200 MB** | The `-noble-chiseled-extra` base alone is ≈162 MB (ICU + tzdata); our app layer is 17 MB. Plain `-noble-chiseled` (≈124 MB base, ≈141 MB total) would need invariant globalization, which changes libse casing/language detection. Kept `-extra`; revisit with Wauter. |
+| 4 | Formats (§1, §5.1) | Text formats; `ebu-stl-broadcast` preset | Text formats only. Binary formats (EBU STL, PAC, Cavena, …) and image/container formats are rejected with `422 format-not-supported`. The `ebu-stl-broadcast` preset isn't shipped; `srt-to-ass` and `to-ttml` were added. | Binary writers need stream/file plumbing (and EBU header handling); out of v1 "text-to-text" scope. Listed with `textOnly=false`. |
+| 5 | `formatOptions` (§5) | `assa`, `pac`, `ebuStl`, `plainText` | `assa` only (`playResX`, `playResY`, `styleBlock`) | The others belong to binary formats or need libuilogic. Unknown keys are rejected with a hint. |
+| 6 | Error codes (§4.8) | Listed set | Added (additive, allowed by §7.4): `unsafe-zip` (422, path traversal in zip), `input-limits-exceeded` (422, `MAX_CUES`/`MAX_LINE_CHARS`), `not-found` (404, unknown route), `internal-error` (500). Unknown target format → `400 invalid-profile` with a "did you mean"; known-but-unsupported → `422 format-not-supported`. `encoding-error` is reserved (decoding never fails: invalid UTF-8 falls back to `inputFallback` or libse's ANSI heuristic, reported as `encodingConfidence: heuristic`). | Precise, stable codes. Documented in `docs/errors.md`. |
+| 7 | Zip (§4.1, §2.4) | Per-entry processing | The whole zip is **one queue job**, so the run timeout covers the whole batch. Extra headers `X-Entries-Ok` / `X-Entries-Failed`. `/v1/detect` rejects zips. | Keeps settings handling and FIFO order simple. |
+| 8 | XML guard (§6.2) | Pre-screen XML-looking input | Any input starting with `<` that contains a DTD/`<!ENTITY` is rejected as `unsafe-xml`, even if libse wouldn't parse it as XML (e.g. a SAMI file with `<!DOCTYPE html>`). | Conservative; relax if real files hit it. |
+| 9 | Plugin formats (§2.2) | `SubtitleApi.Formats` assembly | Not created (no format needed yet). `FormatInfo.source` is in the contract (`"libse"`) so `"plugin"` can be added later. | YAGNI. |
+| 10 | OpenAPI contract (§9) | `oasdiff` breaking-change gate | xUnit snapshot: generated `/openapi/v1.json` must equal committed `docs/openapi.v1.json` (`UPDATE_OPENAPI=1 dotnet test` to refresh). | Stricter (any drift fails) and needs no extra tool. |
+| 11 | Request bodies in OpenAPI | n/a | Described with an operation transformer, not `.Accepts()` | `.Accepts()` is also a routing constraint: a wrong Content-Type would 404 instead of our `415`. |
+| 12 | Metrics (§4.7) | Prometheus, histograms | Hand-written Prometheus text: queue depth/capacity, completed jobs, sums of run/wait seconds, `rejected_total{reason}` | No extra dependency; histograms/OpenTelemetry are v1.x. |
+| 13 | API key reload (§6.1) | File watcher | `API_KEYS_FILE` mtime checked on each authenticated request | Works with Kubernetes Secret symlink swaps, where watchers are unreliable. Setting `API_KEYS_FILE` turns auth on even if the file is empty or missing (fail closed). |
+| 14 | Queue (§2.4) | Single worker, recycle on timeout | As designed. Retry-After = (queued + 1) × max(rolling average, running job's elapsed). Known limit: after a timeout the abandoned thread keeps running until libse returns, so it can overlap the new worker for that long; the abandoned worker no longer resets settings. `/readyz` also fails while the queue is full. | libse calls can't be cancelled. |
+| 15 | Logs (§7.2) | JSON logs | JSON console logs, one `request …` record per request with `requestId` scope, `route`, `status`, `durationMs`, `queueWaitMs`, `bytesIn/Out`, `format`, `encoding`, `cues`, `preset`, `operations`, `keyName`, `file` (hash + extension), `code`. No OpenTelemetry yet. | v1.x per roadmap. |
+| 16 | MultipleReplace | `rules: [{find, replace, mode}]` | Same; at most 500 rules; regex uses `NonBacktracking` with a 100 ms timeout, falling back to the backtracking engine (still 100 ms) for patterns NonBacktracking can't run (lookarounds, backreferences). | |
+| 17 | Validate endpoint (§4.6) | Never 4xx for an invalid profile | Same; an unknown `extends` comes back as `valid:false` with the error. A profile without `target.format` is valid with a warning (it may be a base preset). | |

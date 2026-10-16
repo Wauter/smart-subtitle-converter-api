@@ -1,0 +1,15 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "description": "libse and its Skia native assets must move together (docs/design.md §8)",
+      "matchPackageNames": ["libse", "SkiaSharp.NativeAssets.Linux.NoDependencies"],
+      "groupName": "libse"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    }
+  ]
+}
