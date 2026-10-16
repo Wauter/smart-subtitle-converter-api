@@ -1,4 +1,4 @@
-# subtitle-api
+# subtitleedit-api
 
 HTTP service for converting subtitle files between text formats. It wraps
 [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit)'s `libse` library
@@ -9,7 +9,7 @@ multi-arch (amd64/arm64) container.
 
 - Design: [docs/design.md](docs/design.md)
 - Roadmap: [docs/roadmap.md](docs/roadmap.md)
-- MCP server (planned): [Wauter/subtitle-mcp](https://github.com/Wauter/subtitle-mcp)
+- MCP server (planned): [Wauter/subtitleedit-mcp](https://github.com/Wauter/subtitleedit-mcp)
 
 ## Planned v1 scope
 

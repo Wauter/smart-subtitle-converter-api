@@ -6,7 +6,7 @@
 | Status | Draft v0.2 (design phase) |
 | Date | 2026-10-16 |
 | Upstream | [SubtitleEdit/subtitleedit](https://github.com/SubtitleEdit/subtitleedit) (MIT), reviewed at `main` @ `f9a41e0` |
-| Repos | `subtitle-api` (service), `subtitle-mcp` (MCP server) |
+| Repos | `subtitleedit-api` (service), `subtitleedit-mcp` (MCP server) |
 
 ## 0. Repo findings that shape this design
 
@@ -46,7 +46,7 @@ These come from reading `/workspace/subtitleedit` (`main` @ `f9a41e0`, 2026-10-1
 ## 2. Architecture
 
 ```
-            ┌──────────────── subtitle-api (ASP.NET Core, .NET 10) ────────────────┐
+            ┌──────────────── subtitleedit-api (ASP.NET Core, .NET 10) ────────────────┐
  HTTP ──►   │ Endpoints (Minimal API) ─► ProfileResolver ─► ConversionEngine       │
             │      │                         │                 │                   │
             │  OpenAPI/Scalar           Presets (built-in  ┌───┴────────────┐      │
@@ -394,10 +394,10 @@ Scope: **our layer only**. libse's parsing, writing and operation logic is trust
 
 **CI gates (required for merge):** build with warnings as errors, all of the above, `dotnet list package --vulnerable`, and a Trivy image scan (high or critical findings fail). There are no nightly jobs.
 
-## 10. MCP server: `subtitle-mcp`
+## 10. MCP server: `subtitleedit-mcp`
 
 - **Stack**: TypeScript, Node 22 LTS, official SDK `@modelcontextprotocol/sdk`, `zod` schemas. It is a thin client over the HTTP API with no conversion logic of its own.
-- **Transports**: stdio (`npx subtitle-mcp`) and Streamable HTTP (`subtitle-mcp --http :3000`, endpoint `/mcp`, stateless mode).
+- **Transports**: stdio (`npx subtitleedit-mcp`) and Streamable HTTP (`subtitleedit-mcp --http :3000`, endpoint `/mcp`, stateless mode).
 - **Config**: `SUBTITLE_API_URL` (required; also `--api-url`), `SUBTITLE_API_KEY` (optional bearer key, sent as `Authorization: Bearer`), `SUBTITLE_MCP_MAX_BYTES`, `SUBTITLE_MCP_TIMEOUT_MS`. In HTTP mode, an incoming `Authorization` header is passed through to the API unchanged and takes precedence over the configured key. The MCP server stores no keys and logs none. The tool descriptions are regenerated from the API's OpenAPI at build time so they don't drift.
 
 | Tool | Maps to | Input → output |
@@ -417,7 +417,7 @@ Errors are surfaced as `isError: true` with the ProblemDetails `code`, `hint` an
 |---|---|---|
 | **v1.0: text API** | §4 endpoints, option A adapter, queue, optional API keys, safeguards, built-in presets, multi-arch image | All CI gates green; smoke corpus passes with the real sample files |
 | **v1.x: presets and hardening** | Mounted-preset hot reload, settings-hash fast path (no lock), `MultipleReplace` import of SE `.template`/`.csv`, OpenTelemetry traces, more smoke samples, the upstream PRs (format registration, explicit settings, `libseconv`) | p95 under 50 ms for 1 k cues |
-| **MCP server** | `subtitle-mcp` 1.0 (§10) | Works in Claude Desktop, Cursor and an HTTP client; contract tests green |
+| **MCP server** | `subtitleedit-mcp` 1.0 (§10) | Works in Claude Desktop, Cursor and an HTTP client; contract tests green |
 | **OCR (separate image tag)** | `:X.Y-ocr` adds Tesseract and traineddata (about +100–300 MB, depending on languages), plus image inputs (sup, VobSub). AI engines (PaddleOCR, llama.cpp vision) go in `:X.Y-ocr-ai` (GBs, possibly GPU), or are delegated to an external endpoint (Ollama or `llama-server` URL). This needs libuilogic, so either option B or C is a prerequisite. Introduces **async jobs**: `POST /v1/jobs` → `202` + `Location`, `GET /v1/jobs/{id}`, result download, in-memory queue first and then Redis or a similar store. | The text-only image stays unchanged in size |
 | **Container extraction** | MKV/MKS, MP4, TS teletext and MXF text tracks via libse `ContainerFormats`, with `GET /v1/inspect` listing tracks and `trackNumbers`/`forcedOnly` in the profile. Large uploads move to async jobs or streaming (multi-GB media → presigned URL or chunked upload) | Upload limits are configurable per endpoint |
 | **Saved server profiles** | Server-side CRUD `/v1/profiles` (DB-backed) with per-key ownership, plus an audit log. Mounted and built-in presets stay read-only. SSO and tenants still come from a gateway. | Read-only presets are unaffected |
