@@ -1,0 +1,1173 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Subtitle Edit API",
+    "description": "Convert subtitles between text formats with Subtitle Edit\u0027s libse. Errors are RFC 7807 problem\u002Bjson with a stable \u0060code\u0060, a \u0060hint\u0060 and the \u0060requestId\u0060. Send \u0060Authorization: Bearer \u003Ckey\u003E\u0060 when API keys are configured.",
+    "version": "1.0.0"
+  },
+  "servers": null,
+  "paths": {
+    "/v1/convert": {
+      "post": {
+        "tags": [
+          "convert"
+        ],
+        "summary": "Convert a subtitle file (multipart upload).",
+        "description": "Upload \u0060file\u0060 with \u0060preset\u0060, \u0060target\u0060 and/or \u0060profile\u0060 (JSON overrides). A zip upload converts every entry and returns a zip with manifest.json. Response headers report detected format/encoding, cue counts and warnings.",
+        "operationId": "convert",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "file"
+                ],
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "description": "The subtitle file, or a zip of subtitle files.",
+                    "format": "binary"
+                  },
+                  "preset": {
+                    "type": "string",
+                    "description": "Preset name (GET /v1/profiles)."
+                  },
+                  "target": {
+                    "type": "string",
+                    "description": "Target format id/alias; shorthand for profile.target.format."
+                  },
+                  "profile": {
+                    "type": "string",
+                    "description": "Profile JSON (full profile or overrides on top of preset). Schema: GET /v1/schemas/profile.json."
+                  },
+                  "failFast": {
+                    "type": "string",
+                    "description": "Zip input only: \u0027true\u0027 stops at the first failing entry instead of reporting it in manifest.json."
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway Timeout",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/convert/json": {
+      "post": {
+        "tags": [
+          "convert"
+        ],
+        "summary": "Convert subtitle content sent as JSON (for agents).",
+        "description": "Send \u0060content\u0060 as text (or base64 with contentEncoding=base64). Outputs come back as text for Unicode encodings, base64 otherwise.",
+        "operationId": "convertJson",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConvertJsonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConvertJsonResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway Timeout",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/formats": {
+      "get": {
+        "tags": [
+          "formats"
+        ],
+        "summary": "List subtitle formats.",
+        "description": "Use \u0060id\u0060 or an alias as source/target format. \u0060textOnly\u0060 defaults to true; V1 can only convert text formats.",
+        "operationId": "listFormats",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "textOnly",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FormatInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/detect": {
+      "post": {
+        "tags": [
+          "formats"
+        ],
+        "summary": "Detect the format and encoding of a subtitle.",
+        "description": "Send multipart \u0060file\u0060, or JSON {content, contentEncoding, fileName}. 422 format-not-detected when nothing matches.",
+        "operationId": "detect",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "file"
+                ],
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "description": "The subtitle file, or a zip of subtitle files.",
+                    "format": "binary"
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "description": "Optional: force the input encoding."
+                  }
+                }
+              }
+            },
+            "application/json": {
+              "schema": {
+                "required": [
+                  "content"
+                ],
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "Subtitle content (text, or base64)."
+                  },
+                  "contentEncoding": {
+                    "type": "string",
+                    "description": "text (default) | base64"
+                  },
+                  "fileName": {
+                    "type": "string",
+                    "description": "Optional file name (helps detection)."
+                  },
+                  "encoding": {
+                    "type": "string",
+                    "description": "Optional: force the input encoding."
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectedInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/profiles": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "summary": "List built-in and mounted presets, including invalid ones with their errors.",
+        "operationId": "listProfiles",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfilesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/profiles/{name}": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "summary": "Get one preset: raw JSON, resolved (extends flattened) profile and errors.",
+        "operationId": "getProfile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/profiles/validate": {
+      "post": {
+        "tags": [
+          "profiles"
+        ],
+        "summary": "Validate a profile without converting.",
+        "description": "Always 200 for a JSON object: \u0060valid\u0060, \u0060errors\u0060 (JSON pointer \u002B hint), \u0060warnings\u0060 and the resolved profile. 400 only for unparseable JSON.",
+        "operationId": "validateProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "A profile. JSON Schema: GET /v1/schemas/profile.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/schemas/profile.json": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "summary": "JSON Schema (2020-12) for profiles.",
+        "operationId": "profileSchema",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ConvertJsonRequest": {
+        "required": [
+          "content",
+          "contentEncoding",
+          "fileName",
+          "preset",
+          "profile",
+          "target",
+          "responseEncoding",
+          "failFast"
+        ],
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "contentEncoding": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fileName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "preset": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "profile": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
+          },
+          "target": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "responseEncoding": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "failFast": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "ConvertJsonResponse": {
+        "required": [
+          "outputs",
+          "detected",
+          "stats",
+          "warnings",
+          "profile",
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "outputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutputDto"
+            }
+          },
+          "detected": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DetectedInfo"
+              }
+            ]
+          },
+          "stats": {
+            "$ref": "#/components/schemas/StatsDto"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Warning"
+            }
+          },
+          "profile": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "entries": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ManifestEntry"
+            }
+          }
+        }
+      },
+      "DetectedInfo": {
+        "required": [
+          "format",
+          "id",
+          "encoding",
+          "encodingConfidence",
+          "language",
+          "paragraphs"
+        ],
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "encodingConfidence": {
+            "type": "string"
+          },
+          "language": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "paragraphs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "candidates": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "FieldError": {
+        "required": [
+          "pointer",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "pointer": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "hint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "FormatInfo": {
+        "required": [
+          "id",
+          "name",
+          "aliases",
+          "extension",
+          "alternateExtensions",
+          "textBased",
+          "frameBased",
+          "styleSupport",
+          "positionSupport",
+          "canRead",
+          "canWrite",
+          "source",
+          "mediaType"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "extension": {
+            "type": "string"
+          },
+          "alternateExtensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "textBased": {
+            "type": "boolean"
+          },
+          "frameBased": {
+            "type": "boolean"
+          },
+          "styleSupport": {
+            "type": "boolean"
+          },
+          "positionSupport": {
+            "type": "boolean"
+          },
+          "canRead": {
+            "type": "boolean"
+          },
+          "canWrite": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          }
+        }
+      },
+      "JsonObject": {
+        "type": "object"
+      },
+      "ManifestEntry": {
+        "required": [
+          "source",
+          "status",
+          "outputs",
+          "detected",
+          "warnings",
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "detected": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DetectedInfo"
+              }
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Warning"
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
+          }
+        }
+      },
+      "OutputDto": {
+        "required": [
+          "fileName",
+          "format",
+          "formatId",
+          "mediaType",
+          "content",
+          "contentEncoding",
+          "encoding",
+          "cues"
+        ],
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "formatId": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "contentEncoding": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "cues": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "source": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "PresetDetail": {
+        "required": [
+          "name",
+          "origin",
+          "path",
+          "valid",
+          "description",
+          "target",
+          "loadedAt",
+          "shadows",
+          "errors",
+          "warnings",
+          "raw",
+          "resolved"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "path": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "target": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "loadedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "shadows": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            }
+          },
+          "raw": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
+          },
+          "resolved": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
+          }
+        }
+      },
+      "PresetSummary": {
+        "required": [
+          "name",
+          "origin",
+          "path",
+          "valid",
+          "description",
+          "target",
+          "loadedAt",
+          "shadows",
+          "errors",
+          "warnings"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "path": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "target": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "loadedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "shadows": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errors": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            }
+          },
+          "warnings": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            }
+          }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ProfilesResponse": {
+        "required": [
+          "profiles",
+          "profilesDir",
+          "mountError"
+        ],
+        "type": "object",
+        "properties": {
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PresetSummary"
+            }
+          },
+          "profilesDir": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mountError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "StatsDto": {
+        "required": [
+          "paragraphsIn",
+          "paragraphsOut",
+          "elapsedMs",
+          "queueWaitMs"
+        ],
+        "type": "object",
+        "properties": {
+          "paragraphsIn": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "paragraphsOut": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "elapsedMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "queueWaitMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "ValidateResponse": {
+        "required": [
+          "valid",
+          "errors",
+          "warnings",
+          "resolved"
+        ],
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            }
+          },
+          "resolved": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
+          }
+        }
+      },
+      "Warning": {
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "convert"
+    },
+    {
+      "name": "formats"
+    },
+    {
+      "name": "profiles"
+    }
+  ]
+}

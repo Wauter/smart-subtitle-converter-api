@@ -30,6 +30,7 @@ public sealed class ConversionQueue : IDisposable
     private int _generation;
     private int _depth;
     private double _avgJobMs = 50;
+    private long _runningSinceTicks; // 0 = idle
     private readonly CancellationTokenSource _shutdown = new();
 
     public long Completed;
@@ -97,6 +98,7 @@ public sealed class ConversionQueue : IDisposable
                 continue; // client went away / deadline passed while queued: never run it
             }
             var wait = Stopwatch.GetElapsedTime(job.EnqueuedTicks).TotalSeconds;
+            Volatile.Write(ref _runningSinceTicks, Stopwatch.GetTimestamp());
             job.Started.TrySetResult();
             var sw = Stopwatch.StartNew();
             try
@@ -112,6 +114,7 @@ public sealed class ConversionQueue : IDisposable
             {
                 if (gen == Volatile.Read(ref _generation)) SettingsScope.Reset(); // an abandoned worker must not touch the new one's settings
                 sw.Stop();
+                Volatile.Write(ref _runningSinceTicks, 0);
                 lock (_lock)
                 {
                     _avgJobMs = _avgJobMs * 0.8 + sw.Elapsed.TotalMilliseconds * 0.2;
@@ -123,7 +126,14 @@ public sealed class ConversionQueue : IDisposable
         }
     }
 
-    public int RetryAfterSeconds() => Math.Max(1, (int)Math.Ceiling(Math.Max(1, Depth) * _avgJobMs / 1000.0));
+    /// <summary>Estimate: (queued + running) x max(rolling average, current job's elapsed time).</summary>
+    public int RetryAfterSeconds()
+    {
+        var since = Volatile.Read(ref _runningSinceTicks);
+        var runningMs = since == 0 ? 0 : Stopwatch.GetElapsedTime(since).TotalMilliseconds;
+        var perJob = Math.Max(_avgJobMs, runningMs);
+        return Math.Clamp((int)Math.Ceiling((Depth + 1) * perJob / 1000.0), 1, 3600);
+    }
 
     /// <summary>Run <paramref name="work"/> on the worker. Returns the result and the queue wait.</summary>
     public async Task<(T Result, long QueueWaitMs)> RunAsync<T>(Func<T> work, CancellationToken requestAborted) where T : class
