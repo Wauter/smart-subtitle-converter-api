@@ -71,7 +71,7 @@ jobs:
         run: scripts/smoke.sh subtitleedit-api:smoke ${{ matrix.platform }} 200
       - name: Trivy scan (HIGH/CRITICAL fail)
         if: matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: subtitleedit-api:smoke
           severity: HIGH,CRITICAL
