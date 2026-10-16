@@ -1,0 +1,11 @@
+{
+  "name": "clean-srt",
+  "description": "Common cleanup pass to SubRip (seconv README example): remove HI text, fix common errors, merge duplicates, split long lines.",
+  "target": { "format": "subrip" },
+  "operations": [
+    { "id": "RemoveTextForHI" },
+    { "id": "FixCommonErrors" },
+    { "id": "MergeSameTexts" },
+    { "id": "SplitLongLines" }
+  ]
+}

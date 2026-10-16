@@ -1,0 +1,15 @@
+{
+  "name": "netflix-en-vtt",
+  "extends": "clean-srt",
+  "description": "Approximation of the Netflix English timed-text style guide, as WebVTT. Not an official Netflix validator.",
+  "target": { "format": "webvtt" },
+  "encoding": { "output": "utf-8-no-bom" },
+  "rules": { "maxLineLength": 42, "maxLines": 2, "maxCps": 20, "minDurationMs": 833, "maxDurationMs": 7000, "minGapMs": 83 },
+  "operations": [
+    { "id": "FixCommonErrors" },
+    { "id": "SplitLongLines" },
+    { "id": "BalanceLines" },
+    { "id": "ApplyDurationLimits" }
+  ],
+  "timing": { "minGapMs": 83 }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "srt-to-vtt",
+  "description": "Plain format change to WebVTT, UTF-8 without BOM.",
+  "target": { "format": "webvtt" },
+  "encoding": { "output": "utf-8-no-bom" }
+}

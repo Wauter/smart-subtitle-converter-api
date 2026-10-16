@@ -1,0 +1,6 @@
+{
+  "name": "srt-to-ass",
+  "description": "SubRip to Advanced SubStation Alpha at 1920x1080.",
+  "target": { "format": "assa" },
+  "formatOptions": { "assa": { "playResX": 1920, "playResY": 1080 } }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "pal-to-film",
+  "description": "Retime a 25 fps (PAL) source to 23.976 fps (film), output SubRip.",
+  "source": { "fps": 25 },
+  "target": { "format": "subrip", "fps": 23.976 }
+}

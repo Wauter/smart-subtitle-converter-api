@@ -1,0 +1,5 @@
+{
+  "name": "to-ttml",
+  "description": "Convert to W3C Timed Text (TTML 1.0).",
+  "target": { "format": "ttml" }
+}
