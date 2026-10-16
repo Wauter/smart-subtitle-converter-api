@@ -21,7 +21,7 @@ public sealed partial class FormatRegistry
     {
         ["ass"] = "Advanced Sub Station Alpha", ["assa"] = "Advanced Sub Station Alpha",
         ["ssa"] = "Sub Station Alpha", ["srt"] = "SubRip", ["smi"] = "SAMI", ["vtt"] = "WebVTT",
-        ["sbv"] = "YouTube sbv", ["ttml"] = "Timed Text 1.0", ["dfxp"] = "DFXP",
+        ["sbv"] = "YouTube sbv", ["ttml"] = "Timed Text 1.0", ["dfxp"] = "DFXP Basic",
         ["txt"] = "Plain text", ["text"] = "Plain text", ["plaintext"] = "Plain text",
         ["sub"] = "MicroDVD", ["scc"] = "Scenarist Closed Captions",
         ["ebu"] = "EBU STL", ["ebustl"] = "EBU STL", ["stl"] = "EBU STL", ["pac"] = "PAC (Screen Electronics)",
@@ -30,7 +30,7 @@ public sealed partial class FormatRegistry
 
     private static readonly HashSet<string> PositionFormats = new(StringComparer.OrdinalIgnoreCase)
     {
-        "advancedsubstationalpha", "substationalpha", "webvtt", "timedtext10", "netflixtimedtext", "dfxp", "itunestimedtext", "imsc11", "smptett2052",
+        "advancedsubstationalpha", "substationalpha", "webvtt", "timedtext10", "netflixtimedtext", "dfxpbasic", "itunestimedtext", "imsc11", "smptett2052",
     };
 
     private readonly Dictionary<string, (FormatInfo Info, Func<SubtitleFormat> Factory)> _byId = new(StringComparer.OrdinalIgnoreCase);
@@ -83,7 +83,7 @@ public sealed partial class FormatRegistry
         "subrip" => "application/x-subrip",
         "webvtt" => "text/vtt",
         "advancedsubstationalpha" or "substationalpha" => "text/x-ssa",
-        "timedtext10" or "dfxp" or "netflixtimedtext" or "itunestimedtext" or "smptett2052" => "application/ttml+xml",
+        "timedtext10" or "dfxpbasic" or "netflixtimedtext" or "itunestimedtext" or "smptett2052" => "application/ttml+xml",
         "sami" => "application/smil+xml",
         _ => "text/plain",
     };

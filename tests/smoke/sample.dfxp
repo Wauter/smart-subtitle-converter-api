@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<tt xml:lang="en" xmlns:tts="http://www.w3.org/ns/ttml#styling" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns="http://www.w3.org/ns/ttml">
+  <head>
+    <metadata>
+      <ttm:title>base.dfxp</ttm:title>
+    </metadata>
+    <styling>
+      <style xml:id="basic" tts:textAlign="center" />
+    </styling>
+  </head>
+  <body style="basic">
+    <div>
+      <p begin="00:00:01.000" end="00:00:03.200">Hello, and welcome.</p>
+      <p begin="00:00:03.500" end="00:00:06.000"><span tts:fontStyle="italic">This line is in italics</span><br/>and has two lines.</p>
+      <p begin="00:00:07.000" end="00:00:09.500">- Are you sure?<br/>- Absolutely!</p>
+      <p begin="00:00:10.000" end="00:00:12.000">Ünïcödé façade — naïve café.</p>
+    </div>
+  </body>
+</tt>

@@ -1,0 +1,17 @@
+﻿[Script Info]
+; This is a Sub Station Alpha v4 script.
+Title: base
+ScriptType: v4.00
+Collisions: Normal
+PlayDepth: 0
+
+[V4 Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding
+Style: Default,Arial,20,16777215,65535,0,0,0,0,1,1,1,2,10,10,10,0,1
+
+[Events]
+Format: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: Marked=0,0:00:01.00,0:00:03.20,*Default,NTP,0000,0000,0000,,Hello, and welcome.
+Dialogue: Marked=0,0:00:03.50,0:00:06.00,*Default,NTP,0000,0000,0000,,{\i1}This line is in italics{\i0}\Nand has two lines.
+Dialogue: Marked=0,0:00:07.00,0:00:09.50,*Default,NTP,0000,0000,0000,,- Are you sure?\N- Absolutely!
+Dialogue: Marked=0,0:00:10.00,0:00:12.00,*Default,NTP,0000,0000,0000,,Ünïcödé façade — naïve café.

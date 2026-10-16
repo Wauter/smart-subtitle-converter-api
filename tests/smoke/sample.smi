@@ -1,0 +1,27 @@
+﻿<SAMI>
+<HEAD>
+<TITLE>base</TITLE>
+<SAMIParam>
+  Metrics {time:ms;}
+  Spec {MSFT:1.0;}
+</SAMIParam>
+<STYLE TYPE="text/css">
+<!--
+  P { font-family: Arial; font-weight: normal; color: white; background-color: black; text-align: center; }
+  .ENUSCC { name: English; lang: en-US ; SAMIType: CC ; }
+-->
+</STYLE>
+</HEAD>
+<BODY>
+<-- Open play menu, choose Captions and Subtitles, On if available -->
+<-- Open tools menu, Security, Show local captions when present -->
+<SYNC Start=1000><P Class=ENUSCC>Hello, and welcome.
+<SYNC Start=3200><P Class=ENUSCC>&nbsp;
+<SYNC Start=3500><P Class=ENUSCC><i>This line is in italics</i><br>and has two lines.
+<SYNC Start=6000><P Class=ENUSCC>&nbsp;
+<SYNC Start=7000><P Class=ENUSCC>- Are you sure?<br>- Absolutely!
+<SYNC Start=9500><P Class=ENUSCC>&nbsp;
+<SYNC Start=10000><P Class=ENUSCC>Ünïcödé façade — naïve café.
+<SYNC Start=12000><P Class=ENUSCC>&nbsp;
+</BODY>
+</SAMI>

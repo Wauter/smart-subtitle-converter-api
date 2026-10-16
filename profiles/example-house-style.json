@@ -1,0 +1,7 @@
+{
+  "description": "Example mounted preset: WebVTT, 37 chars per line, 1 s offset. Copy and edit.",
+  "extends": "srt-to-vtt",
+  "rules": { "maxLineLength": 37, "maxLines": 2 },
+  "timing": { "offsetMs": 1000 },
+  "operations": [ { "id": "RemoveFormatting", "rules": ["RemoveFontName", "RemoveColor"] }, { "id": "SplitLongLines" } ]
+}
