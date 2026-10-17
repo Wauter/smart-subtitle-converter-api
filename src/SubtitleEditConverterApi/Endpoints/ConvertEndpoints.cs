@@ -171,6 +171,7 @@ public static class ConvertEndpoints
                 {
                     var stop = new ApiException(ex.Status, ex.Code, $"Zip entry {i} ('{e.Name}') failed: {ex.Message}", ex.Hint + " (failFast=true stops at the first failing entry.)", ex.InnerException)
                     { Errors = [new FieldError($"{pointerBase}/entries/{i}", ex.Message, ex.Hint)] };
+                    foreach (var (k, v) in ex.Extensions) stop.Extensions[k] = v; // e.g. candidates (ambiguous-format)
                     stop.Extensions["entry"] = e.Name;
                     foreach (var (k, v) in ex.Debug) stop.Debug[k] = v;
                     throw stop;

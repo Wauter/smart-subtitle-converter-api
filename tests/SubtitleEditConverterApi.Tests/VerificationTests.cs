@@ -228,6 +228,12 @@ public class VerificationTests : IClassFixture<ApiFactory>
         Assert.Equal("ambiguous-format", (string)a["error"]!["code"]!);
         var b = entries.Single(e => (string)e!["source"]! == "b.fpc")!;
         Assert.Equal("ok", (string)b["status"]!);
+        var ff = await _c.PostAsJsonAsync("/v1/convert/json", new { content = System.Convert.ToBase64String(zip), contentEncoding = "base64", target = "srt", failFast = true });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, ff.StatusCode);
+        var p = await ff.Json();
+        Assert.Equal("ambiguous-format", (string)p["code"]!);
+        Assert.Equal("a.bin", (string)p["entry"]!);
+        Assert.Equal(2, p["candidates"]!.AsArray().Count);
     }
 
     [Fact]
