@@ -25,6 +25,10 @@ docker run --rm -p 8080:8080 -v "$PWD/profiles:/profiles:ro" subtitleedit-api
 
 Open <http://localhost:8080/docs> for the interactive API reference.
 
+The image is plain `aspnet:10.0-noble-chiseled` plus a trimmed ICU/tzdata overlay (full globalization,
+about 7 MiB smaller compressed than `-chiseled-extra`; see design §13). Sizes are measured on every CI
+run (job summary). `--build-arg RUNTIME_BASE=base-extra` builds on the stock `-chiseled-extra` base instead.
+
 ## Examples
 
 ```bash
@@ -97,6 +101,28 @@ Operations (run in array order; names and behaviour follow `seconv`): `RemoveTex
 `FixRtlViaUnicodeChars`, `RemoveUnicodeControlChars`, `ReverseRtlStartEnd`, `DeleteFirst`/`DeleteLast`
 (`count`), `DeleteContains` (`text`), `MultipleReplace` (`rules: [{find, replace, mode: text|caseSensitive|regex}]`).
 
+## Postman / newman
+
+[`postman/`](postman) has a v2.1 collection covering every endpoint with the examples above
+(health, formats, detect, profiles list/get/validate, schema, convert with target, preset, overrides,
+inline profile, multi-output zip, zip in/out, JSON in/out) and the error cases (unsupported format,
+bad profile, unknown preset, wrong media type, missing/wrong API key). Each request has test scripts
+for status codes and key headers (`X-Request-Id`, `X-Detected-*`, `X-Cue-Count`, `X-Profile`,
+`X-Entries-*`, problem+json `code`).
+
+- Import `postman/subtitleedit-api.postman_collection.json` and `postman/subtitleedit-api.postman_environment.json`.
+- Environment: `baseUrl` (default `http://localhost:8080`), `apiKey` (leave empty for an open server;
+  the auth-failure tests are then skipped).
+- File parts point at repo files (`tests/smoke/*`, `postman/fixtures/batch.zip`) by relative path: in
+  Postman set *Settings → General → Working directory* to your checkout.
+
+```bash
+npx newman run postman/subtitleedit-api.postman_collection.json -e postman/subtitleedit-api.postman_environment.json \
+    --working-dir . --env-var baseUrl=http://localhost:8080 --env-var apiKey=$KEY
+```
+
+CI runs it against the built container on amd64 and arm64.
+
 ## Configuration
 
 | Env | Default | |
@@ -126,10 +152,11 @@ when auth is on. The image has no shell or curl, so probe them from the orchestr
 dotnet test                         # tests for our layer only (libse itself is trusted upstream)
 UPDATE_OPENAPI=1 dotnet test        # after an intended API change: refresh docs/openapi.v1.json
 scripts/smoke.sh subtitleedit-api   # Docker smoke test against a built image
+docker buildx build --platform linux/arm64 -o type=oci,dest=img.tar . && scripts/image-size.py img.tar slim linux/arm64
 ```
 
-Releases: push a `vX.Y.Z` tag. CI builds `linux/amd64` + `linux/arm64`, runs the smoke test on
-both, scans with Trivy, and pushes `ghcr.io/wauter/subtitleedit-api:{X.Y.Z,X.Y,latest,sha-…}`.
+Releases: push a `vX.Y.Z` tag. CI builds `linux/amd64` + `linux/arm64`, runs the smoke test and newman on
+both, checks the size budget, scans with Trivy, and pushes `ghcr.io/wauter/subtitleedit-api:{X.Y.Z,X.Y,latest,sha-…}`.
 
 ## License
 

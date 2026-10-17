@@ -49,12 +49,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [linux/amd64, linux/arm64]
+        # Size budgets (MiB): measured size of the shipped image + ~15% (design §13, PR #1).
+        # amd64 measured 68.2 compressed / 158.2 uncompressed; arm64 64.4 / 165.2.
+        include:
+          - platform: linux/amd64
+            max_compressed_mb: 78
+            max_uncompressed_mb: 182
+          - platform: linux/arm64
+            max_compressed_mb: 74
+            max_uncompressed_mb: 190
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
         if: matrix.platform == 'linux/arm64'
       - uses: docker/setup-buildx-action@v3
+      - id: arch
+        run: echo "arch=${PLATFORM#linux/}" >> "$GITHUB_OUTPUT"
+        env:
+          PLATFORM: ${{ matrix.platform }}
       - name: Build ${{ matrix.platform }}
         uses: docker/build-push-action@v6
         with:
@@ -67,8 +79,67 @@ jobs:
             REVISION=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
-      - name: Smoke test (boot, readyz, convert, auth, size <= 200 MB)
-        run: scripts/smoke.sh subtitleedit-api:smoke ${{ matrix.platform }} 200
+      - name: Smoke test (boot, readyz incl. globalization, convert, auth, size budget)
+        run: scripts/smoke.sh subtitleedit-api:smoke ${{ matrix.platform }} ${{ matrix.max_uncompressed_mb }}
+      - name: Postman collection (newman) against the container
+        run: |
+          docker run -d --name se-newman --platform ${{ matrix.platform }} -p 18081:8080 --read-only --tmpfs /tmp --cap-drop ALL \
+            -e API_KEYS=newman-key subtitleedit-api:smoke
+          for _ in $(seq 1 120); do curl -sf localhost:18081/readyz >/dev/null && break; sleep 1; done
+          npx -y newman@6 run postman/subtitleedit-api.postman_collection.json \
+            -e postman/subtitleedit-api.postman_environment.json \
+            --env-var baseUrl=http://localhost:18081 --env-var apiKey=newman-key --working-dir . \
+            --reporters cli,junit --reporter-junit-export newman/results.xml --color off \
+            || { docker logs se-newman | tail -40; exit 1; }
+          docker rm -f se-newman
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newman-${{ steps.arch.outputs.arch }}
+          path: newman/
+          if-no-files-found: ignore
+      # Exact sizes, current image and the previous chiseled-extra base, from OCI exports (cache hits).
+      - name: Export OCI (slim, current)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          outputs: type=oci,dest=/tmp/slim.oci.tar
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.platform }}
+      - name: Export OCI (chiseled-extra, previous base, for comparison)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          outputs: type=oci,dest=/tmp/extra.oci.tar
+          build-args: |
+            RUNTIME_BASE=base-extra
+            VERSION=${{ github.ref_name }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.platform }}
+      - name: Image sizes (job summary + artifact; budget on the current image)
+        run: |
+          {
+            echo "### Image size, ${{ matrix.platform }}"
+            echo
+            echo "| variant | platform | compressed (pull) | uncompressed (disk) | layers |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p sizes
+          scripts/image-size.py /tmp/extra.oci.tar chiseled-extra ${{ matrix.platform }} > sizes/extra.json
+          scripts/image-size.py /tmp/slim.oci.tar chiseled+icu-slim ${{ matrix.platform }} \
+            --max-compressed-mb ${{ matrix.max_compressed_mb }} --max-uncompressed-mb ${{ matrix.max_uncompressed_mb }} > sizes/slim.json
+          echo "uncompressed per docker image inspect (loaded): $(docker image inspect subtitleedit-api:smoke --format '{{.Size}}') B" >> "$GITHUB_STEP_SUMMARY"
+          cat sizes/*.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sizes-${{ steps.arch.outputs.arch }}
+          path: sizes/
       - name: Trivy scan (HIGH/CRITICAL fail)
         if: matrix.platform == 'linux/amd64'
         uses: aquasecurity/trivy-action@v0.36.0

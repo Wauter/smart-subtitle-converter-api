@@ -6,13 +6,14 @@ using SubtitleEditApi.Profiles;
 
 namespace SubtitleEditApi.Endpoints;
 
-/// <summary>Startup self-test result used by /readyz (embedded SRT -> WebVTT plus a Skia touch).</summary>
+/// <summary>Startup self-test result used by /readyz (embedded SRT -> WebVTT, a Skia touch, ICU/globalization probes).</summary>
 public sealed class SelfTest
 {
     public bool? Passed { get; set; }
     public string? Error { get; set; }
     public bool SkiaOk { get; set; }
     public string? SkiaError { get; set; }
+    public IReadOnlyList<string>? GlobalizationFailures { get; set; }
 
     public const string Srt = "1\r\n00:00:01,000 --> 00:00:02,500\r\nHello <i>world</i>.\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nSecond line\r\n";
 }
@@ -44,7 +45,9 @@ public sealed class SelfTestService(SelfTest state, ConversionQueue queue, Conve
         {
             state.SkiaError = ex.GetType().Name + ": " + ex.Message;
         }
-        log.LogInformation("selftest passed={passed} skia={skia} error={error}", state.Passed, state.SkiaOk, state.Error ?? state.SkiaError);
+        state.GlobalizationFailures = GlobalizationCheck.Run();
+        log.LogInformation("selftest passed={passed} skia={skia} globalization={glob} error={error}", state.Passed, state.SkiaOk,
+            state.GlobalizationFailures.Count == 0 ? "ok" : string.Join(", ", state.GlobalizationFailures), state.Error ?? state.SkiaError);
     }
 }
 
@@ -63,6 +66,12 @@ public static class HealthEndpoints
                 ["formats"] = reg.All.Count > 0 ? "ok" : "no formats loaded",
                 ["selfTest"] = st.Passed switch { true => "ok", false => "failed: " + st.Error, null => "pending" },
                 ["skia"] = st.SkiaOk ? "ok" : st.Passed == null ? "pending" : "failed: " + st.SkiaError,
+                ["globalization"] = st.GlobalizationFailures switch
+                {
+                    null => "pending",
+                    { Count: 0 } => "ok",
+                    var f => "failed: " + string.Join(", ", f),
+                },
                 ["worker"] = q.Healthy ? "ok" : "unhealthy: repeated conversion timeouts",
                 ["queue"] = q.IsFull ? "full" : "ok",
             };
