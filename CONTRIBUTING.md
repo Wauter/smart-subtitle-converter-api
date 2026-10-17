@@ -5,8 +5,8 @@
 Every API change that ships bumps `<Version>` in
 `src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj` (semver), in the same PR:
 
-- **minor** (`1.1.0` → `1.2.0`) for additive changes: new endpoints, fields, formats, options, warning codes;
-- **patch** (`1.1.0` → `1.1.1`) for fixes that don't change the contract;
+- **minor** (`x.y.z` → `x.(y+1).0`) for additive changes: new endpoints, fields, formats, options, warning codes;
+- **patch** (`x.y.z` → `x.y.(z+1)`) for fixes that don't change the contract;
 - **major** only for breaking changes to `/v1` (which should instead become `/v2`).
 
 Add a [CHANGELOG.md](CHANGELOG.md) entry with it. `/healthz` `version` and the OpenAPI `info.version`
