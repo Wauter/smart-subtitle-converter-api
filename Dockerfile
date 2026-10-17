@@ -1,11 +1,16 @@
 # syntax=docker/dockerfile:1
 # Multi-arch: docker buildx build --platform linux/amd64,linux/arm64 .
-# The SDK stage runs on the build host ($BUILDPLATFORM) and cross-publishes for $TARGETARCH,
-# so QEMU is only needed to *run* the arm64 image, not to compile it.
+# Every build stage runs on the build host ($BUILDPLATFORM) and cross-produces for $TARGETARCH,
+# so QEMU is only needed to *run* the arm64 image, not to build it.
+#
+# Runtime = plain aspnet:noble-chiseled + an ICU/tzdata overlay (docker/icu-slim.sh): the same
+# libicu as -chiseled-extra with ICU data .NET never reads removed. The old base is still one
+# build-arg away for comparison or as a fallback:  --build-arg RUNTIME_BASE=base-extra
 
 ARG DOTNET_VERSION=10.0
+ARG RUNTIME_BASE=base-slim
 
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-noble AS build
 ARG TARGETARCH
 WORKDIR /src
 COPY src/SubtitleEditApi/SubtitleEditApi.csproj src/SubtitleEditApi/
@@ -16,9 +21,27 @@ RUN RID=$([ "$TARGETARCH" = "arm64" ] && echo linux-arm64 || echo linux-x64) \
  && dotnet publish src/SubtitleEditApi/SubtitleEditApi.csproj -c Release -r $RID --no-self-contained --no-restore \
       -p:UseAppHost=false -p:DebugType=none -o /app
 
-# -extra = chiseled + ICU + tzdata (libse does culture-sensitive casing/language detection).
+# ICU + tzdata source: the target-arch chiseled-extra image (only files are copied out of it).
+FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-noble-chiseled-extra AS icu-source
+
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-noble AS icu
+ARG TARGETARCH
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends icu-devtools binutils-x86-64-linux-gnu binutils-aarch64-linux-gnu \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=icu-source /usr/lib/ /src/usr/lib/
+COPY --from=icu-source /usr/share/zoneinfo/ /src/usr/share/zoneinfo/
+COPY --from=icu-source /usr/share/doc/ /src/usr/share/doc/
+COPY docker/icu-slim.sh /icu-slim.sh
+RUN PATH="$PATH:/usr/sbin" TARGETARCH=$TARGETARCH sh /icu-slim.sh
+
 # No shell, no package manager, non-root (UID 1654).
-FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-noble-chiseled-extra AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-noble-chiseled AS base-slim
+COPY --from=icu /out/ /
+
+FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-noble-chiseled-extra AS base-extra
+
+FROM ${RUNTIME_BASE} AS runtime
 ARG VERSION=dev
 ARG REVISION=unknown
 LABEL org.opencontainers.image.title="subtitleedit-api" \
