@@ -19,12 +19,19 @@ public class VerificationTests : IClassFixture<ApiFactory>
         "1\r\n00:00:00,000 --> 00:00:00,000\r\nMETADATA title=x\r\n\r\n2\r\n00:00:01,000 --> 00:00:02,000\r\nHello \uFFFD there\r\n\r\n3\r\n00:00:03,000 --> 00:00:04,000\r\nBye\r\n";
     private const string Latin = "1\r\n00:00:01,013 --> 00:00:02,500\r\nCafé déjà vu\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nà la carte\r\n";
 
+    private const string Polish =
+        "1\r\n00:00:01,000 --> 00:00:02,500\r\nZażółć gęślą jaźń\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nŁódź jest piękna\r\n\r\n3\r\n00:00:06,000 --> 00:00:08,000\r\nDziękuję bardzo\r\n";
+    private const string Chinese =
+        "1\r\n00:00:01,000 --> 00:00:02,500\r\n你好世界\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\n我们明天见\r\n";
+
     private async Task<JsonObject> Convert(string srt, string target, object? profile = null, string fileName = "in.srt")
     {
         var r = await _c.PostAsJsonAsync("/v1/convert/json", new { content = srt, fileName, target, profile });
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         return await r.Json();
     }
+
+    private static string[] Strs(JsonNode? a) => a!.AsArray().Select(n => (string)n!).ToArray();
 
     private static JsonObject Warning(JsonObject j, string code) => (JsonObject)j["warnings"]!.AsArray().Single(w => (string)w!["code"]! == code)!;
     private static List<string> Codes(JsonObject j) => j["warnings"]!.AsArray().Select(w => (string)w!["code"]!).ToList();
@@ -289,5 +296,119 @@ public class VerificationTests : IClassFixture<ApiFactory>
         Assert.Equal("none", SourceChecks.LineEndings("ab"));
         Assert.Equal("99:59:59,999", Verifier.Tc(359999999));
         Assert.Equal("U+1F600", Verifier.U(0x1F600));
+    }
+
+    // ---------- v1.2.1: remedy facts, no guessing ----------
+
+    private static JsonNode Remedy(JsonObject j) => Warning(j, "characters-replaced")["details"]!["remedy"]!;
+    private static string Srt(string text) => $"1\r\n00:00:01,000 --> 00:00:02,000\r\n{text}\r\n";
+
+    [Fact]
+    public async Task Polish_to_pac_latin_is_lossless_so_nothing_to_remedy()
+    {
+        var j = await Convert(Polish, "pac");
+        Assert.Equal("lossless", (string)j["outputs"]![0]!["verification"]!["verdict"]!);
+        Assert.DoesNotContain("characters-replaced", Codes(j));
+    }
+
+    [Fact]
+    public async Task Latin_extended_to_cavena_states_the_shared_table_and_suggests_nothing()
+    {
+        var w = Warning(await Convert(Polish, "cavena890"), "characters-replaced");
+        var hint = (string)w["hint"]!;
+        Assert.StartsWith("Lost characters are Latin extended (U+", hint);
+        Assert.Contains("share one character table", hint);
+        Assert.DoesNotContain("ł", w.ToJsonString());
+        var r = w["details"]!["remedy"]!;
+        Assert.Equal(new[] { "Latin extended" }, Strs(r["scripts"]));
+        Assert.Equal("pl", (string)r["detectedLanguage"]!);
+        Assert.Equal("formatOptions.cavena890.language", (string)r["option"]!);
+        Assert.Equal(Binary.BinaryOptions.CavenaLanguageNames, Strs(r["allowedValues"]));
+        Assert.Null(r["suggested"]);
+        Assert.Null(r["candidates"]);
+        Assert.Equal("fpc", (string)r["unicodeAlternative"]!);
+    }
+
+    [Fact]
+    public async Task Latin_extended_to_pac_gives_tested_candidates_never_a_language_guess()
+    {
+        // ğ/Ğ: lost in pac-latin, kept only by the turkish code page (tested), whatever the detected language.
+        var r = Remedy(await Convert(Srt("Dağ ve Ğüzel"), "pac"));
+        Assert.True((bool)r["candidatesTested"]!);
+        Assert.Equal(new[] { "turkish" }, Strs(r["candidates"]));
+        Assert.Equal("latin", (string)r["currentValue"]!);
+        // Romanian ș/ț: no PAC code page keeps them.
+        var ro = Warning(await Convert(Srt("Și țară"), "pac"), "characters-replaced");
+        Assert.Null(ro["details"]!["remedy"]!["candidates"]);
+        Assert.Null(ro["details"]!["remedy"]!["suggested"]);
+        Assert.Contains("no formatOptions.pac.codePage value keeps them (tested; current: latin)", (string)ro["hint"]!);
+        // Czech "ťo": each survives alone in pac-latin; the loss is libse's combining, so no code page is offered.
+        var cz = Warning(await Convert(Srt("Příliš žluťoučký kůň"), "pac"), "characters-replaced");
+        Assert.Null(cz["details"]!["remedy"]!["candidates"]);
+        Assert.Contains("switching the code page won't help", (string)cz["hint"]!);
+    }
+
+    [Fact]
+    public async Task Cjk_lists_every_tested_code_page_when_several_fit()
+    {
+        var w = Warning(await Convert(Srt("這是測試"), "pac"), "characters-replaced");
+        var r = w["details"]!["remedy"]!;
+        Assert.Null(r["suggested"]);
+        Assert.True((bool)r["candidatesTested"]!);
+        Assert.Equal(new[] { "chinese-traditional", "chinese-simplified", "korean", "japanese" }, Strs(r["candidates"]));
+        Assert.Contains("choose the formatOptions.pac.codePage that covers them (options: chinese-traditional, chinese-simplified, korean, japanese, tested", (string)w["hint"]!);
+        Assert.DoesNotContain("這", w.ToJsonString());
+        var cav = Remedy(await Convert(Chinese, "cavena890", new { formatOptions = new { cavena890 = new { language = "en" } } }));
+        Assert.Equal("formatOptions.cavena890.language", (string)cav["option"]!);
+        Assert.Null(cav["suggested"]); // zh-hant / zh-hans: by script, not guessed
+        Assert.Equal(new[] { "zh-hant", "zh-hans" }, Strs(cav["candidates"]));
+    }
+
+    [Fact]
+    public async Task Greek_maps_to_exactly_one_value_so_it_is_suggested()
+    {
+        var pac = Remedy(await Convert(Greek, "pac"));
+        Assert.Equal("greek", (string)pac["suggested"]!);
+        Assert.True((bool)pac["candidatesTested"]!);
+        Assert.Equal("el", (string)pac["detectedLanguage"]!);
+        var ebu = Warning(await Convert(Greek, "ebustl"), "characters-replaced");
+        var r = ebu["details"]!["remedy"]!;
+        Assert.Equal("formatOptions.ebuStl.characterTable", (string)r["option"]!);
+        Assert.Equal("latin", (string)r["currentValue"]!);
+        Assert.Equal("greek", (string)r["suggested"]!);
+        Assert.False((bool)r["candidatesTested"]!);
+        Assert.Contains("set formatOptions.ebuStl.characterTable to \"greek\"", (string)ebu["hint"]!);
+    }
+
+    [Fact]
+    public async Task Mixed_scripts_have_no_single_value()
+    {
+        var w = Warning(await Convert(Srt("Café Καλημέρα"), "pac"), "characters-replaced");
+        Assert.Null(w["details"]!["remedy"]!["candidates"]);
+        Assert.Contains("no formatOptions.pac.codePage value keeps them", (string)w["hint"]!);
+        var only = Remedy(await Convert(Srt("Καλημέρα Привет"), "pac", new { formatOptions = new { pac = new { codePage = "greek" } } }));
+        Assert.Equal("greek", (string)only["currentValue"]!);
+        Assert.Equal(new[] { "Cyrillic" }, Strs(only["scripts"]));
+        Assert.Null(only["candidates"]); // cyrillic would lose the Greek
+    }
+
+    [Fact]
+    public async Task Cavena_greek_keeps_the_libse_limitation_note_and_suggests_nothing()
+    {
+        var w = Warning(await Convert(Greek, "cavena890"), "characters-replaced");
+        var r = w["details"]!["remedy"]!;
+        Assert.Null(r["suggested"]);
+        Assert.Contains("libse's Cavena 890 writer doesn't keep Greek", (string)r["note"]!);
+        Assert.Contains("libse's Cavena 890 writer doesn't keep Greek", (string)w["hint"]!);
+    }
+
+    [Fact]
+    public async Task Remedy_stays_out_of_the_x_warnings_header()
+    {
+        var r = await _c.PostAsync("/v1/convert", Samples.Form(Greek, "g.srt", ("target", "pac")));
+        var h = r.Header("X-Warnings");
+        Assert.Contains("characters-replaced", h);
+        Assert.DoesNotContain("remedy", h);
+        Assert.DoesNotContain("allowedValues", h);
     }
 }

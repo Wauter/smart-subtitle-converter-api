@@ -3,7 +3,7 @@
   "info": {
     "title": "Subtitle Edit Converter API",
     "description": "Convert subtitles between text and binary broadcast formats (EBU STL, PAC, Cavena 890, ...) with Subtitle Edit\u0027s libse. Errors are RFC 7807 problem\u002Bjson with a stable \u0060code\u0060, a \u0060hint\u0060 and the \u0060requestId\u0060. Send \u0060Authorization: Bearer \u003Ckey\u003E\u0060 when API keys are configured.",
-    "version": "1.2.0"
+    "version": "1.2.1"
   },
   "servers": null,
   "paths": {
@@ -2530,6 +2530,86 @@
           }
         }
       },
+      "RemedyInfo": {
+        "required": [
+          "scripts",
+          "detectedLanguage",
+          "currentEncoding",
+          "option",
+          "currentValue",
+          "allowedValues",
+          "suggested",
+          "candidates",
+          "candidatesTested",
+          "unicodeAlternative"
+        ],
+        "type": "object",
+        "properties": {
+          "scripts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "detectedLanguage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "currentEncoding": {
+            "type": "string"
+          },
+          "option": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "currentValue": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "allowedValues": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "suggested": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "candidates": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidatesTested": {
+            "type": "boolean"
+          },
+          "unicodeAlternative": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "ReplacedChars": {
         "required": [
           "total",
@@ -2878,6 +2958,16 @@
             "items": {
               "$ref": "#/components/schemas/CodePointCount"
             }
+          },
+          "remedy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RemedyInfo"
+              }
+            ]
           }
         }
       }

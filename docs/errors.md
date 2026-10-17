@@ -67,7 +67,7 @@ in the written output (after operations).
 
 | code | Meaning |
 |---|---|
-| `characters-replaced` | Read back from a binary output, characters the target's character table can't hold were replaced or dropped. `count` = characters; `details` = cues and code points; `hint` = remedy for that target and the detected script/language (e.g. `formatOptions.pac.codePage = "greek"` or target `fpc`; `formatOptions.ebuStl.characterTable`; `formatOptions.cavena890.language`). The code page is never switched automatically. U+FFFD already in the source is not counted here (see `source-replacement-chars`). |
+| `characters-replaced` | Read back from a binary output, characters the target's character table can't hold were replaced or dropped. `count` = characters; `details` = cues, code points and (since 1.2.1) `remedy`, the facts needed to choose a fix (see [Remedy](#remedy-characters-replaced-since-121)); `hint` says the same in words, with code points, never text. Nothing is switched automatically. U+FFFD already in the source is not counted here (see `source-replacement-chars`). |
 | `text-truncated` | Since 1.2.0. The binary writer cut cues short (Cavena 890 and Cheetah CAP Old cut long lines and drop extra lines). `count` = characters lost; `details.cues`. |
 | `zero-length-cue` | Since 1.2.0. Source cues with zero or negative duration (often metadata cues). `details.cues`. EBU STL can't store them (they read back as 99:59:59,999, reported as `lossy-format` with the cue numbers) and CapMaker Plus drops them. |
 | `source-replacement-chars` | Since 1.2.0. The source already contains U+FFFD replacement characters (damaged by an earlier wrong decoding). `count` = characters; `details.cues`. |
@@ -112,3 +112,34 @@ With `formatOptions.pac.codePage: "greek"` the same input is `"verdict": "quanti
 
 A round trip proves the file is self-consistent through libse's own reader; it does not prove that the
 target playout or editing software accepts it.
+
+## Remedy (`characters-replaced`, since 1.2.1)
+
+`warnings[].details.remedy` (JSON body and manifests only, never `X-Warnings`) gives the caller the facts to
+choose a fix instead of the API guessing one (1.2.0 picked e.g. `czech` for any Latin extended text):
+
+| field | meaning |
+|---|---|
+| `scripts` | Scripts of the lost code points (`Greek`, `Cyrillic`, `Latin extended`, `CJK`, `Japanese kana`, `Hangul`, `Hebrew`, `Arabic`, `Thai`, `other`). |
+| `detectedLanguage` | libse's language detection for the source (a hint for the caller, not used to decide). |
+| `currentEncoding` | What was written, e.g. `pac-latin`, `cp850`, `cavena-latin`. |
+| `option` | The setting that controls it: `formatOptions.pac.codePage`, `formatOptions.ebuStl.characterTable` or `formatOptions.cavena890.language` (null for formats with a fixed table). |
+| `currentValue` | The value of `option` in effect (explicit or default). |
+| `allowedValues` | Every valid value of `option`. |
+| `candidates` | Values that keep the characters; absent when none does. |
+| `candidatesTested` | `true` for PAC: every non-ASCII code point of the output was written with each code page and read back, and only code pages that keep all of them are listed. `false`: the candidates follow from the script (EBU STL, Cavena 890). |
+| `suggested` | Set only when exactly one candidate exists (e.g. Greek → `greek`); null when several fit (the caller picks, e.g. by language) or none. |
+| `unicodeAlternative` | `fpc` (Unicode PAC), which keeps any character. |
+| `note` | Known limits: libse's Cavena 890 writer garbles Greek/Cyrillic/Arabic whatever the language; Cavena's Latin languages share one table; PAC characters that survive alone in the current code page but are lost next to certain neighbours (libse's combining), where no code page helps. |
+
+Greek SRT → PAC (default code page), hint and remedy (`allowedValues` shortened):
+
+```json
+"hint": "Lost characters are Greek (U+03B1, U+03B9, U+03B5, U+03BC, U+03BF, …) (detected source language: el); set formatOptions.pac.codePage to \"greek\" (the only value that keeps every character of this text, tested; current: latin) or use target fpc (Unicode PAC). Never switched automatically.",
+"remedy": { "scripts": ["Greek"], "detectedLanguage": "el", "currentEncoding": "pac-latin",
+            "option": "formatOptions.pac.codePage", "currentValue": "latin", "allowedValues": ["latin", "greek", "czech", "…"],
+            "suggested": "greek", "candidates": ["greek"], "candidatesTested": true, "unicodeAlternative": "fpc" }
+```
+
+Traditional Chinese → PAC: `candidates` = `chinese-traditional`, `chinese-simplified`, `korean`, `japanese` (all
+tested), `suggested` null. Polish → PAC: lossless with the default latin code page, so no warning.
