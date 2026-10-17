@@ -130,8 +130,8 @@ At least one of `preset`, `profile.target.format` or `target` is required.
 **200**: the converted file, with `Content-Type` from the target format (`application/x-subrip`, `text/vtt`, `text/x-ssa`, `application/ttml+xml`, …, falling back to `text/plain; charset=…`) and `Content-Disposition: attachment; filename="<stem>.<ext>"` (RFC 6266 `filename*` for non-ASCII). Multiple outputs (zip input, or `target.additional`) return `application/zip` named `<stem>.zip`, with `manifest.json`. Response headers are listed in §7.3.
 
 ```bash
-curl -F file=@movie.srt -F preset=netflix-en-vtt localhost:8080/v1/convert -OJ
-curl -F file=@movie.srt -F target=webvtt -F 'profile={"timing":{"offsetMs":-1500}}' localhost:8080/v1/convert -OJ
+curl -F file=@movie.srt -F preset=netflix-en-vtt localhost:4041/v1/convert -OJ
+curl -F file=@movie.srt -F target=webvtt -F 'profile={"timing":{"offsetMs":-1500}}' localhost:4041/v1/convert -OJ
 ```
 
 ### 4.2 `POST /v1/convert/json` (for agents)
@@ -171,7 +171,7 @@ The list includes valid **and** invalid presets, so operators can see why a pres
 The body is a profile JSON. Response `200 { "valid": bool, "errors": [...], "warnings": [...], "resolved": {...} }`. It never returns 4xx for an invalid profile, only for unparseable JSON.
 
 ### 4.7 `GET /healthz`, `GET /readyz`, `GET /metrics`
-- `/healthz` (liveness): the process is up. `200 {"status":"ok","version":"1.1.0","libse":"5.1.0"}` (`version` is the csproj `<Version>`, see CHANGELOG.md). No dependencies are checked.
+- `/healthz` (liveness): the process is up. `200 {"status":"ok","version":"1.1.1","libse":"5.1.0"}` (`version` is the csproj `<Version>`, see CHANGELOG.md). No dependencies are checked.
 - `/readyz` (readiness): the format registry is loaded, a built-in self-test conversion (embedded SRT → VTT) passed at startup, the worker is healthy and the queue is not full. Returns `503` with the failing check named. Invalid mounted presets do **not** fail readiness; their count is reported (`"profiles":{"valid":7,"invalid":1}`).
 - `/metrics`: Prometheus, off unless `METRICS_ENABLED=true`. It can be served on a separate port (`METRICS_PORT`) so it stays off the public listener.
 - These endpoints are never behind auth and are excluded from rate limiting.

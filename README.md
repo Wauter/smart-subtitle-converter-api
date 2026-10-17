@@ -10,7 +10,7 @@ multi-arch (amd64/arm64) container.
 - Design: [docs/design.md](docs/design.md) (section 13 lists where v1 differs from the design)
 - Error codes: [docs/errors.md](docs/errors.md)
 - Roadmap: [docs/roadmap.md](docs/roadmap.md)
-- Changelog: [CHANGELOG.md](CHANGELOG.md) (current version **1.1.0**, reported by `/healthz`); versioning rule: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Changelog: [CHANGELOG.md](CHANGELOG.md) (current version **1.1.1**, reported by `/healthz`); versioning rule: [CONTRIBUTING.md](CONTRIBUTING.md)
 - OpenAPI (committed contract): [docs/openapi.v1.json](docs/openapi.v1.json), live at `/openapi/v1.json`, interactive docs at `/docs`
 - MCP server (planned): [Wauter/subtitleedit-converter-mcp](https://github.com/Wauter/subtitleedit-converter-mcp)
 
@@ -22,7 +22,7 @@ dotnet run --project src/SubtitleEditConverterApi        # listens on http://loc
 
 # or with Docker
 docker build -t subtitleedit-converter-api .
-docker run --rm -p 8080:8080 -v "$PWD/profiles:/profiles:ro" subtitleedit-converter-api
+docker run --rm -p 127.0.0.1:4041:8080 -v "$PWD/profiles:/profiles:ro" subtitleedit-converter-api
 # or with Compose (see docker-compose.yml: read-only rootfs, tmpfs /tmp, ./profiles mounted)
 docker compose up --build -d          # build locally from this checkout
 # ...or pull the private :edge image that CI pushes from main (token needs read:packages)
@@ -30,7 +30,13 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
 docker compose up -d                  # pulls ghcr.io/wauter/subtitleedit-converter-api:edge
 ```
 
-Open <http://localhost:8080/docs> for the interactive API reference.
+Open <http://localhost:4041/docs> for the interactive API reference.
+
+**Ports.** The container listens on `8080` internally; Compose and the examples here publish it on host port
+**4041** (8080 is often taken), bound to `127.0.0.1`, so only your own machine can reach it. To expose it on
+other interfaces (e.g. for other machines on your network), change the mapping to `"4041:8080"` (all interfaces) or
+`"192.168.1.10:4041:8080"` (one interface) in `docker-compose.yml`, or use `-p 4041:8080` with `docker run`; enable
+API keys (`API_KEYS_FILE`) before you do. To use a different host port, change only the left-hand number.
 
 ### Pulling the `:edge` image
 
@@ -54,46 +60,46 @@ run (job summary). `--build-arg RUNTIME_BASE=base-extra` builds on the stock `-c
 
 ```bash
 # SRT -> WebVTT; -OJ saves using the server's file name (movie.vtt)
-curl -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ
+curl -F file=@movie.srt -F target=webvtt localhost:4041/v1/convert -OJ
 
 # a built-in preset
-curl -F file=@movie.srt -F preset=netflix-en-vtt localhost:8080/v1/convert -OJ
+curl -F file=@movie.srt -F preset=netflix-en-vtt localhost:4041/v1/convert -OJ
 
 # preset + overrides (objects merge, arrays replace, null clears)
 curl -F file=@movie.srt -F preset=netflix-en-vtt \
-     -F 'profile={"rules":{"maxLineLength":37},"timing":{"offsetMs":-1500}}' localhost:8080/v1/convert -OJ
+     -F 'profile={"rules":{"maxLineLength":37},"timing":{"offsetMs":-1500}}' localhost:4041/v1/convert -OJ
 
 # TTML -> SRT, and SRT -> ASS
-curl -F file=@movie.ttml -F target=srt localhost:8080/v1/convert -OJ
-curl -F file=@movie.srt  -F preset=srt-to-ass localhost:8080/v1/convert -OJ
+curl -F file=@movie.ttml -F target=srt localhost:4041/v1/convert -OJ
+curl -F file=@movie.srt  -F preset=srt-to-ass localhost:4041/v1/convert -OJ
 
 # several outputs at once -> zip with manifest.json
-curl -F file=@movie.srt -F target=vtt -F 'profile={"target":{"additional":["ass","ttml"]}}' localhost:8080/v1/convert -OJ
+curl -F file=@movie.srt -F target=vtt -F 'profile={"target":{"additional":["ass","ttml"]}}' localhost:4041/v1/convert -OJ
 
 # zip in -> zip out (one manifest entry per file; a bad file doesn't fail the batch unless failFast=true).
 # Entries with the same folder + name (ep1.srt and EP1.vtt) are rejected up front: 422 ambiguous-batch-names.
-curl -F file=@season1.zip -F target=vtt localhost:8080/v1/convert -OJ
-curl -F file=@season1.zip -F target=vtt -F failFast=true localhost:8080/v1/convert -OJ
+curl -F file=@season1.zip -F target=vtt localhost:4041/v1/convert -OJ
+curl -F file=@season1.zip -F target=vtt -F failFast=true localhost:4041/v1/convert -OJ
 
 # JSON in/out (for agents and scripts)
-curl localhost:8080/v1/convert/json -H 'content-type: application/json' \
+curl localhost:4041/v1/convert/json -H 'content-type: application/json' \
      -d '{"content":"1\n00:00:01,000 --> 00:00:02,000\nHello\n","fileName":"a.srt","target":"vtt"}'
 
 # what is this file? (text or binary; binary adds codePage/formatDetails and up to 5 candidates)
-curl -F file=@mystery.txt localhost:8080/v1/detect
+curl -F file=@mystery.txt localhost:4041/v1/detect
 
 # server limits (body caps, zip guards, queue depth, auth required?) before you upload
-curl localhost:8080/v1/limits
+curl localhost:4041/v1/limits
 
 # formats, presets, schema
-curl 'localhost:8080/v1/formats?q=vtt'
-curl localhost:8080/v1/profiles                 # built-in + mounted, invalid ones listed with errors
-curl localhost:8080/v1/profiles/netflix-en-vtt  # raw + resolved (extends flattened)
-curl localhost:8080/v1/profiles/validate -H 'content-type: application/json' -d @my-profile.json
-curl localhost:8080/v1/schemas/profile.json     # JSON Schema for editors and agents
+curl 'localhost:4041/v1/formats?q=vtt'
+curl localhost:4041/v1/profiles                 # built-in + mounted, invalid ones listed with errors
+curl localhost:4041/v1/profiles/netflix-en-vtt  # raw + resolved (extends flattened)
+curl localhost:4041/v1/profiles/validate -H 'content-type: application/json' -d @my-profile.json
+curl localhost:4041/v1/schemas/profile.json     # JSON Schema for editors and agents
 
 # with API keys enabled
-curl -H "Authorization: Bearer $KEY" -F file=@movie.srt -F target=vtt localhost:8080/v1/convert -OJ
+curl -H "Authorization: Bearer $KEY" -F file=@movie.srt -F target=vtt localhost:4041/v1/convert -OJ
 ```
 
 Response headers on conversions: `X-Request-Id`, `X-Detected-Format`, `X-Detected-Encoding`,
@@ -125,13 +131,13 @@ Matroska, MP4, ...) are listed with `kind` but give `422 format-not-supported`.
 # SRT -> EBU STL (25 fps, CPN 850, language auto-detected), with GSI fields
 curl -F file=@movie.srt -F target=ebustl \
      -F 'profile={"formatOptions":{"ebuStl":{"frameRate":25,"originalProgrammeTitle":"My Film","language":"en"}}}' \
-     localhost:8080/v1/convert -OJ
+     localhost:4041/v1/convert -OJ
 # EBU STL -> SRT (detected by content; X-Detected-Code-Page: 850)
-curl -F file=@movie.stl -F target=srt localhost:8080/v1/convert -OJ
+curl -F file=@movie.stl -F target=srt localhost:4041/v1/convert -OJ
 # PAC with an explicit code page (auto-detection is weak for non-Latin scripts)
-curl -F file=@movie.pac -F target=srt -F 'profile={"source":{"format":"pac"},"formatOptions":{"pac":{"inputCodePage":"greek"}}}' localhost:8080/v1/convert -OJ
+curl -F file=@movie.pac -F target=srt -F 'profile={"source":{"format":"pac"},"formatOptions":{"pac":{"inputCodePage":"greek"}}}' localhost:4041/v1/convert -OJ
 # JSON: binary content must be base64; binary outputs always come back base64
-curl localhost:8080/v1/convert/json -H 'content-type: application/json' \
+curl localhost:4041/v1/convert/json -H 'content-type: application/json' \
      -d "{\"content\":\"$(base64 -w0 movie.stl)\",\"contentEncoding\":\"base64\",\"target\":\"srt\"}"
 ```
 
@@ -177,14 +183,14 @@ for status codes and key headers (`X-Request-Id`, `X-Detected-*`, `X-Cue-Count`,
 `X-Entries-*`, problem+json `code`).
 
 - Import `postman/subtitleedit-converter-api.postman_collection.json` and `postman/subtitleedit-converter-api.postman_environment.json`.
-- Environment: `baseUrl` (default `http://localhost:8080`), `apiKey` (leave empty for an open server;
+- Environment: `baseUrl` (default `http://localhost:4041`), `apiKey` (leave empty for an open server;
   the auth-failure tests are then skipped).
 - File parts point at repo files (`tests/smoke/*`, `postman/fixtures/*`) by relative path: in
   Postman set *Settings → General → Working directory* to your checkout.
 
 ```bash
 npx newman run postman/subtitleedit-converter-api.postman_collection.json -e postman/subtitleedit-converter-api.postman_environment.json \
-    --working-dir . --env-var baseUrl=http://localhost:8080 --env-var apiKey=$KEY
+    --working-dir . --env-var baseUrl=http://localhost:4041 --env-var apiKey=$KEY
 ```
 
 CI runs it against the built container on amd64 and arm64.
@@ -193,7 +199,7 @@ CI runs it against the built container on amd64 and arm64.
 
 | Env | Default | |
 |---|---|---|
-| `ASPNETCORE_HTTP_PORTS` | `8080` (image) | Listen port |
+| `ASPNETCORE_HTTP_PORTS` | `8080` (image) | Listen port inside the container (published on host port 4041 by Compose) |
 | `PROFILES_DIR` | `/profiles` | Mounted presets folder |
 | `API_KEYS` | unset | Comma-separated bearer keys (`name:key` allowed) |
 | `API_KEYS_FILE` | unset | One key per line, `#` comments, `name:key`; reloaded on change |
@@ -210,7 +216,7 @@ CI runs it against the built container on amd64 and arm64.
 | `DOCS_ENABLED` | `true` | `/docs` (Scalar) |
 | `METRICS_ENABLED` / `METRICS_PORT` | off | Prometheus text at `/metrics`, optionally only on that port |
 
-Health: `GET /healthz` (liveness; `{"status":"ok","version":"1.1.0","libse":"5.1.0"}`), `GET /readyz` (self-test, worker health, queue). Both stay open
+Health: `GET /healthz` (liveness; `{"status":"ok","version":"1.1.1","libse":"5.1.0"}`), `GET /readyz` (self-test, worker health, queue). Both stay open
 when auth is on. `GET /v1/limits` reports the effective limits (it's under `/v1`, so it needs a key
 when auth is on, and it only says whether auth is required, never anything about keys). The image has no shell or curl, so probe them from the orchestrator.
 
