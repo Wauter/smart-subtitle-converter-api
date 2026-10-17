@@ -524,6 +524,52 @@
               }
             }
           ]
+        },
+        {
+          "name": "Detect: BOM, line endings, source warnings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/detect",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "detect"
+              ]
+            },
+            "description": "Since 1.2.0 detect reports bom and lineEndings for text input, and warnings for zero-length cues and U+FFFD already in the source.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"1\\n00:00:00,000 --> 00:00:00,000\\nMETADATA title=x\\n\\n2\\n00:00:01,000 --> 00:00:02,000\\nHello\\n\",\n  \"fileName\": \"zero.srt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"bom false, lf\", () => { pm.expect(j.bom).to.eql(false); pm.expect(j.lineEndings).to.eql(\"lf\"); });",
+                  "pm.test(\"zero-length-cue warning\", () => pm.expect(j.warnings.map(w => w.code)).to.include(\"zero-length-cue\"));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -1413,6 +1459,150 @@
               }
             }
           ]
+        },
+        {
+          "name": "JSON: Greek SRT -> PAC (verification, remedy hint)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "Every binary output is read back (outputs[].verification, since 1.2.0). Greek doesn't fit the default PAC latin code page: verdict lossy, characters-replaced with cue numbers, code points and a hint (formatOptions.pac.codePage=greek or target fpc). Nothing is switched automatically.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"1\\n00:00:01,013 --> 00:00:02,500\\nΚαλημέρα κόσμε\\n\\n2\\n00:00:03,000 --> 00:00:05,000\\nΕυχαριστώ πολύ\\n\",\n  \"fileName\": \"greek.srt\",\n  \"target\": \"pac\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); const v = j.outputs[0].verification;",
+                  "pm.test(\"verdict lossy, 2 cues written and read back\", () => { pm.expect(v.verdict).to.eql(\"lossy\"); pm.expect(v.cuesWritten).to.eql(2); pm.expect(v.cuesReadBack).to.eql(2); });",
+                  "pm.test(\"replacedChars lists cues and Greek code points\", () => { pm.expect(v.replacedChars.cues).to.eql([1, 2]); pm.expect(v.replacedChars.codePoints[0].codePoint).to.match(/^U\\+03/); });",
+                  "const w = j.warnings.find(x => x.code === \"characters-replaced\");",
+                  "pm.test(\"warning has details and a remedy hint\", () => { pm.expect(w.details.cues).to.eql([1, 2]); pm.expect(w.hint).to.include(\"greek\"); pm.expect(w.hint).to.include(\"fpc\"); });",
+                  "pm.test(\"X-Warnings header has no details\", () => pm.expect(pm.response.headers.get(\"X-Warnings\") || \"\").to.not.include(\"details\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JSON: zero-length cue -> EBU STL (clear warning)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "A zero-length cue (often metadata) can't be stored in EBU STL: it reads back as 99:59:59,999. zero-length-cue names the source cue; lossy-format says what happened and how to fix it (ApplyDurationLimits, or remove the cue).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"1\\n00:00:00,000 --> 00:00:00,000\\nMETADATA title=x\\n\\n2\\n00:00:01,000 --> 00:00:02,000\\nHello\\n\",\n  \"fileName\": \"zero.srt\",\n  \"target\": \"ebustl\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"zero-length-cue for cue 1\", () => pm.expect(j.warnings.find(x => x.code === \"zero-length-cue\").details.cues).to.eql([1]));",
+                  "const l = j.warnings.find(x => x.code === \"lossy-format\");",
+                  "pm.test(\"lossy-format names the cue and 99:59:59,999\", () => { pm.expect(l.message).to.include(\"zero-length cue(s) 1\"); pm.expect(l.message).to.include(\"99:59:59,999\"); });",
+                  "pm.test(\"verdict lossy\", () => pm.expect(j.outputs[0].verification.verdict).to.eql(\"lossy\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FPC (by .fpc name) -> SRT",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "PAC and PAC Unicode (FPC) share their header; the .fpc file name decides.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/sample.fpc"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "srt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Detected-Format: pacunicodeunipac\", () => pm.expect(pm.response.headers.get(\"X-Detected-Format\")).to.eql(\"pacunicodeunipac\"));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -2057,6 +2247,54 @@
                   "const j = pm.response.json();",
                   "pm.test(\"one error per clashing entry\", () => pm.expect(j.errors.map(e => e.pointer)).to.eql([\"ep1.srt\", \"EP1.vtt\"]));",
                   "pm.test(\"groups\", () => pm.expect(j.groups).to.eql([[\"ep1.srt\", \"EP1.vtt\"]]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PAC/FPC bytes without a .pac/.fpc name (ambiguous-format)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Since 1.2.0: bytes valid as both PAC and PAC Unicode, with no deciding file name, are rejected (422 ambiguous-format, candidates) instead of guessed. Set profile.source.format to pac or fpc.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/sample-fpc.bin"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "srt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 422\", () => pm.response.to.have.status(422));",
+                  "const p = pm.response.json();",
+                  "pm.test(\"code ambiguous-format\", () => pm.expect(p.code).to.eql(\"ambiguous-format\"));",
+                  "pm.test(\"candidates\", () => pm.expect(p.candidates).to.eql([\"pacscreenelectronics\", \"pacunicodeunipac\"]));",
+                  "pm.test(\"hint names source.format\", () => pm.expect(p.hint).to.include(\"source.format\"));"
                 ]
               }
             }

@@ -6,6 +6,38 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Nothing here has been tagged or released yet; the private `:edge` image carries
 the version of the `main` commit it was built from.
 
+## 1.2.0 (unreleased)
+
+Conversion verification and diagnostics (client feedback 2026-10-17, approved by Wauter).
+
+- **Structured read-back verification** for every binary output: `outputs[].verification` (JSON),
+  `entries[].verification` keyed by output path (zip manifests), `X-Verification-Verdict` (single binary
+  output, multipart). `verdict` is `lossless` | `quantised` | `lossy` | `unverified`, with `cuesWritten`,
+  `cuesReadBack`, `timing` (`maxShiftMs`, `meanShiftMs`, `frameMs`, `cuesOverOneFrame`), `replacedChars`
+  (cue numbers and code points, first 20, exact totals), `truncatedCues`, `missingCues`, `zeroLengthCues`.
+  When cue counts differ, cues are matched by start time (1.1 skipped every check). A read-back that throws
+  now gives `unverified` with a `reason` and a `verification-failed` warning (1.1 stayed silent). Positions
+  and code points only, never cue text, in responses and logs. See [docs/errors.md](docs/errors.md#verification-binary-outputs-since-120).
+- **Warnings carry `hint` and `details`** (JSON body and manifest only; `X-Warnings` keeps code, message,
+  count). `characters-replaced` names the script, the cues and the code points, and suggests the remedy
+  for the target (`formatOptions.pac.codePage`, `formatOptions.ebuStl.characterTable`,
+  `formatOptions.cavena890.language`, or target `fpc`); nothing is switched automatically.
+- New warning codes: `text-truncated` (Cavena 890 / Cheetah CAP Old cut lines; no longer counted as
+  replaced characters), `zero-length-cue`, `source-replacement-chars` (U+FFFD already in the source; no
+  longer counted as an encoding loss), `verification-failed`. A zero-length cue written to EBU STL now
+  gets a `lossy-format` warning naming the cue and the 99:59:59,999 read-back, instead of "Timing changed
+  by up to 359999999 ms".
+- `POST /v1/detect` reports `bom` and `lineEndings` (crlf | lf | cr | mixed | none) for text input, and
+  `warnings` (`zero-length-cue`, `source-replacement-chars`).
+- **Behaviour change: `422 ambiguous-format`.** PAC and PAC Unicode (FPC) share their header bytes. When
+  auto-detection finds bytes valid as both and no `.pac` / `.fpc` file name decides, the input is now
+  rejected (`candidates: ["pacscreenelectronics", "pacunicodeunipac"]`, hint to set
+  `profile.source.format`). 1.1 silently picked PAC, so FPC files without their extension were reported as
+  PAC. Correct extensions and an explicit `source.format` work as before; zip entries are checked by entry
+  name. PAC files that only parse as PAC (e.g. the Greek PAC fixture) are unaffected.
+- Known libse 5.1.0 limits now visible through verification: Cavena 890 doesn't round-trip Greek,
+  Cyrillic or Arabic (garbled, or its reader throws on its own Greek output); Hebrew and Chinese do.
+
 ## 1.1.1 (unreleased)
 
 - Default host port is now **4041** instead of 8080 (8080 is often in use): `docker-compose.yml` publishes

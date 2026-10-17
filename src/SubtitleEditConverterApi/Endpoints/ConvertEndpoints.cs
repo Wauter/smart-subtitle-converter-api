@@ -12,11 +12,13 @@ public sealed record ConvertJsonRequest(
     string Content, string? ContentEncoding, string? FileName, string? Preset, JsonObject? Profile, string? Target,
     string? ResponseEncoding, bool? FailFast);
 
+/// <summary>One output. <c>verification</c>: the read-back check, binary targets only (1.2.0).</summary>
 public sealed record OutputDto(string FileName, string Format, string FormatId, string MediaType, string Content, string ContentEncoding, string Encoding, int Cues, string? Source = null,
-    string Kind = Formats.FormatKinds.Text);
+    string Kind = Formats.FormatKinds.Text, Verification? Verification = null);
 public sealed record StatsDto(int ParagraphsIn, int ParagraphsOut, long ElapsedMs, long QueueWaitMs);
+/// <summary>One zip entry. <c>verification</c>: read-back checks of its binary outputs, keyed by output path (1.2.0).</summary>
 public sealed record ManifestEntry(string Source, string Status, string[] Outputs, DetectedInfo? Detected, List<Warning> Warnings, JsonObject? Error,
-    string? Kind = null, string? CodePage = null, string? Reason = null);
+    string? Kind = null, string? CodePage = null, string? Reason = null, Dictionary<string, Verification>? Verification = null);
 public sealed record ConvertJsonResponse(List<OutputDto> Outputs, DetectedInfo? Detected, StatsDto Stats, List<Warning> Warnings, JsonObject Profile, List<ManifestEntry>? Entries);
 
 public sealed record ConvertForm(IFormFile File, string? Preset, string? Profile, string? Target, bool? FailFast);
@@ -71,11 +73,12 @@ public static class ConvertEndpoints
             {
                 var o = r.Outputs[0];
                 h["X-Cue-Count"] = o.Cues.ToString();
+                if (o.Verification is { } v) h["X-Verification-Verdict"] = v.Verdict;
                 ctx.Items["bytesOut"] = o.Bytes.Length;
                 return File(ctx, o.Bytes, ContentType(o), o.FileName);
             }
             h["X-Cue-Count"] = r.Outputs[0].Cues.ToString();
-            var manifest = new { outputs = r.Outputs.Select(o => new { o.FileName, format = o.Format.Id, kind = o.Format.Kind, o.EncodingName, o.Cues }), detected = r.Detected, warnings = r.Warnings, profile = resolved };
+            var manifest = new { outputs = r.Outputs.Select(o => new { o.FileName, format = o.Format.Id, kind = o.Format.Kind, o.EncodingName, o.Cues, o.Verification }), detected = r.Detected, warnings = r.Warnings, profile = resolved };
             BatchNames.CheckOutputs(r.Outputs.Select(o => (o.FileName, fileName ?? "subtitle")));
             var zip = ZipIO.Write(r.Outputs.Select(o => (o.FileName, o.Bytes)), manifest);
             return File(ctx, zip, "application/zip", ConversionEngine.SafeStem(fileName) + ".zip");
@@ -124,7 +127,7 @@ public static class ConvertEndpoints
                     extra.Add(new("encoding-ignored", "responseEncoding=text is ignored for binary targets; their content is always base64."));
                 outputs.Add(new OutputDto(o.FileName, o.Format.Name, o.Format.Id, o.Format.MediaType,
                     asText ? DecodeUnicode(o.Bytes) : Convert.ToBase64String(o.Bytes), asText ? "text" : "base64", o.EncodingName, o.Cues,
-                    batch.IsZip ? name : null, o.Format.Kind));
+                    batch.IsZip ? name : null, o.Format.Kind, o.Verification));
             }
         }
         var single = batch.IsZip ? null : batch.Items[0].Result;
@@ -196,7 +199,8 @@ public static class ConvertEndpoints
             i.Result?.Outputs.Select(o => o.FileName).ToArray() ?? [],
             i.Result?.Detected, i.Result?.Warnings ?? [],
             i.Error == null ? null : Problems.ToJson(i.Error, "", opts.ErrorsVerbose).Also(j => j.Remove("requestId")),
-            i.Result?.Detected.Kind, i.Result?.Detected.CodePage, i.SkipReason)).ToList();
+            i.Result?.Detected.Kind, i.Result?.Detected.CodePage, i.SkipReason,
+            i.Result?.Outputs.Where(o => o.Verification != null).ToDictionary(o => o.FileName, o => o.Verification!) is { Count: > 0 } v ? v : null)).ToList();
 
     private static string EntryOutputName(string entryName, string outputName)
     {
@@ -283,7 +287,8 @@ public static class ConvertEndpoints
     {
         ctx.Response.Headers["X-Warnings-Count"] = warnings.Count.ToString();
         if (warnings.Count == 0) return;
-        var json = JsonSerializer.Serialize(warnings, Json.Options);
+        // code, message and count only: hint and details (cue numbers, code points) stay in the JSON body.
+        var json = JsonSerializer.Serialize(warnings.Select(w => new { w.Code, w.Message, w.Count }), Json.Options);
         if (json.Length > 4096) json = json[..4090] + "...]";
         // Header values must be ASCII; escape anything else.
         ctx.Response.Headers["X-Warnings"] = new string(json.Select(c => c < 32 || c > 126 ? '?' : c).ToArray());

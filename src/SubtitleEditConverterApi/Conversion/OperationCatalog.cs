@@ -478,7 +478,11 @@ public static class OperationCatalog
     }
 }
 
-public sealed record Warning(string Code, string Message, int? Count = null);
+/// <summary>
+/// A non-fatal finding. <c>hint</c> says what to do; <c>details</c> carries cue numbers and code points
+/// (never subtitle text). Only code, message and count go into the X-Warnings header.
+/// </summary>
+public sealed record Warning(string Code, string Message, int? Count = null, string? Hint = null, WarningDetails? Details = null);
 
 /// <summary>Language detection with a one-entry cache, like seconv's SubtitleLanguageDetector.</summary>
 public static class Language

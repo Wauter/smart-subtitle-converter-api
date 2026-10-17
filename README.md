@@ -147,7 +147,12 @@ curl localhost:4041/v1/convert/json -H 'content-type: application/json' \
 - Per-format options live in `profile.formatOptions.{ebuStl,pac,cavena890,cheetah}` (see
   `/v1/schemas/profile.json`); bad values give `400 format-option-invalid`, a block that doesn't apply
   to the source/target gives a `format-option-ignored` warning.
-- Lossy writes are never silent: `characters-replaced` (with a count), `frame-quantised`, `lossy-format`.
+- Lossy writes are never silent: every binary output is read back and reported as `verification`
+  (`lossless` / `quantised` / `lossy` / `unverified`, with cue numbers and code points), plus
+  `characters-replaced` (with a remedy hint), `text-truncated`, `frame-quantised` and `lossy-format`
+  warnings. A round trip proves the file is self-consistent, not that the playout system accepts it.
+- PAC and FPC share their header: without a `.pac` / `.fpc` name, auto-detection rejects such bytes with
+  `422 ambiguous-format`; set `profile.source.format`.
 - EBU STL frame rates: the GSI Disk Format Code is the only place the rate is stored, and EBU Tech 3264
   only defines `STL25.01` and `STL30.01`, so 29.97 fps is written as `STL30.01` and read back as 30.
   Whenever the written code implies a different rate than the requested (`frameRate`/`target.fps`) or
