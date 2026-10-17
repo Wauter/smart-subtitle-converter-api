@@ -25,6 +25,8 @@ case "$TARGETARCH" in
   *) echo "unsupported TARGETARCH $TARGETARCH" >&2; exit 1 ;;
 esac
 LIB=/src/usr/lib/$T
+READELF="$T-readelf"; LD="$T-ld"
+for tool in "$READELF" "$LD" icupkg genccode; do command -v "$tool" >/dev/null || { echo "missing tool: $tool" >&2; exit 1; }; done
 UC=$(ls "$LIB"/libicuuc.so.*.* | head -1)
 VER=${UC##*.so.}          # e.g. 74.2
 MAJ=${VER%%.*}            # e.g. 74
@@ -35,10 +37,10 @@ work=$(mktemp -d); cd "$work"
 
 # 1. Pull the ICU common data blob (symbol icudt<maj>_dat) out of the shipped libicudata.
 DATA="$LIB/libicudata.so.$VER"
-set -- $(readelf -Ws --dyn-syms "$DATA" | awk -v s="icudt${MAJ}_dat" '$8==s {print $2, $3, $7; exit}')
+set -- $("$READELF" -Ws --dyn-syms "$DATA" | awk -v s="icudt${MAJ}_dat" '$8==s {print $2, $3, $7; exit}')
 [ $# -eq 3 ] || { echo "icudt${MAJ}_dat not found in $DATA" >&2; exit 1; }
 VADDR=$((0x$1)); SIZE=$(( $2 )); NDX=$3
-set -- $(readelf -SW "$DATA" | sed 's/\[ */[/' | awk -v n="[$NDX]" '$1==n {print $4, $5; exit}')
+set -- $("$READELF" -SW "$DATA" | sed 's/\[ */[/' | awk -v n="[$NDX]" '$1==n {print $4, $5; exit}')
 OFF=$(( VADDR - 0x$1 + 0x$2 ))
 mkdir pkg && dd if="$DATA" of="pkg/icudt${MAJ}l.dat" bs=1M iflag=skip_bytes,count_bytes skip="$OFF" count="$SIZE" status=none
 
@@ -51,7 +53,7 @@ echo "icu $VER: kept $(($(wc -l < all.txt) - $(wc -l < drop.txt))) of $(wc -l < 
 
 # 3. Re-wrap as a target-arch shared library exporting the same symbol and soname.
 genccode -e "icudt${MAJ}" -o -m "$UC" "icudt${MAJ}l.dat" >/dev/null
-"$T-ld" -shared -z noexecstack -z relro -soname "libicudata.so.$MAJ" -o "libicudata.so.$VER" "icudt${MAJ}l_dat.o"
+"$LD" -shared -z noexecstack -z relro -soname "libicudata.so.$MAJ" -o "libicudata.so.$VER" "icudt${MAJ}l_dat.o"
 
 # 4. Assemble the overlay.
 O=/out/usr/lib/$T; mkdir -p "$O" /out/usr/share/doc
