@@ -6,6 +6,14 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Nothing here has been tagged or released yet; the private `:edge` image carries
 the version of the `main` commit it was built from.
 
+## 1.1.1 (unreleased)
+
+- Default host port is now **4041** instead of 8080 (8080 is often in use): `docker-compose.yml` publishes
+  `127.0.0.1:4041:8080`, bound to localhost only by default (README "Ports" explains how to expose it on other
+  interfaces). README, design examples and the Postman collection/environment `baseUrl` use
+  `http://localhost:4041`. The container still listens on 8080 internally (`ASPNETCORE_HTTP_PORTS`, `EXPOSE`,
+  healthcheck unchanged). No API contract change.
+
 ## 1.1.0 (unreleased)
 
 Binary broadcast formats milestone (PR #4) plus the `frame-rate-changed` warning.
