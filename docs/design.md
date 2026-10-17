@@ -1,4 +1,6 @@
-# Subtitle API — Design Doc
+# Subtitle Edit Converter API — Design Doc
+
+Subtitle Edit Converter API is a community wrapper around Subtitle Edit's `libse`. It is not an official Subtitle Edit project.
 
 | | |
 |---|---|
@@ -6,7 +8,7 @@
 | Status | v1 implemented (see §13 for where the code differs from this design) |
 | Date | 2026-10-16 |
 | Upstream | [SubtitleEdit/subtitleedit](https://github.com/SubtitleEdit/subtitleedit) (MIT), reviewed at `main` @ `f9a41e0` |
-| Repos | `subtitleedit-api` (service), `subtitleedit-mcp` (MCP server) |
+| Repos | `subtitleedit-converter-api` (service), `subtitleedit-converter-mcp` (MCP server); formerly `subtitleedit-api` / `subtitleedit-mcp`, see §13 row 12 |
 
 ## 0. Repo findings that shape this design
 
@@ -46,17 +48,17 @@ These come from reading `/workspace/subtitleedit` (`main` @ `f9a41e0`, 2026-10-1
 ## 2. Architecture
 
 ```
-            ┌──────────────── subtitleedit-api (ASP.NET Core, .NET 10) ────────────────┐
+            ┌───────── subtitleedit-converter-api (ASP.NET Core, .NET 10) ─────────┐
  HTTP ──►   │ Endpoints (Minimal API) ─► ProfileResolver ─► ConversionEngine       │
             │      │                         │                 │                   │
             │  OpenAPI/Scalar           Presets (built-in  ┌───┴────────────┐      │
             │  ProblemDetails            + /profiles mount)│ FormatRegistry │      │
             │                                              │ libse + plugin │      │
             │                                              └───┬────────────┘      │
-            │                         SubtitleApi.Pipeline  ───┤ (ops adapter)     │
+            │             SubtitleEditConverterApi.Pipeline ───┤ (ops adapter)     │
             └──────────────────────────────────────────────────┼───────────────────┘
                                                    NuGet: libse 5.3.0 (pinned)
-                                                   NuGet: SubtitleApi.Formats (own plugin)
+                                                   NuGet: SubtitleEditConverterApi.Formats (own plugin)
 ```
 
 ### 2.1 Dependency strategy: NuGet (recommended)
@@ -76,7 +78,7 @@ The brief asked for "reuse seconv's pipeline in-process, no source copy". With t
 ### 2.2 Components
 - **Endpoints**: Minimal APIs, with `Microsoft.AspNetCore.OpenApi` (`AddOpenApi`/`MapOpenApi`, which serves `/openapi/v1.json`) and `Scalar.AspNetCore` (`MapScalarApiReference("/docs")`).
 - **FormatRegistry**: the union of `SubtitleFormat.AllSubtitleFormats` and our plugin formats. It owns ID normalisation (seconv-style aliases `srt`, `vtt`, `ass`, `ebu`, …, taken from `LibSEIntegration.cs:1318ff`) and detection. Detection uses `IsMine(lines, fileName)` in registry order, with plugin formats ordered first only when they are explicitly marked `Priority`.
-- **Plugin formats**: assembly `SubtitleApi.Formats`. Classes subclass `SubtitleFormat` and implement `Extension`, `Name`, `IsMine`, `ToText` and `LoadSubtitle`. They are discovered by reflection at startup, not dynamically from disk, so the set is fixed at build time. Upstream PR: add `SubtitleFormat.RegisterFormat(SubtitleFormat)`. Formats of general value are proposed upstream.
+- **Plugin formats**: assembly `SubtitleEditConverterApi.Formats`. Classes subclass `SubtitleFormat` and implement `Extension`, `Name`, `IsMine`, `ToText` and `LoadSubtitle`. They are discovered by reflection at startup, not dynamically from disk, so the set is fixed at build time. Upstream PR: add `SubtitleFormat.RegisterFormat(SubtitleFormat)`. Formats of general value are proposed upstream.
 - **ProfileResolver**: merges profile layers (built-in → mounted folder → request overrides) and validates them against the JSON Schema (§5).
 - **ConversionEngine**: decode, load, apply operations, write, encode. All in memory, with no temp files.
 - **Upstream fixes**: bugs found in libse are fixed by PR upstream first. Until the fix ships, we may carry a workaround in our adapter, guarded by a test that turns red once the fix lands.
@@ -394,10 +396,10 @@ Scope: **our layer only**. libse's parsing, writing and operation logic is trust
 
 **CI gates (required for merge):** build with warnings as errors, all of the above, `dotnet list package --vulnerable`, and a Trivy image scan (high or critical findings fail). There are no nightly jobs.
 
-## 10. MCP server: `subtitleedit-mcp`
+## 10. MCP server: `subtitleedit-converter-mcp`
 
 - **Stack**: TypeScript, Node 22 LTS, official SDK `@modelcontextprotocol/sdk`, `zod` schemas. It is a thin client over the HTTP API with no conversion logic of its own.
-- **Transports**: stdio (`npx subtitleedit-mcp`) and Streamable HTTP (`subtitleedit-mcp --http :3000`, endpoint `/mcp`, stateless mode).
+- **Transports**: stdio (`npx subtitleedit-converter-mcp`) and Streamable HTTP (`subtitleedit-converter-mcp --http :3000`, endpoint `/mcp`, stateless mode).
 - **Config**: `SUBTITLE_API_URL` (required; also `--api-url`), `SUBTITLE_API_KEY` (optional bearer key, sent as `Authorization: Bearer`), `SUBTITLE_MCP_MAX_BYTES`, `SUBTITLE_MCP_TIMEOUT_MS`. In HTTP mode, an incoming `Authorization` header is passed through to the API unchanged and takes precedence over the configured key. The MCP server stores no keys and logs none. The tool descriptions are regenerated from the API's OpenAPI at build time so they don't drift.
 
 | Tool | Maps to | Input → output |
@@ -417,7 +419,7 @@ Errors are surfaced as `isError: true` with the ProblemDetails `code`, `hint` an
 |---|---|---|
 | **v1.0: text API** | §4 endpoints, option A adapter, queue, optional API keys, safeguards, built-in presets, multi-arch image | All CI gates green; smoke corpus passes with the real sample files |
 | **v1.x: presets and hardening** | Mounted-preset hot reload, settings-hash fast path (no lock), `MultipleReplace` import of SE `.template`/`.csv`, OpenTelemetry traces, more smoke samples, the upstream PRs (format registration, explicit settings, `libseconv`) | p95 under 50 ms for 1 k cues |
-| **MCP server** | `subtitleedit-mcp` 1.0 (§10) | Works in Claude Desktop, Cursor and an HTTP client; contract tests green |
+| **MCP server** | `subtitleedit-converter-mcp` 1.0 (§10) | Works in Claude Desktop, Cursor and an HTTP client; contract tests green |
 | **Public release and Docker Hub** | Contact the Subtitle Edit author (Nikolaj Olsson) before going public, to agree on naming and make it clear this is a community wrapper. Then make the repos and the GHCR package public, and publish the same multi-arch image to Docker Hub as well as GHCR from one build (Hub account and namespace, access token as a GitHub Actions secret, Hub login plus a second image name in the publish job). README pull instructions for both registries, mentioning Docker Hub's anonymous pull rate limits. | Upstream author contacted; same digest on GHCR and Docker Hub for each release |
 | **OCR (separate image tag)** | `:X.Y-ocr` adds Tesseract and traineddata (about +100–300 MB, depending on languages), plus image inputs (sup, VobSub). AI engines (PaddleOCR, llama.cpp vision) go in `:X.Y-ocr-ai` (GBs, possibly GPU), or are delegated to an external endpoint (Ollama or `llama-server` URL). This needs libuilogic, so either option B or C is a prerequisite. Introduces **async jobs**: `POST /v1/jobs` → `202` + `Location`, `GET /v1/jobs/{id}`, result download, in-memory queue first and then Redis or a similar store. | The text-only image stays unchanged in size |
 | **Container extraction** | MKV/MKS, MP4, TS teletext and MXF text tracks via libse `ContainerFormats`, with `GET /v1/inspect` listing tracks and `trackNumbers`/`forcedOnly` in the profile. Large uploads move to async jobs or streaming (multi-GB media → presigned URL or chunked upload) | Upload limits are configurable per endpoint |
@@ -438,12 +440,13 @@ Recorded while building v1 (2026-10-16). Where these conflict with earlier secti
 | 2 | Operations adapter (§2.1) | Mirror seconv on libse main | Mirrors seconv, minus what 5.1.0 lacks: no `FixMisreadQuotes` FCE rule; `RemoveFormatting` rules mapped onto `HtmlUtil` (no `RemoveFormattingUtil` in 5.1.0); FCE runs without a names list (`EmptyFixCallback.Names` doesn't exist in 5.1.0). | Published API. Re-align on the next bump. |
 | 3 | Image size (§3) | 100–150 MB, CI fails above 170 MB | Plain `-noble-chiseled` + trimmed ICU overlay. amd64 **158.2 MiB** uncompressed / **68.2 MiB** compressed, arm64 **165.2 / 64.4 MiB** (was 172.1 / 74.8 and 179.2 / 71.1 on `-chiseled-extra`). Budgets: amd64 78 / 182 MiB, arm64 74 / 190 MiB (compressed / uncompressed). | See row 11. The rest is the ASP.NET runtime base (~124 MB) and our 17 MB app layer; going lower needs a trimmed self-contained publish on `runtime-deps` (libse's reflection over format types makes trimming risky), tracked in the roadmap. |
 | 11 | ICU in the image (§3) | `-chiseled-extra` (ICU + tzdata) | `docker/icu-slim.sh` (build host, no QEMU) copies `libicuuc`/`libicui18n` 74.2 byte-for-byte from the matching `-chiseled-extra`, extracts the ICU data blob from its `libicudata`, drops what .NET never reads (charset converters, transliteration, RBNF, unit names, character names, confusables, CJK/Thai/Lao/Khmer/Burmese word dictionaries; 815 of 4083 items, 30.8 → 17.7 MB), re-links it with the target binutils under the same soname/symbol, and copies tzdata without the `right/` leap-second duplicates. All locales, collation, casing, normalization, display names and time zones stay. Overlay 24 MB vs 38 MB in `-extra`. | Leanest option that keeps globalization fully working. Rejected: **copying ICU + tzdata as-is** onto plain chiseled (≈1.5 MB saving, same data); **app-local ICU** (`Microsoft.ICU.ICU4C.Runtime` + `System.Globalization.AppLocalIcu`) ships the full ~30 MB data file per RID (no saving, a second ICU version to track); **invariant mode** breaks culture lookups outright (`CultureNotFoundException` for `tr-TR` etc.; verified). Guard: a startup `GlobalizationCheck` (Turkish/Greek casing, sv/de/ja collation, culture-aware search, number/date formats, display names, normalization, IDN, IANA time zones + Windows id mapping, code pages, libse language detection fr/de/tr) gates `/readyz`, so a bad trim, a missing library or invariant mode fails the smoke test. It already caught the plain-chiseled invariant default. The script fails the build if `icu-devtools` and the base image's ICU major differ. |
+| 12 | Naming (header, §10) | Repos `subtitleedit-api` / `subtitleedit-mcp`, namespace `SubtitleEditApi`, title "Subtitle Edit API" | Renamed 2026-10-17 to `subtitleedit-converter-api` / `subtitleedit-converter-mcp`, namespace and assemblies `SubtitleEditConverterApi`, image `ghcr.io/<owner>/subtitleedit-converter-api`, title "Subtitle Edit Converter API". `/v1/...` paths and error codes are unchanged. | Make clear this is a community wrapper around libse, not an official Subtitle Edit product. GitHub redirects the old repo URLs. Nothing had been published under the old names (no tags, no images). |
 | 4 | Formats (§1, §5.1) | Text formats; `ebu-stl-broadcast` preset | Text formats only. Binary formats (EBU STL, PAC, Cavena, …) and image/container formats are rejected with `422 format-not-supported`. The `ebu-stl-broadcast` preset isn't shipped; `srt-to-ass` and `to-ttml` were added. | Binary writers need stream/file plumbing (and EBU header handling); out of v1 "text-to-text" scope. Listed with `textOnly=false`. |
 | 5 | `formatOptions` (§5) | `assa`, `pac`, `ebuStl`, `plainText` | `assa` only (`playResX`, `playResY`, `styleBlock`) | The others belong to binary formats or need libuilogic. Unknown keys are rejected with a hint. |
 | 6 | Error codes (§4.8) | Listed set | Added (additive, allowed by §7.4): `unsafe-zip` (422, path traversal in zip), `input-limits-exceeded` (422, `MAX_CUES`/`MAX_LINE_CHARS`), `not-found` (404, unknown route), `internal-error` (500). Unknown target format → `400 invalid-profile` with a "did you mean"; known-but-unsupported → `422 format-not-supported`. `encoding-error` is reserved (decoding never fails: invalid UTF-8 falls back to `inputFallback` or libse's ANSI heuristic, reported as `encodingConfidence: heuristic`). | Precise, stable codes. Documented in `docs/errors.md`. |
 | 7 | Zip (§4.1, §2.4) | Per-entry processing | The whole zip is **one queue job**, so the run timeout covers the whole batch. Extra headers `X-Entries-Ok` / `X-Entries-Failed`. `/v1/detect` rejects zips. | Keeps settings handling and FIFO order simple. |
 | 8 | XML guard (§6.2) | Pre-screen XML-looking input | Any input starting with `<` that contains a DTD/`<!ENTITY` is rejected as `unsafe-xml`, even if libse wouldn't parse it as XML (e.g. a SAMI file with `<!DOCTYPE html>`). | Conservative; relax if real files hit it. |
-| 9 | Plugin formats (§2.2) | `SubtitleApi.Formats` assembly | Not created (no format needed yet). `FormatInfo.source` is in the contract (`"libse"`) so `"plugin"` can be added later. | YAGNI. |
+| 9 | Plugin formats (§2.2) | `SubtitleEditConverterApi.Formats` assembly | Not created (no format needed yet). `FormatInfo.source` is in the contract (`"libse"`) so `"plugin"` can be added later. | YAGNI. |
 | 10 | OpenAPI contract (§9) | `oasdiff` breaking-change gate | xUnit snapshot: generated `/openapi/v1.json` must equal committed `docs/openapi.v1.json` (`UPDATE_OPENAPI=1 dotnet test` to refresh). | Stricter (any drift fails) and needs no extra tool. |
 | 11 | Request bodies in OpenAPI | n/a | Described with an operation transformer, not `.Accepts()` | `.Accepts()` is also a routing constraint: a wrong Content-Type would 404 instead of our `415`. |
 | 12 | Metrics (§4.7) | Prometheus, histograms | Hand-written Prometheus text: queue depth/capacity, completed jobs, sums of run/wait seconds, `rejected_total{reason}` | No extra dependency; histograms/OpenTelemetry are v1.x. |
