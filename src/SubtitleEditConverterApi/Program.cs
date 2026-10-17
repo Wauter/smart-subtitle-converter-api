@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Scalar.AspNetCore;
+using SubtitleEditConverterApi.Binary;
 using SubtitleEditConverterApi.Conversion;
 using SubtitleEditConverterApi.Endpoints;
 using SubtitleEditConverterApi.Formats;
@@ -26,15 +27,17 @@ builder.Logging.AddJsonConsole(o =>
 
 builder.WebHost.ConfigureKestrel(k =>
 {
-    k.Limits.MaxRequestBodySize = opts.MaxUploadBytes + 256 * 1024; // multipart framing + small fields
+    k.Limits.MaxRequestBodySize = Math.Max(opts.MaxJsonBodyBytes, opts.MaxMultipartBodyBytes); // narrowed per request below
     k.AddServerHeader = false;
 });
 builder.Services.Configure<FormOptions>(f =>
 {
-    f.MultipartBodyLengthLimit = opts.MaxUploadBytes + 256 * 1024;
+    f.MultipartBodyLengthLimit = opts.MaxMultipartBodyBytes;
     f.ValueLengthLimit = opts.ProfileMaxBytes;
     f.ValueCountLimit = 16;
 });
+// Binding failures (bad JSON, wrong types, bad query values) throw, so ErrorMiddleware renders problem+json (fix A5).
+builder.Services.Configure<Microsoft.AspNetCore.Routing.RouteHandlerOptions>(o => o.ThrowOnBadRequest = true);
 builder.Services.ConfigureHttpJsonOptions(j =>
 {
     j.SerializerOptions.PropertyNamingPolicy = Json.Options.PropertyNamingPolicy;
@@ -56,9 +59,8 @@ builder.Services.AddOpenApi("v1", o =>
     o.AddDocumentTransformer((doc, _, _) =>
     {
         doc.Info.Title = "Subtitle Edit Converter API";
-        doc.Info.Version = "1.0.0";
-        doc.Info.Description = "Convert subtitles between text formats with Subtitle Edit's libse. Errors are RFC 7807 problem+json with a stable `code`, a `hint` and the `requestId`. Send `Authorization: Bearer <key>` when API keys are configured.";
-        return Task.CompletedTask;
+        doc.Info.Description = "Convert subtitles between text and binary broadcast formats (EBU STL, PAC, Cavena 890, ...) with Subtitle Edit's libse. Errors are RFC 7807 problem+json with a stable `code`, a `hint` and the `requestId`. Send `Authorization: Bearer <key>` when API keys are configured.";
+        return OpenApiContract.Apply(doc);
     });
 });
 
@@ -66,7 +68,7 @@ if (opts.CorsOrigins.Length > 0)
 {
     builder.Services.AddCors(c => c.AddDefaultPolicy(p => p.WithOrigins(opts.CorsOrigins).AllowAnyMethod()
         .WithHeaders("Authorization", "Content-Type", "X-Request-Id")
-        .WithExposedHeaders("X-Request-Id", "X-Detected-Format", "X-Detected-Encoding", "X-Cue-Count", "X-Cue-Count-In",
+        .WithExposedHeaders("X-Request-Id", "X-Detected-Format", "X-Detected-Encoding", "X-Detected-Code-Page", "X-Output-Kind", "X-Cue-Count", "X-Cue-Count-In",
             "X-Warnings-Count", "X-Warnings", "X-Libse-Version", "X-Profile", "Content-Disposition", "Retry-After")));
 }
 
@@ -104,6 +106,18 @@ app.UseMiddleware<RequestIdMiddleware>();
 app.UseMiddleware<ErrorMiddleware>();
 app.Use(async (ctx, next) =>
 {
+    // Per-endpoint body caps (/v1/limits maxRequestBodyBytes): JSON carries base64, multipart raw bytes.
+    var feature = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
+    if (feature is { IsReadOnly: false })
+    {
+        var json = (ctx.Request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)
+                   && (ctx.Request.Path.Equals("/v1/convert/json") || ctx.Request.Path.Equals("/v1/detect"));
+        feature.MaxRequestBodySize = json ? opts.MaxJsonBodyBytes : opts.MaxMultipartBodyBytes;
+    }
+    await next();
+});
+app.Use(async (ctx, next) =>
+{
     await next();
     if (ctx.Items["errorCode"] is string code) ctx.RequestServices.GetRequiredService<Metrics>().Count(code);
 });
@@ -124,15 +138,24 @@ HealthEndpoints.Map(app, opts);
 app.MapGet("/", () => Results.Redirect(opts.DocsEnabled ? "/docs" : "/openapi/v1.json")).ExcludeFromDescription();
 app.MapFallback((HttpContext ctx) =>
 {
+    // The JSON body parameter makes routing skip /v1/convert/json for other content types; that's a 415, not a 404.
+    if (HttpMethods.IsPost(ctx.Request.Method) && ctx.Request.Path.Equals("/v1/convert/json", StringComparison.OrdinalIgnoreCase))
+        throw new ApiException(415, ErrorCodes.UnsupportedMediaType, $"Content-Type '{ctx.Request.ContentType}' is not supported here.",
+            "Send Content-Type: application/json, or use multipart POST /v1/convert.");
     throw new ApiException(404, ErrorCodes.NotFound, $"No endpoint at {ctx.Request.Method} {ctx.Request.Path}.", "See /docs or /openapi/v1.json for the API.");
 }).ExcludeFromDescription();
+
+BinaryIO.RegisterEbuHelper();
+BinaryIO.SweepAtStartup(app.Logger);
+var tempLease = BinaryIO.AcquireRoot();
+app.Lifetime.ApplicationStopped.Register(tempLease.Dispose);
 
 app.Lifetime.ApplicationStarted.Register(() =>
 {
     var store = app.Services.GetRequiredService<PresetStore>();
     var (valid, invalid) = store.Counts();
-    app.Logger.LogInformation("subtitleedit-converter-api {version} (libse {libse}) started; formats={formats} presets valid={valid} invalid={invalid} queueCapacity={cap} timeout={timeout}s verboseErrors={verbose}",
-        LibseInfo.AppVersion, LibseInfo.Version, app.Services.GetRequiredService<FormatRegistry>().All.Count(f => f.TextBased), valid, invalid, opts.QueueCapacity, opts.ConversionTimeoutSeconds, opts.ErrorsVerbose);
+    app.Logger.LogInformation("subtitleedit-converter-api {version} (libse {libse}) started; formats={formats} binaryFormats={binary} presets valid={valid} invalid={invalid} queueCapacity={cap} timeout={timeout}s verboseErrors={verbose}",
+        LibseInfo.AppVersion, LibseInfo.Version, app.Services.GetRequiredService<FormatRegistry>().All.Count(f => f.TextBased), app.Services.GetRequiredService<FormatRegistry>().All.Count(f => f.Kind == FormatKinds.Binary && f.CanRead), valid, invalid, opts.QueueCapacity, opts.ConversionTimeoutSeconds, opts.ErrorsVerbose);
     _ = app.Services.GetRequiredService<ApiKeyStore>();
 });
 

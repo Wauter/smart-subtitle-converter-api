@@ -4,7 +4,7 @@ using SubtitleEditConverterApi.Infrastructure;
 
 namespace SubtitleEditConverterApi.Profiles;
 
-public sealed record ResolveResult(JsonObject Resolved, List<FieldError> Errors, List<FieldError> Warnings, string? PresetName);
+public sealed record ResolveResult(JsonObject Resolved, List<FieldError> Errors, List<FieldError> Warnings, string? PresetName, int SemanticErrors = 0);
 
 /// <summary>Merges built-in -> mounted -> request layers and validates them (design §2.2, §5).</summary>
 public sealed class ProfileResolver(PresetStore store, FormatRegistry formats)
@@ -33,9 +33,19 @@ public sealed class ProfileResolver(PresetStore store, FormatRegistry formats)
         {
             var first = r.Errors[0];
             var missingTarget = r.Errors.All(e => e.Pointer == "/target/format" && e.Message.StartsWith("Required"));
-            if (r.Errors.All(e => e.Message.Contains("image-based") || e.Message.Contains("binary/image")))
+            if (r.Errors.All(ProfileSpec.IsUnsupportedFormatError))
             {
-                throw new ApiException(422, ErrorCodes.FormatNotSupported, first.Message, first.Hint ?? "V1 supports text formats only.") { Errors = r.Errors };
+                throw new ApiException(422, ErrorCodes.FormatNotSupported, first.Message, first.Hint ?? "See GET /v1/formats.") { Errors = r.Errors };
+            }
+            if (r.Errors.All(e => ProfileSpec.IsNotWritableError(e) || ProfileSpec.IsUnsupportedFormatError(e)))
+            {
+                var w = r.Errors.First(ProfileSpec.IsNotWritableError);
+                throw new ApiException(422, ErrorCodes.FormatNotWritable, w.Message, w.Hint ?? "Pick a writable target.") { Errors = r.Errors };
+            }
+            if (r.SemanticErrors > 0 && r.SemanticErrors == r.Errors.Count)
+            {
+                throw new ApiException(400, ErrorCodes.FormatOptionInvalid, $"formatOptions has {r.Errors.Count} invalid value(s); first at '{first.Pointer}': {first.Message}",
+                    first.Hint ?? "See errors[].") { Errors = r.Errors };
             }
             throw new ApiException(400, missingTarget ? ErrorCodes.InvalidRequest : ErrorCodes.InvalidProfile,
                 missingTarget ? "No target format after merging the profile." : $"The profile has {r.Errors.Count} error(s); first at '{first.Pointer}': {first.Message}",
@@ -111,6 +121,14 @@ public sealed class ProfileResolver(PresetStore store, FormatRegistry formats)
         {
             warnings.Add(new("/target/fps", "target.fps without source.fps converts from the default 23.976 fps.", "Set source.fps explicitly."));
         }
-        return new ResolveResult(resolved, errors, warnings, presetName);
+        // Checks the JSON Schema can't express (plan §2): only once the shape is valid.
+        var semantic = 0;
+        if (errors.Count == 0)
+        {
+            var se = Binary.BinaryOptions.Validate(ProfileJson.ToProfile(resolved));
+            semantic = se.Count;
+            errors.AddRange(se);
+        }
+        return new ResolveResult(resolved, errors, warnings, presetName, semantic);
     }
 }

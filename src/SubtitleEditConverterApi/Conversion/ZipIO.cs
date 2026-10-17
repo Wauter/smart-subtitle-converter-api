@@ -4,14 +4,15 @@ using SubtitleEditConverterApi.Infrastructure;
 
 namespace SubtitleEditConverterApi.Conversion;
 
-public sealed record ZipEntryIn(string Name, byte[] Bytes);
+/// <summary>A zip entry; <see cref="SkipReason"/> set = listed in the manifest as skipped, not converted.</summary>
+public sealed record ZipEntryIn(string Name, byte[] Bytes, string? SkipReason = null);
 
 /// <summary>In-memory zip in/out with the guards from design §6.2. Nothing touches disk.</summary>
 public static class ZipIO
 {
     public static bool IsZip(byte[] b) => b.Length >= 4 && b[0] == 0x50 && b[1] == 0x4B && b[2] == 0x03 && b[3] == 0x04;
 
-    public static List<ZipEntryIn> Read(byte[] bytes, ApiOptions opts, List<Warning> warnings)
+    public static List<ZipEntryIn> Read(byte[] bytes, ApiOptions opts, List<Warning> warnings, string pointerBase = "/file")
     {
         ZipArchive zip;
         try
@@ -35,16 +36,20 @@ public static class ZipIO
             foreach (var e in files)
             {
                 var name = e.FullName;
-                if (name.Contains("..") || name.StartsWith('/') || name.Contains('\\') || (name.Length > 1 && name[1] == ':') || name.Any(char.IsControl))
+                if (name.Split('/').Contains("..") || name.StartsWith('/') || name.Contains('\\') || (name.Length > 1 && name[1] == ':') || name.Any(char.IsControl))
                 {
                     throw new ApiException(422, ErrorCodes.UnsafeZip, "The zip contains an unsafe entry name.",
-                        "Entry names must be relative paths without '..', backslashes or drive letters.")
-                    { Errors = [new FieldError("/file/" + result.Count, "Unsafe entry name (path traversal).")] };
+                        "Entry names must be relative paths without '..' segments, backslashes or drive letters.")
+                    { Errors = [new FieldError(pointerBase + "/entries/" + result.Count(r => r.SkipReason == null), "Unsafe entry name (path traversal).")], Extensions = { ["entry"] = name } };
                 }
-                if (Path.GetFileName(name).StartsWith("._") || name.StartsWith("__MACOSX/")) continue;
+                if (Path.GetFileName(name).StartsWith("._") || name.StartsWith("__MACOSX/"))
+                {
+                    result.Add(new ZipEntryIn(name, [], "macos-metadata")); continue;
+                }
                 if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 {
-                    warnings.Add(new("zip-nested-skipped", "A nested zip entry was skipped.")); continue;
+                    warnings.Add(new("zip-nested-skipped", "A nested zip entry was skipped."));
+                    result.Add(new ZipEntryIn(name, [], "nested-zip")); continue;
                 }
                 if (name == "manifest.json") continue;
 
@@ -66,7 +71,7 @@ public static class ZipIO
                 total += ms.Length;
                 result.Add(new ZipEntryIn(name, ms.ToArray()));
             }
-            if (result.Count == 0)
+            if (result.All(r => r.SkipReason != null))
                 throw new ApiException(400, ErrorCodes.EmptyInput, "The zip contains no files.", "Add subtitle files to the zip.");
             return result;
         }
@@ -80,9 +85,10 @@ public static class ZipIO
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "manifest.json" };
             foreach (var (name, bytes) in files)
             {
-                var n = name;
-                for (var i = 2; !used.Add(n); i++) n = Path.Combine(Path.GetDirectoryName(name) ?? "", $"{Path.GetFileNameWithoutExtension(name)}_{i}{Path.GetExtension(name)}").Replace('\\', '/');
-                var entry = zip.CreateEntry(n, CompressionLevel.Optimal);
+                // Callers check collisions first (BatchNames); never rename or overwrite here.
+                if (!used.Add(name))
+                    throw BatchNames.OutputClash([[(name, name)], [(name, name)]]);
+                var entry = zip.CreateEntry(name, CompressionLevel.Optimal);
                 using var s = entry.Open();
                 s.Write(bytes);
             }

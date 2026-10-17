@@ -23,6 +23,16 @@ public sealed class ApiOptions
     public string[] KnownProxies { get; init; } = [];
     public int ProfileMaxBytes { get; init; } = 64 * 1024;
 
+    /// <summary>Body cap for multipart uploads: the file plus framing and small form fields.</summary>
+    public long MaxMultipartBodyBytes => MaxUploadBytes + 256 * 1024;
+
+    /// <summary>
+    /// Body cap for JSON endpoints (/v1/convert/json, /v1/detect): base64 of a MAX_UPLOAD_BYTES file
+    /// (4*ceil(n/3)) plus a full profile plus 64 KiB of other fields, so MAX_UPLOAD_BYTES means the same
+    /// decoded size on both paths.
+    /// </summary>
+    public long MaxJsonBodyBytes => 4 * ((MaxUploadBytes + 2) / 3) + ProfileMaxBytes + 64 * 1024;
+
     public static ApiOptions FromConfiguration(IConfiguration c)
     {
         static string[] List(string? v) =>
@@ -46,6 +56,8 @@ public sealed class ApiOptions
             MaxLineChars = c.GetValue("MAX_LINE_CHARS", d.MaxLineChars),
             ZipMaxEntries = c.GetValue("ZIP_MAX_ENTRIES", d.ZipMaxEntries),
             ZipMaxUnpackedBytes = c.GetValue("ZIP_MAX_UNPACKED_BYTES", d.ZipMaxUnpackedBytes),
+            ZipMaxRatio = c.GetValue("ZIP_MAX_RATIO", d.ZipMaxRatio),
+            ProfileMaxBytes = Math.Max(1024, c.GetValue("PROFILE_MAX_BYTES", d.ProfileMaxBytes)),
             CorsOrigins = List(c["CORS_ORIGINS"]),
             KnownProxies = List(c["KNOWN_PROXIES"]),
         };

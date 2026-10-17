@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Nikse.SubtitleEdit.Core.Enums;
+using SubtitleEditConverterApi.Binary;
 using SubtitleEditConverterApi.Conversion;
 using SubtitleEditConverterApi.Formats;
 using SubtitleEditConverterApi.Infrastructure;
@@ -18,6 +19,8 @@ public sealed record StrSpec(string? Description = null, string[]? Enum = null, 
 public sealed record NumSpec(string? Description = null, bool Integer = false, double? Min = null, bool ExclusiveMin = false, double? Max = null) : Spec(Description);
 public sealed record BoolSpec(string? Description = null) : Spec(Description);
 public sealed record ArrSpec(Spec Item, string? Description = null, int? MaxItems = null) : Spec(Description);
+/// <summary>A string from an enum, or an integer in a range (PAC code page: name or 0..12).</summary>
+public sealed record StrOrIntSpec(string[] Enum, int Min, int Max, string? Description = null) : Spec(Description);
 /// <summary>An operation entry: an object whose allowed keys depend on its "id".</summary>
 public sealed record OpSpec(string? Description = null) : Spec(Description);
 
@@ -87,6 +90,53 @@ public static class ProfileSpec
                 ["playResY"] = new NumSpec(Integer: true, Min: 1, Max: 16384),
                 ["styleBlock"] = new StrSpec("ASSA [V4+ Styles] block (inline replacement for seconv --assa-style-file)."),
             }, "Applied when the target is ASSA/SSA."),
+            ["ebuStl"] = new ObjSpec(new()
+            {
+                ["codePage"] = new StrSpec("GSI code page number (CPN). Default 850.", Enum: BinaryOptions.EbuCodePages),
+                ["characterTable"] = new StrSpec("Character code table (CCT 00..04). Default latin.", Enum: [.. BinaryOptions.EbuCharacterTables.Keys]),
+                ["displayStandard"] = new StrSpec("Display standard (DSC 0|1|2). Default: open, or teletext1 when the subtitle has colours.", Enum: [.. BinaryOptions.EbuDisplayStandards.Keys]),
+                ["frameRate"] = new NumSpec("23.976 (or 23), 24, 25, 29.97 or 30; sets the disk format code. Default target.fps, else 25.", Min: 0, ExclusiveMin: true, Max: 120),
+                ["language"] = new StrSpec("ISO 639-1 code (mapped to the EBU code), a two-digit EBU hex code, or 'auto' (default)."),
+                ["originalProgrammeTitle"] = new StrSpec("GSI OPT, up to 32 bytes in the code page."),
+                ["originalEpisodeTitle"] = new StrSpec("GSI OET, up to 32 bytes."),
+                ["translatedProgrammeTitle"] = new StrSpec("GSI TPT, up to 32 bytes."),
+                ["translatorsName"] = new StrSpec("GSI TN, up to 32 bytes."),
+                ["publisher"] = new StrSpec("GSI PUB, up to 32 bytes."),
+                ["countryOfOrigin"] = new StrSpec("ISO 3166 alpha-3, e.g. BEL.", Pattern: "^[A-Z]{3}$"),
+                ["timecodeStartOfProgramme"] = new StrSpec("HH:MM:SS:FF.", Pattern: BinaryOptions.TimecodePattern),
+                ["maxCharsPerRow"] = new NumSpec("GSI MNC.", Integer: true, Min: 1, Max: 99),
+                ["maxRows"] = new NumSpec("GSI MNR.", Integer: true, Min: 1, Max: 99),
+                ["teletext"] = new ObjSpec(new()
+                {
+                    ["useBox"] = new BoolSpec(), ["doubleHeight"] = new BoolSpec(),
+                    ["marginTop"] = new NumSpec(Integer: true, Min: 0, Max: 23), ["marginBottom"] = new NumSpec(Integer: true, Min: 0, Max: 23),
+                    ["newLineRows"] = new NumSpec(Integer: true, Min: 1, Max: 4),
+                }, "Teletext layout (libse SubtitleSettings.EbuStl*)."),
+                ["removeEmptyLines"] = new BoolSpec(),
+                ["readFrameRate"] = new NumSpec("Source side: override the GSI frame rate when reading EBU STL.", Min: 0, ExclusiveMin: true, Max: 120),
+                ["headerFromSource"] = new BoolSpec("Reuse the source GSI when the source is EBU STL (default true); explicit options still apply on top."),
+            }, "Applied when the target (or, for readFrameRate, the source) is EBU STL."),
+            ["pac"] = new ObjSpec(new()
+            {
+                ["codePage"] = new StrOrIntSpec(BinaryOptions.PacCodePages, 0, 12, "Output code page: name or 0..12. Default latin."),
+                ["inputCodePage"] = new StrOrIntSpec([.. BinaryOptions.PacCodePages.Prepend("auto")], 0, 12, "Input code page: 'auto' (default), name or 0..12."),
+                ["verticalTop"] = new NumSpec(Integer: true, Min: 0, Max: 99),
+                ["verticalCenter"] = new NumSpec(Integer: true, Min: 0, Max: 99),
+                ["verticalBottom"] = new NumSpec(Integer: true, Min: 0, Max: 99),
+            }, "Applied when the target or source is PAC / PAC Unicode."),
+            ["cavena890"] = new ObjSpec(new()
+            {
+                ["language"] = new StrSpec("Writer language/character set. Default: auto-detected.", Enum: BinaryOptions.CavenaLanguageNames),
+                ["title"] = new StrSpec("Up to 28 ASCII characters."),
+                ["originalTitle"] = new StrSpec("Up to 28 ASCII characters."),
+                ["translator"] = new StrSpec("Up to 28 ASCII characters."),
+                ["comment"] = new StrSpec("Up to 24 ASCII characters."),
+                ["startOfMessage"] = new StrSpec("HH:MM:SS:FF, default 10:00:00:00.", Pattern: BinaryOptions.TimecodePattern),
+            }, "Applied when the target is Cavena 890."),
+            ["cheetah"] = new ObjSpec(new()
+            {
+                ["alwaysWriteEndTime"] = new BoolSpec("Write every cue's end time (libse default false)."),
+            }, "Applied when the target is Cheetah Caption."),
         }),
     }, "A Subtitle Edit Converter API conversion profile.");
 
@@ -143,6 +193,21 @@ public static class ProfileSpec
                 if (a.MaxItems is { } mi && arr.Count > mi) errors.Add(new(pointer, $"At most {mi} items."));
                 for (var i = 0; i < arr.Count; i++) Validate(arr[i], a.Item, $"{pointer}/{i}", errors, formats);
                 break;
+            case StrOrIntSpec si:
+                if (node is JsonValue iv && iv.TryGetValue<double>(out var num))
+                {
+                    if (num != Math.Floor(num) || num < si.Min || num > si.Max) errors.Add(new(pointer, $"Must be an integer {si.Min}..{si.Max} or one of: {string.Join(", ", si.Enum)}."));
+                }
+                else if (node is JsonValue sv && sv.TryGetValue<string>(out var name))
+                {
+                    if (!si.Enum.Contains(name, StringComparer.OrdinalIgnoreCase) && !(int.TryParse(name, out var k) && k >= si.Min && k <= si.Max))
+                    {
+                        var sug = Text.Suggest(name, si.Enum);
+                        errors.Add(new(pointer, $"'{name}' is not allowed.", sug != null ? $"Did you mean '{sug}'?" : $"Allowed: {string.Join(", ", si.Enum)} or {si.Min}..{si.Max}."));
+                    }
+                }
+                else errors.Add(new(pointer, "Expected a string or an integer."));
+                break;
             case OpSpec:
                 OperationCatalog.ValidateOperation(node, pointer, errors);
                 break;
@@ -154,18 +219,22 @@ public static class ProfileSpec
         var info = formats.Find(id);
         if (info == null && FormatRegistry.IsKnownUnsupported(id))
         {
-            errors.Add(new(pointer, $"'{id}' is image-based or a container format.", "V1 supports text formats only; OCR/containers are on the roadmap."));
+            errors.Add(new(pointer, $"'{id}' is image-based or a container format.", "OCR/containers are on the roadmap; see GET /v1/formats?kind=text,binary."));
         }
         else if (info == null)
         {
             var s = formats.Suggest(id);
             errors.Add(new(pointer, $"Unknown format '{id}'.", s != null ? $"Did you mean '{s}'? See GET /v1/formats." : "See GET /v1/formats."));
         }
-        else if (!info.TextBased)
+        else if (FormatRegistry.Unusable(info, write: !pointer.StartsWith("/source", StringComparison.Ordinal)) is { } u)
         {
-            errors.Add(new(pointer, $"'{info.Id}' is binary/image-based.", "V1 supports text formats only."));
+            errors.Add(new(pointer, u.Message, u.Hint));
         }
     }
+
+    /// <summary>Message markers ProfileResolver maps to 422 codes instead of 400 invalid-profile.</summary>
+    public static bool IsUnsupportedFormatError(FieldError e) => e.Message.Contains("image-based") || e.Message.Contains("can't be read");
+    public static bool IsNotWritableError(FieldError e) => e.Message.Contains("is read-only in this API");
 
     public static string Escape(string key) => key.Replace("~", "~0").Replace("/", "~1");
 
@@ -209,6 +278,12 @@ public static class ProfileSpec
                 o["type"] = new JsonArray("array", "null");
                 o["items"] = Render(a.Item);
                 if (a.MaxItems is { } mi) o["maxItems"] = mi;
+                break;
+            case StrOrIntSpec si:
+                o["oneOf"] = new JsonArray(
+                    new JsonObject { ["type"] = "string", ["enum"] = new JsonArray(si.Enum.Select(e => (JsonNode)e).ToArray()) },
+                    new JsonObject { ["type"] = "integer", ["minimum"] = si.Min, ["maximum"] = si.Max },
+                    new JsonObject { ["type"] = "null" });
                 break;
             case OpSpec:
                 return OperationCatalog.OperationSchema();

@@ -12,7 +12,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded PR runs only: a main or tag run may be mid-push to GHCR.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/subtitleedit-converter-api
@@ -27,6 +28,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - name: docker-compose.yml is valid
+        run: docker compose config -q
       - name: Restore
         run: dotnet restore
       - name: Build (warnings as errors)
@@ -150,9 +153,12 @@ jobs:
           exit-code: "1"
           format: table
 
+  # Version tags (v*.*.*): semver, major.minor, sha-<short>, latest + GitHub Release.
+  # Pushes to main: edge + sha-<short> only (latest never moves). Never on PRs.
+  # Gated on every other job; the package's visibility (private) is never touched here.
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: docker-smoke
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+    needs: [build-test, docker-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -172,11 +178,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
       - name: Build and push (amd64 + arm64)
         uses: docker/build-push-action@v6
         with:
@@ -193,7 +202,10 @@ jobs:
           cache-from: |
             type=gha,scope=linux/amd64
             type=gha,scope=linux/arm64
+      - name: Pushed tags
+        run: echo "${{ steps.meta.outputs.tags }}" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
       - name: GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
