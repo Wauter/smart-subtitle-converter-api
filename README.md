@@ -10,6 +10,7 @@ multi-arch (amd64/arm64) container.
 - Design: [docs/design.md](docs/design.md) (section 13 lists where v1 differs from the design)
 - Error codes: [docs/errors.md](docs/errors.md)
 - Roadmap: [docs/roadmap.md](docs/roadmap.md)
+- Changelog: [CHANGELOG.md](CHANGELOG.md) (current version **1.1.0**, reported by `/healthz`); versioning rule: [CONTRIBUTING.md](CONTRIBUTING.md)
 - OpenAPI (committed contract): [docs/openapi.v1.json](docs/openapi.v1.json), live at `/openapi/v1.json`, interactive docs at `/docs`
 - MCP server (planned): [Wauter/subtitleedit-converter-mcp](https://github.com/Wauter/subtitleedit-converter-mcp)
 
@@ -141,6 +142,11 @@ curl localhost:8080/v1/convert/json -H 'content-type: application/json' \
   `/v1/schemas/profile.json`); bad values give `400 format-option-invalid`, a block that doesn't apply
   to the source/target gives a `format-option-ignored` warning.
 - Lossy writes are never silent: `characters-replaced` (with a count), `frame-quantised`, `lossy-format`.
+- EBU STL frame rates: the GSI Disk Format Code is the only place the rate is stored, and EBU Tech 3264
+  only defines `STL25.01` and `STL30.01`, so 29.97 fps is written as `STL30.01` and read back as 30.
+  Whenever the written code implies a different rate than the requested (`frameRate`/`target.fps`) or
+  source rate, the response carries a `frame-rate-changed` warning (EBU→EBU reuses the source GSI by
+  default; set `formatOptions.ebuStl.frameRate` or `headerFromSource:false` to change that).
 - Binary files are handled in a private `0700` temp dir with random names, deleted after every job,
   including timeouts and worker restarts, and swept at startup.
 
@@ -204,7 +210,7 @@ CI runs it against the built container on amd64 and arm64.
 | `DOCS_ENABLED` | `true` | `/docs` (Scalar) |
 | `METRICS_ENABLED` / `METRICS_PORT` | off | Prometheus text at `/metrics`, optionally only on that port |
 
-Health: `GET /healthz` (liveness), `GET /readyz` (self-test, worker health, queue). Both stay open
+Health: `GET /healthz` (liveness; `{"status":"ok","version":"1.1.0","libse":"5.1.0"}`), `GET /readyz` (self-test, worker health, queue). Both stay open
 when auth is on. `GET /v1/limits` reports the effective limits (it's under `/v1`, so it needs a key
 when auth is on, and it only says whether auth is required, never anything about keys). The image has no shell or curl, so probe them from the orchestrator.
 
@@ -216,6 +222,8 @@ UPDATE_OPENAPI=1 dotnet test        # after an intended API change: refresh docs
 scripts/smoke.sh subtitleedit-converter-api   # Docker smoke test against a built image
 docker buildx build --platform linux/arm64 -o type=oci,dest=img.tar . && scripts/image-size.py img.tar slim linux/arm64
 ```
+
+Every API change that ships bumps `<Version>` in the csproj (semver: minor for additive, patch for fixes) with a CHANGELOG entry; see [CONTRIBUTING.md](CONTRIBUTING.md). A PR-only `version-check` job enforces it for `src/` changes.
 
 CI on every PR and push: build with warnings as errors, tests, vulnerable-package check, `docker compose config`,
 then `linux/amd64` + `linux/arm64` images with the smoke test and newman on both, the size budget and Trivy.
