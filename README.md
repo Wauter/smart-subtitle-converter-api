@@ -6,6 +6,9 @@ slip.**
 > **Built on Subtitle Edit.** All format reading and writing is done by `libse`, the library behind
 > [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) by **Nikolaj Olsson** (MIT). This project is a
 > community wrapper, **not an official Subtitle Edit project**.
+>
+> **Status: alpha.** It works and is tested, but hasn't been through real-world use yet. Expect changes, and
+> please [report issues](https://github.com/Wauter/subtitleedit-converter-api/issues).
 
 `libse` is the mature, widely used engine behind Subtitle Edit and reads and writes a long list of subtitle formats.
 This API runs it in a container and adds what a server needs: a single-worker queue (libse's settings are global),
