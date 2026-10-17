@@ -39,7 +39,7 @@ public static class GlobalizationCheck
         Probe("idn", () => new IdnMapping().GetAscii("b\u00FCcher.example") == "xn--bcher-kva.example");
         Probe("timezone", () => TimeZoneInfo.FindSystemTimeZoneById("Europe/Madrid").BaseUtcOffset == TimeSpan.FromHours(1)
                                 && TimeZoneInfo.TryConvertIanaIdToWindowsId("Europe/Madrid", out var w) && w == "Romance Standard Time");
-        Probe("codepages", () => Encoding.GetEncoding(1252).GetString([0x80]) == "\u20AC");
+        Probe("codepages", () => CodePagesEncodingProvider.Instance.GetEncoding(1252)!.GetString([0x80]) == "\u20AC");
         Probe("libse-language", () => Detect(French) == "fr" && Detect(German) == "de" && Detect(Turkish) == "tr");
         return failures;
     }
