@@ -1,7 +1,7 @@
 # Example: docker compose up -d   then   curl -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ
 services:
-  subtitleedit-api:
-    image: ghcr.io/wauter/subtitleedit-api:latest
+  subtitleedit-converter-api:
+    image: ghcr.io/wauter/subtitleedit-converter-api:latest
     # build: .            # uncomment to build locally instead of pulling
     ports:
       - "8080:8080"

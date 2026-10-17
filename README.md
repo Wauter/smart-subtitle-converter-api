@@ -1,6 +1,7 @@
-# subtitleedit-api
+# Subtitle Edit Converter API
 
-HTTP service for converting subtitle files between text formats. It wraps
+`subtitleedit-converter-api` is a community wrapper around Subtitle Edit's `libse`, not an official
+Subtitle Edit project: an HTTP service for converting subtitle files between text formats. It wraps
 [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit)'s `libse` library
 (pinned NuGet package, currently **5.1.0**) in an ASP.NET Core (.NET 10) API and ships as a
 multi-arch (amd64/arm64) container.
@@ -9,18 +10,18 @@ multi-arch (amd64/arm64) container.
 - Error codes: [docs/errors.md](docs/errors.md)
 - Roadmap: [docs/roadmap.md](docs/roadmap.md)
 - OpenAPI (committed contract): [docs/openapi.v1.json](docs/openapi.v1.json), live at `/openapi/v1.json`, interactive docs at `/docs`
-- MCP server (planned): [Wauter/subtitleedit-mcp](https://github.com/Wauter/subtitleedit-mcp)
+- MCP server (planned): [Wauter/subtitleedit-converter-mcp](https://github.com/Wauter/subtitleedit-converter-mcp)
 
 ## Quickstart
 
 ```bash
 # from source (needs the .NET 10 SDK)
-dotnet run --project src/SubtitleEditApi        # listens on http://localhost:5000 (ASPNETCORE_HTTP_PORTS to change)
+dotnet run --project src/SubtitleEditConverterApi        # listens on http://localhost:5000 (ASPNETCORE_HTTP_PORTS to change)
 
 # or with Docker
-docker build -t subtitleedit-api .
-docker run --rm -p 8080:8080 -v "$PWD/profiles:/profiles:ro" subtitleedit-api
-# or: docker compose up -d   (see docker-compose.yml; image ghcr.io/wauter/subtitleedit-api once a v* tag is published)
+docker build -t subtitleedit-converter-api .
+docker run --rm -p 8080:8080 -v "$PWD/profiles:/profiles:ro" subtitleedit-converter-api
+# or: docker compose up -d   (see docker-compose.yml; image ghcr.io/wauter/subtitleedit-converter-api once a v* tag is published)
 ```
 
 Open <http://localhost:8080/docs> for the interactive API reference.
@@ -110,14 +111,14 @@ bad profile, unknown preset, wrong media type, missing/wrong API key). Each requ
 for status codes and key headers (`X-Request-Id`, `X-Detected-*`, `X-Cue-Count`, `X-Profile`,
 `X-Entries-*`, problem+json `code`).
 
-- Import `postman/subtitleedit-api.postman_collection.json` and `postman/subtitleedit-api.postman_environment.json`.
+- Import `postman/subtitleedit-converter-api.postman_collection.json` and `postman/subtitleedit-converter-api.postman_environment.json`.
 - Environment: `baseUrl` (default `http://localhost:8080`), `apiKey` (leave empty for an open server;
   the auth-failure tests are then skipped).
 - File parts point at repo files (`tests/smoke/*`, `postman/fixtures/batch.zip`) by relative path: in
   Postman set *Settings → General → Working directory* to your checkout.
 
 ```bash
-npx newman run postman/subtitleedit-api.postman_collection.json -e postman/subtitleedit-api.postman_environment.json \
+npx newman run postman/subtitleedit-converter-api.postman_collection.json -e postman/subtitleedit-converter-api.postman_environment.json \
     --working-dir . --env-var baseUrl=http://localhost:8080 --env-var apiKey=$KEY
 ```
 
@@ -151,12 +152,12 @@ when auth is on. The image has no shell or curl, so probe them from the orchestr
 ```bash
 dotnet test                         # tests for our layer only (libse itself is trusted upstream)
 UPDATE_OPENAPI=1 dotnet test        # after an intended API change: refresh docs/openapi.v1.json
-scripts/smoke.sh subtitleedit-api   # Docker smoke test against a built image
+scripts/smoke.sh subtitleedit-converter-api   # Docker smoke test against a built image
 docker buildx build --platform linux/arm64 -o type=oci,dest=img.tar . && scripts/image-size.py img.tar slim linux/arm64
 ```
 
 Releases: push a `vX.Y.Z` tag. CI builds `linux/amd64` + `linux/arm64`, runs the smoke test and newman on
-both, checks the size budget, scans with Trivy, and pushes `ghcr.io/wauter/subtitleedit-api:{X.Y.Z,X.Y,latest,sha-…}`.
+both, checks the size budget, scans with Trivy, and pushes `ghcr.io/wauter/subtitleedit-converter-api:{X.Y.Z,X.Y,latest,sha-…}`.
 
 ## License
 

@@ -13,12 +13,12 @@ ARG RUNTIME_BASE=base-slim
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-noble AS build
 ARG TARGETARCH
 WORKDIR /src
-COPY src/SubtitleEditApi/SubtitleEditApi.csproj src/SubtitleEditApi/
+COPY src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj src/SubtitleEditConverterApi/
 RUN RID=$([ "$TARGETARCH" = "arm64" ] && echo linux-arm64 || echo linux-x64) \
- && dotnet restore src/SubtitleEditApi/SubtitleEditApi.csproj -r $RID
+ && dotnet restore src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj -r $RID
 COPY src/ src/
 RUN RID=$([ "$TARGETARCH" = "arm64" ] && echo linux-arm64 || echo linux-x64) \
- && dotnet publish src/SubtitleEditApi/SubtitleEditApi.csproj -c Release -r $RID --no-self-contained --no-restore \
+ && dotnet publish src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj -c Release -r $RID --no-self-contained --no-restore \
       -p:UseAppHost=false -p:DebugType=none -o /app
 
 # ICU + tzdata source: the target-arch chiseled-extra image (only files are copied out of it).
@@ -46,9 +46,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-noble-chiseled-extra AS b
 FROM ${RUNTIME_BASE} AS runtime
 ARG VERSION=dev
 ARG REVISION=unknown
-LABEL org.opencontainers.image.title="subtitleedit-api" \
+LABEL org.opencontainers.image.title="subtitleedit-converter-api" \
       org.opencontainers.image.description="HTTP API for subtitle conversion built on Subtitle Edit's libse" \
-      org.opencontainers.image.source="https://github.com/Wauter/subtitleedit-api" \
+      org.opencontainers.image.source="https://github.com/Wauter/subtitleedit-converter-api" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
@@ -64,4 +64,4 @@ ENV ASPNETCORE_HTTP_PORTS=8080 \
 EXPOSE 8080
 USER app
 # No HEALTHCHECK: the chiseled image has no curl/shell. Probe /healthz and /readyz from the orchestrator.
-ENTRYPOINT ["dotnet", "SubtitleEditApi.dll"]
+ENTRYPOINT ["dotnet", "SubtitleEditConverterApi.dll"]

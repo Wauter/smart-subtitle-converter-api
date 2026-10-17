@@ -1,0 +1,1292 @@
+{
+  "info": {
+    "_postman_id": "48b0adfa-e493-5b61-a071-2cf7c7caee01",
+    "name": "subtitleedit-converter-api",
+    "description": "Every subtitleedit-converter-api endpoint with the README examples, plus negative cases.\n\nSet `baseUrl` (default http://localhost:8080) and `apiKey` (leave empty for an open server) in the environment. File parts use paths relative to the repository root: in Postman set Settings -> General -> Working directory to your checkout; with newman pass `--working-dir <checkout>`.\n\nEvery request sends `Authorization: Bearer {{apiKey}}` when apiKey is set, except those tagged [no auth].",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const key = pm.environment.get('apiKey') || pm.collectionVariables.get('apiKey');",
+          "if (key && !pm.info.requestName.includes('[no auth]') && !pm.request.headers.has('Authorization'))",
+          "    pm.request.headers.upsert({ key: 'Authorization', value: 'Bearer ' + key });"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('X-Request-Id present', () => pm.expect(pm.response.headers.get('X-Request-Id')).to.be.a('string').and.not.empty);",
+          "pm.test('X-Content-Type-Options nosniff', () => pm.expect(pm.response.headers.get('X-Content-Type-Options')).to.eql('nosniff'));"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            },
+            "description": "Liveness probe. Always open, even with API keys on."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"status ok\", () => pm.expect(pm.response.json().status).to.eql(\"ok\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Readiness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/readyz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "readyz"
+              ]
+            },
+            "description": "Readiness: startup self-test (SRT->WebVTT), Skia, ICU/globalization probes, worker, queue. 503 + `failing` when not ready."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"ready\", () => pm.expect(j.status).to.eql(\"ready\"));",
+                  "pm.test(\"all checks ok\", () => Object.entries(j.checks).forEach(([k, v]) => pm.expect(v, k).to.eql(\"ok\")));",
+                  "pm.test(\"globalization check present\", () => pm.expect(j.checks).to.have.property(\"globalization\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Formats, profiles, schema",
+      "item": [
+        {
+          "name": "List formats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/formats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "formats"
+              ]
+            },
+            "description": "Every libse format with id, aliases, extensions and capabilities."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"many formats\", () => pm.expect(pm.response.json().length).to.be.above(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search formats (q=vtt)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/formats?q=vtt",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "formats"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "vtt"
+                }
+              ]
+            },
+            "description": "Filter by id/name/alias/extension."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"webvtt listed\", () => pm.expect(pm.response.json().map(f => f.id)).to.include(\"webvtt\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List profiles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/profiles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "profiles"
+              ]
+            },
+            "description": "Built-in + mounted presets. Invalid mounted files are listed with their errors (troubleshoot mounts here)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const names = pm.response.json().profiles.map(p => p.name);",
+                  "pm.test(\"built-in presets\", () => [\"srt-to-vtt\", \"clean-srt\", \"netflix-en-vtt\", \"pal-to-film\", \"srt-to-ass\", \"to-ttml\"].forEach(n => pm.expect(names).to.include(n)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get profile (netflix-en-vtt)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/profiles/netflix-en-vtt",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "profiles",
+                "netflix-en-vtt"
+              ]
+            },
+            "description": "Raw JSON and resolved profile (extends flattened)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"name\", () => pm.expect(j.name).to.eql(\"netflix-en-vtt\"));",
+                  "pm.test(\"valid + resolved\", () => { pm.expect(j.valid).to.be.true; pm.expect(j.resolved).to.be.an(\"object\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Validate profile (valid)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/profiles/validate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "profiles",
+                "validate"
+              ]
+            },
+            "description": "Always 200 for a JSON object; `valid`, `errors`, `warnings`, `resolved`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"extends\": \"srt-to-vtt\",\n  \"rules\": {\n    \"maxLineLength\": 37,\n    \"maxLines\": 2\n  },\n  \"timing\": {\n    \"offsetMs\": 1000\n  },\n  \"operations\": [\n    {\n      \"id\": \"RemoveFormatting\",\n      \"rules\": [\n        \"RemoveFontName\",\n        \"RemoveColor\"\n      ]\n    },\n    {\n      \"id\": \"SplitLongLines\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"valid\", () => pm.expect(pm.response.json().valid).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Validate profile (errors)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/profiles/validate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "profiles",
+                "validate"
+              ]
+            },
+            "description": "Errors carry a JSON pointer and a hint.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"target\": {\n    \"format\": \"vtt2\"\n  },\n  \"rules\": {\n    \"maxLineLength\": -1\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"invalid\", () => pm.expect(j.valid).to.be.false);",
+                  "pm.test(\"pointer to /target/format\", () => pm.expect(j.errors.map(e => e.pointer)).to.include(\"/target/format\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Profile JSON Schema",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/schemas/profile.json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "schemas",
+                "profile.json"
+              ]
+            },
+            "description": "JSON Schema 2020-12 for profiles (editors, agents)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Content-Type application/schema+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/schema+json\"));",
+                  "pm.test(\"has properties\", () => pm.expect(pm.response.json().properties).to.have.property(\"target\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Detect",
+      "item": [
+        {
+          "name": "Detect format (ASS)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/detect",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "detect"
+              ]
+            },
+            "description": "What is this file? Format, encoding, language, cue count, candidates.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.ass"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"ASS detected\", () => pm.expect(j.id).to.eql(\"advancedsubstationalpha\"));",
+                  "pm.test(\"cues\", () => pm.expect(j.paragraphs).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Convert",
+      "item": [
+        {
+          "name": "SRT -> WebVTT (target)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Simplest call: a file and a target format id or alias.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "webvtt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Content-Type text/vtt\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"text/vtt\"));",
+                  "pm.test(\"file name sample.vtt\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.include(\"sample.vtt\"));",
+                  "pm.test(\"conversion headers\", () => { [\"X-Detected-Format\", \"X-Detected-Encoding\", \"X-Cue-Count\", \"X-Cue-Count-In\", \"X-Warnings-Count\", \"X-Libse-Version\"].forEach(h => pm.expect(pm.response.headers.has(h), h).to.be.true); });",
+                  "pm.test(\"X-Detected-Format: subrip\", () => pm.expect(pm.response.headers.get(\"X-Detected-Format\")).to.eql(\"subrip\"));",
+                  "pm.test(\"body contains WEBVTT\", () => pm.expect(pm.response.text()).to.include(\"WEBVTT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SRT -> WebVTT (preset)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "A built-in preset by name.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "preset",
+                  "type": "text",
+                  "value": "netflix-en-vtt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Content-Type text/vtt\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"text/vtt\"));",
+                  "pm.test(\"conversion headers\", () => { [\"X-Detected-Format\", \"X-Detected-Encoding\", \"X-Cue-Count\", \"X-Cue-Count-In\", \"X-Warnings-Count\", \"X-Libse-Version\"].forEach(h => pm.expect(pm.response.headers.has(h), h).to.be.true); });",
+                  "pm.test(\"X-Profile: netflix-en-vtt\", () => pm.expect(pm.response.headers.get(\"X-Profile\")).to.eql(\"netflix-en-vtt\"));",
+                  "pm.test(\"body contains WEBVTT\", () => pm.expect(pm.response.text()).to.include(\"WEBVTT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Preset + overrides",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Overrides merge onto the preset: objects merge, arrays replace, null clears.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "preset",
+                  "type": "text",
+                  "value": "netflix-en-vtt"
+                },
+                {
+                  "key": "profile",
+                  "type": "text",
+                  "value": "{\"rules\":{\"maxLineLength\":37},\"timing\":{\"offsetMs\":-500}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"conversion headers\", () => { [\"X-Detected-Format\", \"X-Detected-Encoding\", \"X-Cue-Count\", \"X-Cue-Count-In\", \"X-Warnings-Count\", \"X-Libse-Version\"].forEach(h => pm.expect(pm.response.headers.has(h), h).to.be.true); });",
+                  "pm.test(\"X-Profile: netflix-en-vtt\", () => pm.expect(pm.response.headers.get(\"X-Profile\")).to.eql(\"netflix-en-vtt\"));",
+                  "pm.test(\"body contains 00:00:00.500 -->\", () => pm.expect(pm.response.text()).to.include(\"00:00:00.500 -->\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inline profile",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "A full profile in the `profile` part, no preset.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "profile",
+                  "type": "text",
+                  "value": "{\"target\": {\"format\": \"assa\"}, \"timing\": {\"offsetMs\": 1000}, \"operations\": [{\"id\": \"RemoveFormatting\"}]}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"file name sample.ass\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.include(\"sample.ass\"));",
+                  "pm.test(\"conversion headers\", () => { [\"X-Detected-Format\", \"X-Detected-Encoding\", \"X-Cue-Count\", \"X-Cue-Count-In\", \"X-Warnings-Count\", \"X-Libse-Version\"].forEach(h => pm.expect(pm.response.headers.has(h), h).to.be.true); });",
+                  "pm.test(\"body contains [Events]\", () => pm.expect(pm.response.text()).to.include(\"[Events]\"));",
+                  "pm.test(\"body contains 0:00:02.00\", () => pm.expect(pm.response.text()).to.include(\"0:00:02.00\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "TTML -> SRT",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.ttml"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "srt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"file name sample.srt\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.include(\"sample.srt\"));",
+                  "pm.test(\"conversion headers\", () => { [\"X-Detected-Format\", \"X-Detected-Encoding\", \"X-Cue-Count\", \"X-Cue-Count-In\", \"X-Warnings-Count\", \"X-Libse-Version\"].forEach(h => pm.expect(pm.response.headers.has(h), h).to.be.true); });",
+                  "pm.test(\"body contains -->\", () => pm.expect(pm.response.text()).to.include(\"-->\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Windows-1252 SRT -> ASS (srt-to-ass)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Legacy encodings are detected and reported in X-Detected-Encoding.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample-cp1252.srt"
+                },
+                {
+                  "key": "preset",
+                  "type": "text",
+                  "value": "srt-to-ass"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"conversion headers\", () => { [\"X-Detected-Format\", \"X-Detected-Encoding\", \"X-Cue-Count\", \"X-Cue-Count-In\", \"X-Warnings-Count\", \"X-Libse-Version\"].forEach(h => pm.expect(pm.response.headers.has(h), h).to.be.true); });",
+                  "pm.test(\"X-Profile: srt-to-ass\", () => pm.expect(pm.response.headers.get(\"X-Profile\")).to.eql(\"srt-to-ass\"));",
+                  "pm.test(\"non-UTF-8 input detected\", () => pm.expect(pm.response.headers.get(\"X-Detected-Encoding\")).to.not.eql(\"utf-8\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Several outputs -> zip",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "`target.additional` returns a zip with every output plus manifest.json.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "vtt"
+                },
+                {
+                  "key": "profile",
+                  "type": "text",
+                  "value": "{\"target\":{\"additional\":[\"ass\",\"ttml\"]}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Content-Type application/zip\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/zip\"));",
+                  "pm.test(\"file name sample.zip\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.include(\"sample.zip\"));",
+                  "pm.test(\"zip magic\", () => pm.expect(pm.response.stream.slice(0, 2).toString()).to.eql(\"PK\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Zip in -> zip out",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "One manifest entry per file; a bad entry does not fail the batch unless failFast=true.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/batch.zip"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "vtt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Content-Type application/zip\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/zip\"));",
+                  "pm.test(\"file name batch.zip\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.include(\"batch.zip\"));",
+                  "pm.test(\"X-Entries-Ok: 3\", () => pm.expect(pm.response.headers.get(\"X-Entries-Ok\")).to.eql(\"3\"));",
+                  "pm.test(\"X-Entries-Failed: 0\", () => pm.expect(pm.response.headers.get(\"X-Entries-Failed\")).to.eql(\"0\"));",
+                  "pm.test(\"zip magic\", () => pm.expect(pm.response.stream.slice(0, 2).toString()).to.eql(\"PK\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Zip in -> zip out (failFast)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/batch.zip"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "srt"
+                },
+                {
+                  "key": "failFast",
+                  "type": "text",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Content-Type application/zip\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/zip\"));",
+                  "pm.test(\"X-Entries-Ok: 3\", () => pm.expect(pm.response.headers.get(\"X-Entries-Ok\")).to.eql(\"3\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JSON in / JSON out",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "For agents and scripts: content inline (text or base64), outputs inline.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"1\\n00:00:01,000 --> 00:00:02,000\\nHello\\n\",\n  \"fileName\": \"a.srt\",\n  \"target\": \"vtt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"one WebVTT output\", () => { pm.expect(j.outputs).to.have.length(1); pm.expect(j.outputs[0].formatId).to.eql(\"webvtt\"); pm.expect(j.outputs[0].content).to.include(\"WEBVTT\"); });",
+                  "pm.test(\"detected subrip\", () => pm.expect(j.detected.id).to.eql(\"subrip\"));",
+                  "pm.test(\"stats\", () => pm.expect(j.stats.paragraphsOut).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JSON convert with preset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"1\\n00:00:01,000 --> 00:00:02,000\\n<i>Hello</i>\\n\",\n  \"fileName\": \"a.srt\",\n  \"preset\": \"to-ttml\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"TTML output\", () => pm.expect(pm.response.json().outputs[0].content).to.include(\"<tt\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Errors",
+      "item": [
+        {
+          "name": "Unsupported target format (image-based)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Known but not text-based in v1 (e.g. Blu-ray SUP): 422 format-not-supported.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "bluraysup"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code format-not-supported\", () => pm.expect(pm.response.json().code).to.eql(\"format-not-supported\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bad profile (unknown format)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Validation errors point at the field and suggest a fix.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "profile",
+                  "type": "text",
+                  "value": "{\"target\":{\"format\":\"vtt2\"}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code invalid-profile\", () => pm.expect(pm.response.json().code).to.eql(\"invalid-profile\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"suggests webvtt\", () => pm.expect(pm.response.json().hint).to.include(\"webvtt\"));",
+                  "pm.test(\"pointer\", () => pm.expect(pm.response.json().errors[0].pointer).to.eql(\"/target/format\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bad profile (malformed JSON)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "profile",
+                  "type": "text",
+                  "value": "{not json"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "vtt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code invalid-profile\", () => pm.expect(pm.response.json().code).to.eql(\"invalid-profile\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown preset",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "preset",
+                  "type": "text",
+                  "value": "netflix-en-vt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code preset-not-found\", () => pm.expect(pm.response.json().code).to.eql(\"preset-not-found\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"did you mean\", () => pm.expect(pm.response.json().hint).to.include(\"netflix-en-vtt\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wrong content type",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "/v1/convert takes multipart/form-data; JSON goes to /v1/convert/json.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"target\": \"vtt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 415\", () => pm.response.to.have.status(415));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code unsupported-media-type\", () => pm.expect(pm.response.json().code).to.eql(\"unsupported-media-type\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Auth missing [no auth]",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "With API keys on, /v1 needs `Authorization: Bearer <key>`. Skipped when the environment has no apiKey (open server).",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "vtt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"apiKey\")) { pm.test.skip(\"auth missing -> 401 (no apiKey set, server assumed open)\", () => {}); return; }",
+                  "pm.test(\"status 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code unauthorized\", () => pm.expect(pm.response.json().code).to.eql(\"unauthorized\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Auth wrong key [no auth]",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer definitely-not-a-key"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/formats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "formats"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"apiKey\")) { pm.test.skip(\"wrong key -> 401 (no apiKey set)\", () => {}); return; }",
+                  "pm.test(\"status 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code unauthorized\", () => pm.expect(pm.response.json().code).to.eql(\"unauthorized\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
