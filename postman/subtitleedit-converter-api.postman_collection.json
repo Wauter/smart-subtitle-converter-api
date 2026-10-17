@@ -357,6 +357,83 @@
               }
             }
           ]
+        },
+        {
+          "name": "Writable binary formats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/formats?kind=binary&writable=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "formats"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "binary"
+                },
+                {
+                  "key": "writable",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "`kind` (text, binary, image, container; comma list) and `writable=true` filters."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().map(f => f.id);",
+                  "pm.test(\"EBU STL, PAC, Cavena 890 writable\", () => [\"ebustl\", \"pacscreenelectronics\", \"cavena890\"].forEach(i => pm.expect(ids).to.include(i)));",
+                  "pm.test(\"all binary + writable\", () => pm.response.json().forEach(f => { pm.expect(f.kind).to.eql(\"binary\"); pm.expect(f.canWrite).to.be.true; }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Limits",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/limits",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "limits"
+              ]
+            },
+            "description": "Effective limits: decoded upload size, body caps per endpoint kind (multipart / JSON incl. base64 overhead), zip guards, queue depth, whether auth is required."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"shape\", () => { [\"maxUploadBytes\", \"maxRequestBodyBytes\", \"json\", \"maxProfileBytes\", \"maxCues\", \"maxLineChars\", \"zip\", \"conversionTimeoutSeconds\", \"queue\", \"rateLimitPerMinute\", \"auth\", \"binary\"].forEach(k => pm.expect(j, k).to.have.property(k)); });",
+                  "pm.test(\"json cap = 4*ceil(n/3) + profile + 64 KiB\", () => pm.expect(j.maxRequestBodyBytes.json).to.eql(4 * Math.ceil(j.maxUploadBytes / 3) + j.maxProfileBytes + 65536));",
+                  "pm.test(\"multipart cap = upload + 256 KiB\", () => pm.expect(j.maxRequestBodyBytes.multipart).to.eql(j.maxUploadBytes + 262144));",
+                  "pm.test(\"auth.required matches environment\", () => pm.expect(j.auth.required).to.eql(!!pm.environment.get(\"apiKey\")));",
+                  "pm.test(\"no-store\", () => pm.expect(pm.response.headers.get(\"Cache-Control\")).to.include(\"no-store\"));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -400,6 +477,49 @@
                   "const j = pm.response.json();",
                   "pm.test(\"ASS detected\", () => pm.expect(j.id).to.eql(\"advancedsubstationalpha\"));",
                   "pm.test(\"cues\", () => pm.expect(j.paragraphs).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detect format (EBU STL)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/detect",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "detect"
+              ]
+            },
+            "description": "Binary input: kind, codePage (the GSI CPN) and formatDetails.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/sample.stl"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"EBU STL\", () => pm.expect(j.id).to.eql(\"ebustl\"));",
+                  "pm.test(\"binary, CPN 850\", () => { pm.expect(j.kind).to.eql(\"binary\"); pm.expect(j.codePage).to.eql(\"850\"); });",
+                  "pm.test(\"formatDetails\", () => pm.expect(j.formatDetails.frameRate).to.eql(25));"
                 ]
               }
             }
@@ -945,6 +1065,302 @@
               }
             }
           ]
+        },
+        {
+          "name": "SRT -> EBU STL",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Binary target with GSI options. Output is application/octet-stream; lossy steps are warnings (characters-replaced, frame-quantised).",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "ebustl"
+                },
+                {
+                  "key": "profile",
+                  "type": "text",
+                  "value": "{\"formatOptions\":{\"ebuStl\":{\"frameRate\":25,\"originalProgrammeTitle\":\"Sample\",\"language\":\"en\"}}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Content-Type application/octet-stream\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/octet-stream\"));",
+                  "pm.test(\"file name sample.stl\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.include(\"sample.stl\"));",
+                  "pm.test(\"X-Output-Kind: binary\", () => pm.expect(pm.response.headers.get(\"X-Output-Kind\")).to.eql(\"binary\"));",
+                  "pm.test(\"GSI: CPN 850, STL25.01\", () => pm.expect(pm.response.stream.slice(0, 11).toString(\"latin1\")).to.eql(\"850STL25.01\"));",
+                  "pm.test(\"warnings are listed\", () => pm.expect(Number(pm.response.headers.get(\"X-Warnings-Count\"))).to.be.at.least(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "EBU STL -> SRT",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Detected by content; X-Detected-Code-Page is the GSI code page.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/sample.stl"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "srt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"file name sample.srt\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.include(\"sample.srt\"));",
+                  "pm.test(\"conversion headers\", () => { [\"X-Detected-Format\", \"X-Detected-Encoding\", \"X-Cue-Count\", \"X-Cue-Count-In\", \"X-Warnings-Count\", \"X-Libse-Version\"].forEach(h => pm.expect(pm.response.headers.has(h), h).to.be.true); });",
+                  "pm.test(\"X-Detected-Format: ebustl\", () => pm.expect(pm.response.headers.get(\"X-Detected-Format\")).to.eql(\"ebustl\"));",
+                  "pm.test(\"X-Detected-Encoding: binary\", () => pm.expect(pm.response.headers.get(\"X-Detected-Encoding\")).to.eql(\"binary\"));",
+                  "pm.test(\"X-Detected-Code-Page: 850\", () => pm.expect(pm.response.headers.get(\"X-Detected-Code-Page\")).to.eql(\"850\"));",
+                  "pm.test(\"body contains -->\", () => pm.expect(pm.response.text()).to.include(\"-->\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PAC (Greek) -> SRT",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "PAC code-page auto-detection is weak for non-Latin scripts: name the source format and the input code page.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/sample-greek.pac"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "srt"
+                },
+                {
+                  "key": "profile",
+                  "type": "text",
+                  "value": "{\"source\":{\"format\":\"pac\"},\"formatOptions\":{\"pac\":{\"inputCodePage\":\"greek\"}}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Detected-Code-Page: pac-greek\", () => pm.expect(pm.response.headers.get(\"X-Detected-Code-Page\")).to.eql(\"pac-greek\"));",
+                  "pm.test(\"body contains \\u039a\\u03b1\\u03bb\\u03b7\\u03bc\\u03ad\\u03c1\\u03b1\", () => pm.expect(pm.response.text()).to.include(\"\\u039a\\u03b1\\u03bb\\u03b7\\u03bc\\u03ad\\u03c1\\u03b1\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mixed zip (text + binary)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Text and binary entries in one zip; the manifest has kind and codePage per entry.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/mixed.zip"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "srt"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Content-Type application/zip\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/zip\"));",
+                  "pm.test(\"X-Entries-Ok: 3\", () => pm.expect(pm.response.headers.get(\"X-Entries-Ok\")).to.eql(\"3\"));",
+                  "pm.test(\"X-Entries-Failed: 0\", () => pm.expect(pm.response.headers.get(\"X-Entries-Failed\")).to.eql(\"0\"));",
+                  "pm.test(\"X-Entries-Skipped: 0\", () => pm.expect(pm.response.headers.get(\"X-Entries-Skipped\")).to.eql(\"0\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JSON: EBU STL (base64) -> SRT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "Binary content must be base64 (contentEncoding).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"ODUwU1RMMjUuMDEwMDAwOVNhbXBsZSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDAgICAgICAgICAgICAgICAyNjEwMTcyNjEwMTcwMTAwMDA0MDAwMDQwMDE0MDIzMTAwMDAwMDAwMDAwMDAxMDAxMVVTQSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAAAAP8AAAABAAAAAwUVAgBIZWxsbywgYW5kIHdlbGNvbWUuj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+PAAEA/wAAAAMMAAAGABMCAIBUaGlzIGxpbmUgaXMgaW4gaXRhbGljc4GKYW5kIGhhcyB0d28gbGluZXMuj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj48AAgD/AAAABwAAAAkMEwIALSBBcmUgeW91IHN1cmU/ii0gQWJzb2x1dGVseSGPj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+PjwADAP8AAAAKAAAADAAVAgDIVW7IaWPIb2TCZSBmYctjYWRlID8gbmHIaXZlIGNhZsJlLo+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+P\",\n  \"contentEncoding\": \"base64\",\n  \"fileName\": \"sample.stl\",\n  \"target\": \"srt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"detected binary EBU STL\", () => { pm.expect(j.detected.id).to.eql(\"ebustl\"); pm.expect(j.detected.kind).to.eql(\"binary\"); pm.expect(j.detected.codePage).to.eql(\"850\"); });",
+                  "pm.test(\"SRT out\", () => pm.expect(j.outputs[0].content).to.include(\"-->\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JSON: SRT -> EBU STL (always base64)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "Binary outputs are always base64, whatever responseEncoding says.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"1\\n00:00:01,000 --> 00:00:02,000\\nHello\\n\",\n  \"fileName\": \"a.srt\",\n  \"target\": \"ebustl\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const o = pm.response.json().outputs[0];",
+                  "pm.test(\"binary, base64\", () => { pm.expect(o.kind).to.eql(\"binary\"); pm.expect(o.contentEncoding).to.eql(\"base64\"); });"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -966,7 +1382,7 @@
                 "convert"
               ]
             },
-            "description": "Known but not text-based in v1 (e.g. Blu-ray SUP): 422 format-not-supported.",
+            "description": "Image-based formats (e.g. Blu-ray SUP) need OCR: 422 format-not-supported.",
             "body": {
               "mode": "formdata",
               "formdata": [
@@ -1281,6 +1697,314 @@
                   "pm.test(\"code unauthorized\", () => pm.expect(pm.response.json().code).to.eql(\"unauthorized\"));",
                   "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
                   "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read-only target (Avid STL)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Readable but not writable here: 422 format-not-writable; the hint points at ?writable=true.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "avidstl"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code format-not-writable\", () => pm.expect(pm.response.json().code).to.eql(\"format-not-writable\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"hint\", () => pm.expect(pm.response.json().hint).to.include(\"writable=true\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Truncated EBU STL",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "source.format names a binary format but the bytes don't parse: 422 invalid-binary-input.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/truncated.stl"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "srt"
+                },
+                {
+                  "key": "profile",
+                  "type": "text",
+                  "value": "{\"source\":{\"format\":\"ebustl\"}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code invalid-binary-input\", () => pm.expect(pm.response.json().code).to.eql(\"invalid-binary-input\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JSON: text content for a binary source",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "Binary content must be base64: 422 invalid-binary-input, pointer /contentEncoding.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"not really an STL\",\n  \"target\": \"srt\",\n  \"profile\": {\n    \"source\": {\n      \"format\": \"ebustl\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code invalid-binary-input\", () => pm.expect(pm.response.json().code).to.eql(\"invalid-binary-input\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"pointer\", () => pm.expect(pm.response.json().errors[0].pointer).to.eql(\"/contentEncoding\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bad option value (EBU frame rate)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Well-formed but not allowed: 400 format-option-invalid.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "tests/smoke/sample.srt"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "ebustl"
+                },
+                {
+                  "key": "profile",
+                  "type": "text",
+                  "value": "{\"formatOptions\":{\"ebuStl\":{\"frameRate\":26}}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code format-option-invalid\", () => pm.expect(pm.response.json().code).to.eql(\"format-option-invalid\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wrong content type (JSON endpoint)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "/v1/convert/json takes application/json: 415.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"content\":\"x\"}",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 415\", () => pm.response.to.have.status(415));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code unsupported-media-type\", () => pm.expect(pm.response.json().code).to.eql(\"unsupported-media-type\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Zip with clashing names (ep1.srt + EP1.vtt)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "Entries sharing a folder and stem (case-insensitive) would produce the same output: 422 ambiguous-batch-names before any conversion, even with failFast=false. Nothing is ever renamed.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/clash.zip"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "srt"
+                },
+                {
+                  "key": "failFast",
+                  "type": "text",
+                  "value": "false"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code ambiguous-batch-names\", () => pm.expect(pm.response.json().code).to.eql(\"ambiguous-batch-names\"));",
+                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);",
+                  "const j = pm.response.json();",
+                  "pm.test(\"one error per clashing entry\", () => pm.expect(j.errors.map(e => e.pointer)).to.eql([\"ep1.srt\", \"EP1.vtt\"]));",
+                  "pm.test(\"groups\", () => pm.expect(j.groups).to.eql([[\"ep1.srt\", \"EP1.vtt\"]]));"
                 ]
               }
             }

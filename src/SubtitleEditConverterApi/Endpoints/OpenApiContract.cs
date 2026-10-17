@@ -1,0 +1,176 @@
+using System.Reflection;
+using Microsoft.OpenApi;
+using SubtitleEditConverterApi.Infrastructure;
+
+namespace SubtitleEditConverterApi.Endpoints;
+
+/// <summary>
+/// Document-wide OpenAPI contract (MCP spec answers, fixes A1/A2/A4): one ApiProblem schema for every
+/// error response, optional bearer auth on /v1, the responses every /v1 operation can return
+/// (401, 429, 503/504 for queued work, 400 for GETs with parameters), documented response headers
+/// and the X-Request-Id request header.
+/// </summary>
+public static class OpenApiContract
+{
+    /// <summary>Every stable error code (ErrorCodes constants), for the ApiProblem.code enum and the errors.md contract test.</summary>
+    public static readonly string[] AllCodes = typeof(ErrorCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
+        .Where(f => f.IsLiteral && f.FieldType == typeof(string)).Select(f => (string)f.GetRawConstantValue()!).ToArray();
+
+    private static readonly HashSet<string> QueuedOperations = ["convert", "convertJson", "detect"];
+    private static readonly HashSet<string> ConvertOperations = ["convert", "convertJson"];
+
+    private static OpenApiSchema Str(string? description = null) => new() { Type = JsonSchemaType.String, Description = description };
+
+    public static Task Apply(OpenApiDocument doc)
+    {
+        doc.Components ??= new OpenApiComponents();
+        doc.Components.Schemas ??= new Dictionary<string, IOpenApiSchema>();
+        var schemas = doc.Components.Schemas;
+
+        schemas["FieldError"] = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Object,
+            Description = "A problem located by a JSON pointer (profile field, zip entry, query parameter, ...).",
+            Required = new HashSet<string> { "pointer", "message" },
+            Properties = new Dictionary<string, IOpenApiSchema>
+            {
+                ["pointer"] = Str("JSON pointer, e.g. /target/format or /file/entries/2; for ambiguous-batch-names the zip entry path."), ["message"] = Str(), ["hint"] = Str(),
+            },
+        };
+        schemas["ApiProblem"] = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Object,
+            Description = "RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `entry` (zip entry name), `phase` (conversion-timeout: queue|running), `groups`/`outputs` (ambiguous-batch-names).",
+            Required = new HashSet<string> { "type", "title", "status", "code", "detail", "hint" },
+            Properties = new Dictionary<string, IOpenApiSchema>
+            {
+                ["type"] = Str("URL of the code's section in docs/errors.md."),
+                ["title"] = Str(),
+                ["status"] = new OpenApiSchema { Type = JsonSchemaType.Integer },
+                ["code"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = AllCodes.Select(c => (System.Text.Json.Nodes.JsonNode)c!).ToList() },
+                ["detail"] = Str(),
+                ["hint"] = Str("What to do about it."),
+                ["requestId"] = Str("Same as the X-Request-Id header; absent inside manifest entries."),
+                ["errors"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = new OpenApiSchemaReference("FieldError", doc) },
+                ["debug"] = new OpenApiSchema { Type = JsonSchemaType.Object, Description = "Diagnostics, only when ERRORS_VERBOSE=true. Never contains file content." },
+                ["entry"] = Str("Zip entry name, for per-entry and failFast errors."),
+                ["groups"] = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Array, Description = "ambiguous-batch-names only: clashing zip entry paths, one array per group.",
+                    Items = new OpenApiSchema { Type = JsonSchemaType.Array, Items = new OpenApiSchema { Type = JsonSchemaType.String } },
+                },
+                ["outputs"] = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Array, Description = "ambiguous-batch-names only, for output-path clashes: the colliding output paths.",
+                    Items = new OpenApiSchema { Type = JsonSchemaType.String },
+                },
+                ["phase"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["queue", "running"], Description = "conversion-timeout only: queue is retryable like 503." },
+            },
+            AdditionalPropertiesAllowed = true,
+        };
+        schemas.Remove("ProblemDetails");
+
+        if (schemas.TryGetValue("ManifestEntry", out var me) && me is OpenApiSchema mes && mes.Properties != null)
+        {
+            mes.Properties["error"] = new OpenApiSchema
+            {
+                Description = "The entry's problem (ApiProblem without requestId); the request's X-Request-Id covers all entries.",
+                OneOf = [new OpenApiSchema { Type = JsonSchemaType.Null }, new OpenApiSchemaReference("ApiProblem", doc)],
+            };
+            mes.Properties["status"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["ok", "error", "skipped"] };
+            mes.Properties["reason"] = new OpenApiSchema { Type = JsonSchemaType.String | JsonSchemaType.Null, Enum = ["nested-zip", "macos-metadata", null!], Description = "Why a skipped entry wasn't converted." };
+        }
+        foreach (var name in new[] { "ConvertJsonRequest", "DetectJsonRequest" })
+        {
+            if (schemas.TryGetValue(name, out var rs) && rs is OpenApiSchema r) r.Required = new HashSet<string> { "content" };
+        }
+
+        doc.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
+        doc.Components.SecuritySchemes["bearer"] = new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http, Scheme = "bearer",
+            Description = "API key as a bearer token. Required only when the server has API_KEYS/API_KEYS_FILE set (GET /v1/limits → auth.required).",
+        };
+
+        foreach (var (path, item) in doc.Paths)
+        {
+            if (item.Operations == null) continue;
+            foreach (var (method, op) in item.Operations)
+            {
+                op.Responses ??= new OpenApiResponses();
+                // ApiProblem everywhere an error can come back.
+                foreach (var (status, resp) in op.Responses.ToList())
+                {
+                    if (int.TryParse(status, out var s) && s >= 400) op.Responses[status] = Problem(doc, resp.Description ?? Reason(s), s);
+                }
+                op.Parameters ??= [];
+                op.Parameters.Add(new OpenApiParameter
+                {
+                    Name = "X-Request-Id", In = ParameterLocation.Header, Required = false,
+                    Description = "Optional client request id, echoed back; replaced by a fresh ULID when it doesn't match the pattern.",
+                    Schema = new OpenApiSchema { Type = JsonSchemaType.String, Pattern = "^[A-Za-z0-9._-]{1,64}$" },
+                });
+                foreach (var resp in op.Responses.Values.OfType<OpenApiResponse>())
+                {
+                    resp.Headers ??= new Dictionary<string, IOpenApiHeader>();
+                    resp.Headers["X-Request-Id"] = Header("Request id (also in problem.requestId and the logs).");
+                }
+                if (!path.StartsWith("/v1", StringComparison.Ordinal)) continue;
+
+                op.Security = [new OpenApiSecurityRequirement(), new OpenApiSecurityRequirement { [new OpenApiSecuritySchemeReference("bearer", doc)] = [] }];
+                op.Responses.TryAdd("401", Problem(doc, "Unauthorized: API keys are configured and the bearer key is missing or wrong.", 401));
+                op.Responses.TryAdd("429", Problem(doc, "Rate limited (only when RATE_LIMIT_PER_MINUTE > 0).", 429, retryAfter: true));
+                var id = op.OperationId ?? "";
+                if (QueuedOperations.Contains(id))
+                {
+                    op.Responses["503"] = Problem(doc, "queue-full: retry after Retry-After seconds.", 503, retryAfter: true);
+                    op.Responses["504"] = Problem(doc, "conversion-timeout; `phase` says whether it timed out in the queue (retryable) or while running.", 504);
+                }
+                if (method == HttpMethod.Get && op.Parameters.Any(p => p.In is ParameterLocation.Query or ParameterLocation.Path))
+                    op.Responses.TryAdd("400", Problem(doc, "invalid-request: a parameter has an invalid value.", 400));
+                if (ConvertOperations.Contains(id) && op.Responses.TryGetValue("200", out var ok) && ok is OpenApiResponse okr)
+                {
+                    okr.Headers ??= new Dictionary<string, IOpenApiHeader>();
+                    foreach (var (h, d) in ConvertHeaders) okr.Headers[h] = Header(d);
+                }
+            }
+        }
+        return Task.CompletedTask;
+    }
+
+    private static readonly (string, string)[] ConvertHeaders =
+    [
+        ("X-Detected-Format", "Detected (or forced) source format id; single input only."),
+        ("X-Detected-Encoding", "Detected text encoding, or `binary` for binary input."),
+        ("X-Detected-Code-Page", "Binary input only: EBU GSI code page (e.g. 850) or pac-<name>."),
+        ("X-Output-Kind", "text | binary (first output)."),
+        ("X-Cue-Count", "Cues in the (first) output."),
+        ("X-Cue-Count-In", "Cues read from the input."),
+        ("X-Warnings-Count", "Number of warnings."),
+        ("X-Warnings", "Warnings as compact JSON (ASCII, truncated to 4 KB)."),
+        ("X-Profile", "Preset name, when one was used."),
+        ("X-Entries-Ok", "Zip input: entries converted."),
+        ("X-Entries-Failed", "Zip input: entries that failed."),
+        ("X-Entries-Skipped", "Zip input: entries skipped (nested zip, macOS metadata)."),
+    ];
+
+    private static OpenApiHeader Header(string description) => new() { Description = description, Schema = new OpenApiSchema { Type = JsonSchemaType.String } };
+
+    private static OpenApiResponse Problem(OpenApiDocument doc, string description, int status, bool retryAfter = false)
+    {
+        var r = new OpenApiResponse
+        {
+            Description = description,
+            Content = new Dictionary<string, OpenApiMediaType> { ["application/problem+json"] = new() { Schema = new OpenApiSchemaReference("ApiProblem", doc) } },
+            Headers = new Dictionary<string, IOpenApiHeader> { ["X-Request-Id"] = Header("Request id (also in problem.requestId and the logs).") },
+        };
+        if (retryAfter || status == 503) r.Headers["Retry-After"] = new OpenApiHeader { Description = "Seconds to wait before retrying.", Schema = new OpenApiSchema { Type = JsonSchemaType.Integer } };
+        return r;
+    }
+
+    private static string Reason(int s) => s switch
+    {
+        400 => "Bad Request", 401 => "Unauthorized", 404 => "Not Found", 413 => "Payload Too Large", 415 => "Unsupported Media Type",
+        422 => "Unprocessable Entity", 429 => "Too Many Requests", 503 => "Service Unavailable", 504 => "Gateway Timeout", _ => "Error",
+    };
+}

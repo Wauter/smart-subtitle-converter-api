@@ -5,8 +5,23 @@ using Microsoft.AspNetCore.Http.Features;
 namespace SubtitleEditConverterApi.Infrastructure;
 
 /// <summary>Renders <see cref="ApiException"/> (and anything unexpected) as RFC 7807 problem JSON (design §7.1).</summary>
-public static class Problems
+public static partial class Problems
 {
+    [System.Text.RegularExpressions.GeneratedRegex("Failed to bind parameter \"[^\"]*? (?<name>\\w+)\" from \"(?<value>[^\"]*)\"")]
+    private static partial System.Text.RegularExpressions.Regex BindFailure();
+
+    private static string FirstSentence(string m) => m.Split(". ")[0].TrimEnd('.') + ".";
+
+    /// <summary>System.Text.Json path ("$.profile.target") to a JSON pointer ("/profile/target").</summary>
+    internal static string JsonPathToPointer(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || path == "$") return "";
+        var p = path.StartsWith("$") ? path[1..] : path;
+        p = System.Text.RegularExpressions.Regex.Replace(p, @"\[(\d+)\]", "/$1");
+        p = System.Text.RegularExpressions.Regex.Replace(p, @"\['([^']*)'\]", m => "/" + m.Groups[1].Value);
+        return p.Replace('.', '/');
+    }
+
     public const string TypeBase = "https://github.com/Wauter/subtitleedit-converter-api/blob/main/docs/errors.md#";
 
     public static JsonObject ToJson(ApiException ex, string requestId, bool verbose)
@@ -84,6 +99,17 @@ public static class Problems
     {
         ApiException api => api,
         BadHttpRequestException { StatusCode: 413 } or InvalidDataException => TooLarge(opts, ex),
+        BadHttpRequestException { StatusCode: 415 } => new ApiException(415, ErrorCodes.UnsupportedMediaType, "This endpoint takes application/json.",
+            "Send Content-Type: application/json.", ex),
+        BadHttpRequestException { InnerException: JsonException je } => new ApiException(400, ErrorCodes.InvalidRequest,
+            $"The JSON body is invalid{(je.Path is { } jp ? $" at '{jp}'" : "")}: {FirstSentence(je.Message)}",
+            "Fix the field type or JSON syntax; see the endpoint schema in /openapi/v1.json.", ex)
+        { Errors = [new FieldError(JsonPathToPointer(je.Path), FirstSentence(je.Message))] },
+        BadHttpRequestException b when BindFailure().Match(b.Message) is { Success: true } m => new ApiException(400, ErrorCodes.InvalidRequest,
+            $"Invalid value '{m.Groups["value"].Value}' for '{m.Groups["name"].Value}'.", "Check the parameter type in /openapi/v1.json (e.g. true/false for booleans).", ex)
+        { Errors = [new FieldError("/query/" + m.Groups["name"].Value, $"Invalid value '{m.Groups["value"].Value}'.")] },
+        BadHttpRequestException b when b.Message.Contains("Required parameter") => new ApiException(400, ErrorCodes.InvalidRequest,
+            "The request body is missing or empty.", "Send a JSON object, e.g. {\"content\": \"...\"}.", ex),
         BadHttpRequestException b => new ApiException(400, ErrorCodes.InvalidRequest, "The request could not be read.",
             "Check the Content-Type and body framing.", ex),
         JsonException je => new ApiException(400, ErrorCodes.InvalidRequest, "The request body is not valid JSON.",

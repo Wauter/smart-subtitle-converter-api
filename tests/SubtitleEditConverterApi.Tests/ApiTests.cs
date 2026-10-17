@@ -134,8 +134,8 @@ public class ApiTests : IClassFixture<ApiFactory>
 
     [Theory]
     [InlineData("vtt2", 400, "invalid-profile", "webvtt")]
-    [InlineData("bluraysup", 422, "format-not-supported", "text formats")]
-    [InlineData("ebustl", 422, "format-not-supported", "text formats")]
+    [InlineData("bluraysup", 422, "format-not-supported", "image-based")]
+    [InlineData("avidstl", 422, "format-not-writable", "writable=true")]
     public async Task Unknown_or_unsupported_target(string target, int status, string code, string hint)
     {
         var r = await _c.PostAsync("/v1/convert", Samples.Form(Samples.Srt, "x.srt", ("target", target)));

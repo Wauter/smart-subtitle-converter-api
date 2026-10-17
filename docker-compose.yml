@@ -1,8 +1,10 @@
-# Example: docker compose up -d   then   curl -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ
+# Example: docker compose up -d (pulls :edge; needs `docker login ghcr.io`) or docker compose up --build -d (local build), then   curl -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ
 services:
   subtitleedit-converter-api:
-    image: ghcr.io/wauter/subtitleedit-converter-api:latest
-    # build: .            # uncomment to build locally instead of pulling
+    # :edge is pushed by CI on every green push to main (private package: docker login ghcr.io with a read:packages token).
+    # Switch to a version tag (e.g. :1.2.0) once releases exist.
+    image: ghcr.io/wauter/subtitleedit-converter-api:edge
+    build: .                                   # `docker compose up --build` builds locally instead of pulling
     ports:
       - "8080:8080"
     environment:
@@ -18,7 +20,7 @@ services:
       # - ./api_keys.txt:/run/secrets/api_keys:ro
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp                                   # RAM-backed; binary formats use a private 0700 temp dir here
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true

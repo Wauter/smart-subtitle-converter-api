@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Subtitle Edit Converter API",
-    "description": "Convert subtitles between text formats with Subtitle Edit\u0027s libse. Errors are RFC 7807 problem\u002Bjson with a stable \u0060code\u0060, a \u0060hint\u0060 and the \u0060requestId\u0060. Send \u0060Authorization: Bearer \u003Ckey\u003E\u0060 when API keys are configured.",
+    "description": "Convert subtitles between text and binary broadcast formats (EBU STL, PAC, Cavena 890, ...) with Subtitle Edit\u0027s libse. Errors are RFC 7807 problem\u002Bjson with a stable \u0060code\u0060, a \u0060hint\u0060 and the \u0060requestId\u0060. Send \u0060Authorization: Bearer \u003Ckey\u003E\u0060 when API keys are configured.",
     "version": "1.0.0"
   },
   "servers": null,
@@ -15,6 +15,17 @@
         "summary": "Convert a subtitle file (multipart upload).",
         "description": "Upload \u0060file\u0060 with \u0060preset\u0060, \u0060target\u0060 and/or \u0060profile\u0060 (JSON overrides). A zip upload converts every entry and returns a zip with manifest.json. Response headers report detected format/encoding, cue counts and warnings.",
         "operationId": "convert",
+        "parameters": [
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -53,79 +64,269 @@
         },
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Detected-Format": {
+                "description": "Detected (or forced) source format id; single input only.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Detected-Encoding": {
+                "description": "Detected text encoding, or \u0060binary\u0060 for binary input.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Detected-Code-Page": {
+                "description": "Binary input only: EBU GSI code page (e.g. 850) or pac-\u003Cname\u003E.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Output-Kind": {
+                "description": "text | binary (first output).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Cue-Count": {
+                "description": "Cues in the (first) output.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Cue-Count-In": {
+                "description": "Cues read from the input.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Warnings-Count": {
+                "description": "Number of warnings.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Warnings": {
+                "description": "Warnings as compact JSON (ASCII, truncated to 4 KB).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Profile": {
+                "description": "Preset name, when one was used.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Entries-Ok": {
+                "description": "Zip input: entries converted.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Entries-Failed": {
+                "description": "Zip input: entries that failed.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Entries-Skipped": {
+                "description": "Zip input: entries skipped (nested zip, macOS metadata).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad Request",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "404": {
             "description": "Not Found",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "413": {
             "description": "Payload Too Large",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "415": {
             "description": "Unsupported Media Type",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "422": {
             "description": "Unprocessable Entity",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "503": {
-            "description": "Service Unavailable",
+            "description": "queue-full: retry after Retry-After seconds.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "504": {
-            "description": "Gateway Timeout",
+            "description": "conversion-timeout; \u0060phase\u0060 says whether it timed out in the queue (retryable) or while running.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/v1/convert/json": {
@@ -134,8 +335,19 @@
           "convert"
         ],
         "summary": "Convert subtitle content sent as JSON (for agents).",
-        "description": "Send \u0060content\u0060 as text (or base64 with contentEncoding=base64). Outputs come back as text for Unicode encodings, base64 otherwise.",
+        "description": "Send \u0060content\u0060 as text (or base64 with contentEncoding=base64; binary formats such as EBU STL must be base64). Outputs come back as text for Unicode encodings, base64 otherwise; binary targets are always base64.",
         "operationId": "convertJson",
+        "parameters": [
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -149,6 +361,86 @@
         "responses": {
           "200": {
             "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Detected-Format": {
+                "description": "Detected (or forced) source format id; single input only.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Detected-Encoding": {
+                "description": "Detected text encoding, or \u0060binary\u0060 for binary input.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Detected-Code-Page": {
+                "description": "Binary input only: EBU GSI code page (e.g. 850) or pac-\u003Cname\u003E.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Output-Kind": {
+                "description": "text | binary (first output).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Cue-Count": {
+                "description": "Cues in the (first) output.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Cue-Count-In": {
+                "description": "Cues read from the input.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Warnings-Count": {
+                "description": "Number of warnings.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Warnings": {
+                "description": "Warnings as compact JSON (ASCII, truncated to 4 KB).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Profile": {
+                "description": "Preset name, when one was used.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Entries-Ok": {
+                "description": "Zip input: entries converted.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Entries-Failed": {
+                "description": "Zip input: entries that failed.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Entries-Skipped": {
+                "description": "Zip input: entries skipped (nested zip, macOS metadata).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -159,65 +451,167 @@
           },
           "400": {
             "description": "Bad Request",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "404": {
             "description": "Not Found",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "413": {
             "description": "Payload Too Large",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "422": {
             "description": "Unprocessable Entity",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "503": {
-            "description": "Service Unavailable",
+            "description": "queue-full: retry after Retry-After seconds.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "504": {
-            "description": "Gateway Timeout",
+            "description": "conversion-timeout; \u0060phase\u0060 says whether it timed out in the queue (retryable) or while running.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/v1/formats": {
@@ -226,7 +620,7 @@
           "formats"
         ],
         "summary": "List subtitle formats.",
-        "description": "Use \u0060id\u0060 or an alias as source/target format. \u0060textOnly\u0060 defaults to true; V1 can only convert text formats.",
+        "description": "Use \u0060id\u0060 or an alias as source/target format. \u0060textOnly\u0060 defaults to true (text formats only, as in earlier versions). \u0060kind\u0060 is a comma list of text|binary|image|container and wins over \u0060textOnly\u0060; image/container formats are listed only via \u0060kind\u0060 and can\u0027t be converted. \u0060writable=true\u0060 keeps formats that can be a target.",
         "operationId": "listFormats",
         "parameters": [
           {
@@ -242,11 +636,42 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "writable",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -257,8 +682,163 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad Request",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/limits": {
+      "get": {
+        "tags": [
+          "info"
+        ],
+        "summary": "Effective limits of this server (upload, JSON body, zip, queue, timeouts).",
+        "description": "Lets clients pre-check inputs. \u0060queue.depth\u0060 is a live value. \u0060auth.required\u0060 says whether a bearer key is needed; keys are never exposed.",
+        "operationId": "getLimits",
+        "parameters": [
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LimitsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/v1/detect": {
@@ -267,8 +847,19 @@
           "formats"
         ],
         "summary": "Detect the format and encoding of a subtitle.",
-        "description": "Send multipart \u0060file\u0060, or JSON {content, contentEncoding, fileName}. 422 format-not-detected when nothing matches.",
+        "description": "Send multipart \u0060file\u0060, or JSON {content, contentEncoding, fileName} (binary files as base64). Returns \u0060kind\u0060, \u0060codePage\u0060 for binary input and up to 5 \u0060candidates\u0060. 422 format-not-detected when nothing matches.",
         "operationId": "detect",
+        "parameters": [
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -322,6 +913,14 @@
         "responses": {
           "200": {
             "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -332,35 +931,149 @@
           },
           "400": {
             "description": "Bad Request",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "415": {
             "description": "Unsupported Media Type",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           },
           "422": {
             "description": "Unprocessable Entity",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "queue-full: retry after Retry-After seconds.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "conversion-timeout; \u0060phase\u0060 says whether it timed out in the queue (retryable) or while running.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/v1/profiles": {
@@ -370,9 +1083,28 @@
         ],
         "summary": "List built-in and mounted presets, including invalid ones with their errors.",
         "operationId": "listProfiles",
+        "parameters": [
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -380,8 +1112,56 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/v1/profiles/{name}": {
@@ -399,11 +1179,28 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -414,15 +1211,89 @@
           },
           "404": {
             "description": "Not Found",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid-request: a parameter has an invalid value.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/v1/profiles/validate": {
@@ -433,6 +1304,17 @@
         "summary": "Validate a profile without converting.",
         "description": "Always 200 for a JSON object: \u0060valid\u0060, \u0060errors\u0060 (JSON pointer \u002B hint), \u0060warnings\u0060 and the resolved profile. 400 only for unparseable JSON.",
         "operationId": "validateProfile",
+        "parameters": [
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -447,6 +1329,14 @@
         "responses": {
           "200": {
             "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -457,15 +1347,71 @@
           },
           "400": {
             "description": "Bad Request",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/v1/schemas/profile.json": {
@@ -475,26 +1421,189 @@
         ],
         "summary": "JSON Schema (2020-12) for profiles.",
         "operationId": "profileSchema",
+        "parameters": [
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
       }
     }
   },
   "components": {
     "schemas": {
+      "ApiProblem": {
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail",
+          "hint"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "URL of the code\u0027s section in docs/errors.md."
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "code": {
+            "enum": [
+              "invalid-request",
+              "invalid-profile",
+              "empty-input",
+              "unauthorized",
+              "not-found",
+              "preset-not-found",
+              "payload-too-large",
+              "zip-limits-exceeded",
+              "unsafe-zip",
+              "unsupported-media-type",
+              "format-not-detected",
+              "format-not-supported",
+              "format-not-writable",
+              "format-option-invalid",
+              "invalid-binary-input",
+              "ambiguous-batch-names",
+              "encoding-error",
+              "unsafe-xml",
+              "input-limits-exceeded",
+              "conversion-failed",
+              "rate-limited",
+              "queue-full",
+              "conversion-timeout",
+              "internal-error"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "hint": {
+            "type": "string",
+            "description": "What to do about it."
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Same as the X-Request-Id header; absent inside manifest entries."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            }
+          },
+          "debug": {
+            "type": "object",
+            "description": "Diagnostics, only when ERRORS_VERBOSE=true. Never contains file content."
+          },
+          "entry": {
+            "type": "string",
+            "description": "Zip entry name, for per-entry and failFast errors."
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "ambiguous-batch-names only: clashing zip entry paths, one array per group."
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "ambiguous-batch-names only, for output-path clashes: the colliding output paths."
+          },
+          "phase": {
+            "enum": [
+              "queue",
+              "running"
+            ],
+            "type": "string",
+            "description": "conversion-timeout only: queue is retryable like 503."
+          }
+        },
+        "description": "RFC 7807 problem details with a stable \u0060code\u0060 (docs/errors.md). Extra members may appear: \u0060entry\u0060 (zip entry name), \u0060phase\u0060 (conversion-timeout: queue|running), \u0060groups\u0060/\u0060outputs\u0060 (ambiguous-batch-names)."
+      },
       "ConvertJsonRequest": {
         "required": [
-          "content",
-          "contentEncoding",
-          "fileName",
-          "preset",
-          "profile",
-          "target",
-          "responseEncoding",
-          "failFast"
+          "content"
         ],
         "type": "object",
         "properties": {
@@ -644,6 +1753,22 @@
             "items": {
               "type": "string"
             }
+          },
+          "kind": {
+            "type": "string",
+            "default": "text"
+          },
+          "codePage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "formatDetails": {
+            "type": [
+              "null",
+              "object"
+            ]
           }
         }
       },
@@ -655,18 +1780,17 @@
         "type": "object",
         "properties": {
           "pointer": {
-            "type": "string"
+            "type": "string",
+            "description": "JSON pointer, e.g. /target/format or /file/entries/2; for ambiguous-batch-names the zip entry path."
           },
           "message": {
             "type": "string"
           },
           "hint": {
-            "type": [
-              "null",
-              "string"
-            ]
+            "type": "string"
           }
-        }
+        },
+        "description": "A problem located by a JSON pointer (profile field, zip entry, query parameter, ...)."
       },
       "FormatInfo": {
         "required": [
@@ -730,11 +1854,250 @@
           },
           "mediaType": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "default": "text"
+          },
+          "lossy": {
+            "type": "boolean",
+            "default": false
+          },
+          "options": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
       "JsonObject": {
         "type": "object"
+      },
+      "LimitsAuth": {
+        "required": [
+          "required"
+        ],
+        "type": "object",
+        "properties": {
+          "required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LimitsBinary": {
+        "required": [
+          "ebuStlMaxBytes"
+        ],
+        "type": "object",
+        "properties": {
+          "ebuStlMaxBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "LimitsBodyBytes": {
+        "required": [
+          "multipart",
+          "json"
+        ],
+        "type": "object",
+        "properties": {
+          "multipart": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "json": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "LimitsJson": {
+        "required": [
+          "maxDecodedContentBytes",
+          "base64"
+        ],
+        "type": "object",
+        "properties": {
+          "maxDecodedContentBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "base64": {
+            "type": "string"
+          }
+        }
+      },
+      "LimitsQueue": {
+        "required": [
+          "capacity",
+          "depth"
+        ],
+        "type": "object",
+        "properties": {
+          "capacity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "depth": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "LimitsResponse": {
+        "required": [
+          "maxUploadBytes",
+          "maxRequestBodyBytes",
+          "json",
+          "maxProfileBytes",
+          "maxCues",
+          "maxLineChars",
+          "zip",
+          "conversionTimeoutSeconds",
+          "queue",
+          "rateLimitPerMinute",
+          "auth",
+          "binary"
+        ],
+        "type": "object",
+        "properties": {
+          "maxUploadBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "maxRequestBodyBytes": {
+            "$ref": "#/components/schemas/LimitsBodyBytes"
+          },
+          "json": {
+            "$ref": "#/components/schemas/LimitsJson"
+          },
+          "maxProfileBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxCues": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxLineChars": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "zip": {
+            "$ref": "#/components/schemas/LimitsZip"
+          },
+          "conversionTimeoutSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/LimitsQueue"
+          },
+          "rateLimitPerMinute": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/LimitsAuth"
+          },
+          "binary": {
+            "$ref": "#/components/schemas/LimitsBinary"
+          }
+        }
+      },
+      "LimitsZip": {
+        "required": [
+          "maxEntries",
+          "maxUnpackedBytes",
+          "maxRatio",
+          "maxEntryBytes"
+        ],
+        "type": "object",
+        "properties": {
+          "maxEntries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxUnpackedBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "maxRatio": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "maxEntryBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
       },
       "ManifestEntry": {
         "required": [
@@ -751,6 +2114,11 @@
             "type": "string"
           },
           "status": {
+            "enum": [
+              "ok",
+              "error",
+              "skipped"
+            ],
             "type": "string"
           },
           "outputs": {
@@ -781,9 +2149,34 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/JsonObject"
+                "$ref": "#/components/schemas/ApiProblem"
               }
+            ],
+            "description": "The entry\u0027s problem (ApiProblem without requestId); the request\u0027s X-Request-Id covers all entries."
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
             ]
+          },
+          "codePage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "enum": [
+              "nested-zip",
+              "macos-metadata",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Why a skipped entry wasn\u0027t converted."
           }
         }
       },
@@ -834,6 +2227,10 @@
               "null",
               "string"
             ]
+          },
+          "kind": {
+            "type": "string",
+            "default": "text"
           }
         }
       },
@@ -997,44 +2394,6 @@
           }
         }
       },
-      "ProblemDetails": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "title": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "status": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "detail": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "instance": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "ProfilesResponse": {
         "required": [
           "profiles",
@@ -1154,8 +2513,24 @@
           },
           "message": {
             "type": "string"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "description": "API key as a bearer token. Required only when the server has API_KEYS/API_KEYS_FILE set (GET /v1/limits \u2192 auth.required).",
+        "scheme": "bearer"
       }
     }
   },
@@ -1165,6 +2540,9 @@
     },
     {
       "name": "formats"
+    },
+    {
+      "name": "info"
     },
     {
       "name": "profiles"

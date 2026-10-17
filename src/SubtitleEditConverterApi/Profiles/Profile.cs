@@ -51,7 +51,33 @@ public sealed record OperationSpec
     public List<ReplaceRule>? Replacements { get; init; }
 }
 public sealed record AssaOptions(int? PlayResX, int? PlayResY, string? StyleBlock);
-public sealed record FormatOptionsSpec(AssaOptions? Assa);
+public sealed record FormatOptionsSpec(AssaOptions? Assa, EbuStlOptions? EbuStl = null, PacOptions? Pac = null, Cavena890Options? Cavena890 = null, CheetahOptions? Cheetah = null);
+public sealed record EbuTeletextOptions(bool? UseBox, bool? DoubleHeight, int? MarginTop, int? MarginBottom, int? NewLineRows);
+public sealed record EbuStlOptions
+{
+    public string? CodePage { get; init; }
+    public string? CharacterTable { get; init; }
+    public string? DisplayStandard { get; init; }
+    public double? FrameRate { get; init; }
+    public string? Language { get; init; }
+    public string? OriginalProgrammeTitle { get; init; }
+    public string? OriginalEpisodeTitle { get; init; }
+    public string? TranslatedProgrammeTitle { get; init; }
+    public string? TranslatorsName { get; init; }
+    public string? Publisher { get; init; }
+    public string? CountryOfOrigin { get; init; }
+    public string? TimecodeStartOfProgramme { get; init; }
+    public int? MaxCharsPerRow { get; init; }
+    public int? MaxRows { get; init; }
+    public EbuTeletextOptions? Teletext { get; init; }
+    public bool? RemoveEmptyLines { get; init; }
+    public double? ReadFrameRate { get; init; }
+    public bool? HeaderFromSource { get; init; }
+}
+/// <summary>codePage/inputCodePage take a name or a number 0..12 (seconv --pac-codepage), so they stay JSON.</summary>
+public sealed record PacOptions(JsonElement? CodePage, JsonElement? InputCodePage, int? VerticalTop, int? VerticalCenter, int? VerticalBottom);
+public sealed record Cavena890Options(string? Language, string? Title, string? OriginalTitle, string? Translator, string? Comment, string? StartOfMessage);
+public sealed record CheetahOptions(bool? AlwaysWriteEndTime);
 
 public static class ProfileJson
 {

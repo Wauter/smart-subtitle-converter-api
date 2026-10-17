@@ -478,7 +478,7 @@ public static class OperationCatalog
     }
 }
 
-public sealed record Warning(string Code, string Message);
+public sealed record Warning(string Code, string Message, int? Count = null);
 
 /// <summary>Language detection with a one-entry cache, like seconv's SubtitleLanguageDetector.</summary>
 public static class Language

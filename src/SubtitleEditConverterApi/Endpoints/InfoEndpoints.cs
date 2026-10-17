@@ -12,26 +12,65 @@ public sealed record PresetDetail(string Name, string Origin, string? Path, bool
 public sealed record ProfilesResponse(List<PresetSummary> Profiles, string? ProfilesDir, string? MountError);
 public sealed record ValidateResponse(bool Valid, List<FieldError> Errors, List<FieldError> Warnings, JsonObject? Resolved);
 
+public sealed record LimitsBodyBytes(long Multipart, long Json);
+public sealed record LimitsJson(long MaxDecodedContentBytes, string Base64);
+public sealed record LimitsZip(int MaxEntries, long MaxUnpackedBytes, double MaxRatio, long MaxEntryBytes);
+public sealed record LimitsQueue(int Capacity, int Depth);
+public sealed record LimitsAuth(bool Required);
+public sealed record LimitsBinary(long EbuStlMaxBytes);
+public sealed record LimitsResponse(long MaxUploadBytes, LimitsBodyBytes MaxRequestBodyBytes, LimitsJson Json, int MaxProfileBytes, int MaxCues, int MaxLineChars,
+    LimitsZip Zip, int ConversionTimeoutSeconds, LimitsQueue Queue, int RateLimitPerMinute, LimitsAuth Auth, LimitsBinary Binary)
+{
+    /// <summary>libse's EBU IsMine rejects files of 2,048,000 bytes or more.</summary>
+    public const long EbuStlMaxBytes = 2_047_999;
+
+    public static LimitsResponse From(ApiOptions o, ConversionQueue q, ApiKeyStore keys) =>
+        new(o.MaxUploadBytes, new LimitsBodyBytes(o.MaxMultipartBodyBytes, o.MaxJsonBodyBytes),
+            new LimitsJson(o.MaxUploadBytes, "encoded length = 4*ceil(n/3); already included in maxRequestBodyBytes.json"),
+            o.ProfileMaxBytes, o.MaxCues, o.MaxLineChars, new LimitsZip(o.ZipMaxEntries, o.ZipMaxUnpackedBytes, o.ZipMaxRatio, o.MaxUploadBytes),
+            o.ConversionTimeoutSeconds, new LimitsQueue(q.Capacity, q.Depth), o.RateLimitPerMinute, new LimitsAuth(keys.Enabled), new LimitsBinary(EbuStlMaxBytes));
+}
+
 public static class InfoEndpoints
 {
     public static void Map(RouteGroupBuilder v1)
     {
-        v1.MapGet("/formats", (FormatRegistry reg, string? q, bool? textOnly) =>
+        v1.MapGet("/formats", (FormatRegistry reg, string? q, bool? textOnly, string? kind, bool? writable) =>
         {
             IEnumerable<FormatInfo> list = reg.All;
-            if (textOnly ?? true) list = list.Where(f => f.TextBased);
+            if (!string.IsNullOrWhiteSpace(kind))
+            {
+                var kinds = kind.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(k => k.ToLowerInvariant()).ToHashSet();
+                var bad = kinds.Where(k => !FormatKinds.All.Contains(k)).ToList();
+                if (bad.Count > 0)
+                    throw new ApiException(400, ErrorCodes.InvalidRequest, $"Unknown kind '{bad[0]}'.", $"Use a comma list of: {string.Join(", ", FormatKinds.All)}.")
+                    { Errors = [new("/query/kind", $"Unknown kind '{bad[0]}'.")] };
+                list = list.Where(f => kinds.Contains(f.Kind)); // kind wins over textOnly
+            }
+            else if (textOnly ?? true) list = list.Where(f => f.Kind == FormatKinds.Text);
+            else list = list.Where(f => f.Kind is FormatKinds.Text or FormatKinds.Binary); // image/container only via kind=
+            if (writable == true) list = list.Where(f => f.CanWrite);
             if (!string.IsNullOrWhiteSpace(q))
                 list = list.Where(f => f.Id.Contains(q, StringComparison.OrdinalIgnoreCase) || f.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
                                        || f.Aliases.Any(a => a.Equals(q, StringComparison.OrdinalIgnoreCase)) || f.Extension.Equals(q.StartsWith('.') ? q : "." + q, StringComparison.OrdinalIgnoreCase));
             return Results.Json(list.ToList(), Json.Options);
         }).WithName("listFormats").WithTags("formats")
           .WithSummary("List subtitle formats.")
-          .WithDescription("Use `id` or an alias as source/target format. `textOnly` defaults to true; V1 can only convert text formats.")
-          .Produces<List<FormatInfo>>();
+          .WithDescription("Use `id` or an alias as source/target format. `textOnly` defaults to true (text formats only, as in earlier versions). `kind` is a comma list of text|binary|image|container and wins over `textOnly`; image/container formats are listed only via `kind` and can't be converted. `writable=true` keeps formats that can be a target.")
+          .Produces<List<FormatInfo>>().ProducesProblem(400);
+
+        v1.MapGet("/limits", (HttpContext ctx, ApiOptions opts, ConversionQueue queue, ApiKeyStore keys) =>
+        {
+            ctx.Response.Headers.CacheControl = "no-store";
+            return Results.Json(LimitsResponse.From(opts, queue, keys), Json.Options);
+        }).WithName("getLimits").WithTags("info")
+          .WithSummary("Effective limits of this server (upload, JSON body, zip, queue, timeouts).")
+          .WithDescription("Lets clients pre-check inputs. `queue.depth` is a live value. `auth.required` says whether a bearer key is needed; keys are never exposed.")
+          .Produces<LimitsResponse>();
 
         v1.MapPost("/detect", Detect).WithName("detect").WithTags("formats")
           .WithSummary("Detect the format and encoding of a subtitle.")
-          .WithDescription("Send multipart `file`, or JSON {content, contentEncoding, fileName}. 422 format-not-detected when nothing matches.")
+          .WithDescription("Send multipart `file`, or JSON {content, contentEncoding, fileName} (binary files as base64). Returns `kind`, `codePage` for binary input and up to 5 `candidates`. 422 format-not-detected when nothing matches.")
           .WithBody(new()
           {
               ["multipart/form-data"] = OpenApiBodies.Multipart(new() { ["encoding"] = "Optional: force the input encoding." }),
@@ -73,7 +112,7 @@ public static class InfoEndpoints
             using var reader = new StreamReader(ctx.Request.Body);
             var body = await reader.ReadToEndAsync(ctx.RequestAborted);
             if (body.Length > opts.ProfileMaxBytes)
-                throw new ApiException(413, ErrorCodes.PayloadTooLarge, "The profile is larger than 64 KB.", "Keep profiles small.");
+                throw ConvertEndpoints.ProfileTooLarge(opts);
             var obj = ProfileJson.ParseObject(body, "The request body");
             ResolveResult r;
             try

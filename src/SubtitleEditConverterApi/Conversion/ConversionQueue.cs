@@ -20,6 +20,8 @@ public sealed class ConversionQueue : IDisposable
         public readonly TaskCompletionSource<object> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public long EnqueuedTicks = Stopwatch.GetTimestamp();
         public volatile bool Abandoned;
+        /// <summary>The job's private temp dir (binary formats); deleted when the job ends or is abandoned.</summary>
+        public readonly Binary.JobTemp Temp = new();
     }
 
     private readonly Channel<Job> _channel;
@@ -94,6 +96,7 @@ public sealed class ConversionQueue : IDisposable
 
             if (job.Cancel.IsCancellationRequested || job.Abandoned)
             {
+                job.Temp.Dispose();
                 job.Done.TrySetCanceled();
                 continue; // client went away / deadline passed while queued: never run it
             }
@@ -103,6 +106,7 @@ public sealed class ConversionQueue : IDisposable
             var sw = Stopwatch.StartNew();
             try
             {
+                Binary.BinaryIO.Current = job.Temp;
                 var result = job.Work();
                 job.Done.TrySetResult(result);
             }
@@ -112,6 +116,8 @@ public sealed class ConversionQueue : IDisposable
             }
             finally
             {
+                Binary.BinaryIO.Current = null;
+                job.Temp.Dispose();
                 if (gen == Volatile.Read(ref _generation)) SettingsScope.Reset(); // an abandoned worker must not touch the new one's settings
                 sw.Stop();
                 Volatile.Write(ref _runningSinceTicks, 0);
@@ -159,8 +165,9 @@ public sealed class ConversionQueue : IDisposable
         catch (TimeoutException)
         {
             job.Abandoned = true;
+            job.Temp.Dispose();
             Interlocked.Increment(ref TimedOut);
-            throw Timeout("waiting in the queue");
+            throw Timeout("waiting in the queue", "queue");
         }
         catch (OperationCanceledException)
         {
@@ -180,14 +187,24 @@ public sealed class ConversionQueue : IDisposable
             Interlocked.Increment(ref TimedOut);
             lock (_lock) _timeouts.Enqueue(DateTimeOffset.UtcNow);
             _log.LogWarning("conversion.timeout after {seconds}s; recycling worker", _opts.ConversionTimeoutSeconds);
+            job.Temp.Dispose(); // the stuck job's temp files go now, not when (if) libse returns
             StartWorker(); // abandon the stuck thread; it exits when (if) its job returns
-            throw Timeout("running");
+            // Belt and braces: job dirs older than two budgets belong to no live job.
+            try { Binary.BinaryIO.SweepJobs(budget * 2, except: null); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            throw Timeout("running", "running");
         }
     }
 
-    private ApiException Timeout(string phase) =>
-        new(504, ErrorCodes.ConversionTimeout, $"Conversion exceeded {_opts.ConversionTimeoutSeconds} s while {phase}.",
-            "Split the file or simplify operations; CONVERSION_TIMEOUT_SECONDS sets the budget.");
+    /// <summary>504 with a machine-readable phase: "queue" is retryable like 503, "running" means split or simplify.</summary>
+    private ApiException Timeout(string what, string phase)
+    {
+        var ex = new ApiException(504, ErrorCodes.ConversionTimeout, $"Conversion exceeded {_opts.ConversionTimeoutSeconds} s while {what}.",
+            phase == "queue"
+                ? "The server is busy: retry later (like 503 queue-full), or scale out with more replicas."
+                : "Split the file or simplify operations; CONVERSION_TIMEOUT_SECONDS sets the budget.");
+        ex.Extensions["phase"] = phase;
+        return ex;
+    }
 
     public void Dispose()
     {
