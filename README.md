@@ -1,16 +1,16 @@
 # Subtitle Edit Converter API
 
-**Subtitle Edit's conversion engine as a hardened HTTP service, with checks that catch what a plain conversion
-would let slip.**
+**Subtitle Edit's conversion engine as an HTTP service, with checks that catch what a plain conversion would let
+slip.**
 
 > **Built on Subtitle Edit.** All format reading and writing is done by `libse`, the library behind
 > [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) by **Nikolaj Olsson** (MIT). This project is a
 > community wrapper, **not an official Subtitle Edit project**.
 
 `libse` is the mature, widely used engine behind Subtitle Edit and reads and writes a long list of subtitle formats.
-This API wraps it in a locked-down container and adds what a server needs: a single-worker queue that keeps libse's
-global settings safe, binary broadcast formats with a read-back verdict on every output, warnings that name a tested
-fix, and rejection of ambiguous input instead of a guess.
+This API runs it in a container and adds what a server needs: a single-worker queue (libse's settings are global),
+binary broadcast formats with a read-back verdict on every output, warnings that name a tested fix, and rejection
+of ambiguous input instead of a guess.
 
 ## What it adds to the engine
 
@@ -24,10 +24,10 @@ fix, and rejection of ambiguous input instead of a guess.
   candidates, instead of being converted as the wrong format.
 - **Presets and profiles:** built-in presets (`netflix-en-vtt`, `pal-to-film`, `clean-srt`, …), your own JSON
   presets in a mounted folder (picked up without a restart), and Subtitle Edit operations such as Fix Common Errors.
-- **Safe under load:** libse uses global settings, so one worker runs one job at a time from a bounded queue;
+- **One job at a time:** libse uses global settings, so one worker runs one job at a time from a bounded queue;
   settings are reset after every job, and a full queue answers `503` with `Retry-After`.
 - **Batch and detection:** zip in, zip out with a `manifest.json`; `/v1/detect` names format, encoding and code page.
-- **Hardened container:** amd64/arm64, chiseled ASP.NET Core base with no shell, a non-root user, and a
+- **Container defaults:** amd64/arm64, chiseled ASP.NET Core base with no shell, a non-root user, and a
   reference Compose that adds a read-only root filesystem, dropped capabilities and a `127.0.0.1`-only port.
   API keys and rate limits are optional.
 - **Agent-friendly:** a JSON endpoint, an OpenAPI contract, a JSON Schema for profiles, and stable error codes with

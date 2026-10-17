@@ -1,6 +1,7 @@
 # Security
 
-The API is built to run safely on your own machine by default and to be exposed only deliberately.
+The safeguards that exist today, and how to change them. By default the API is reachable only from your own
+machine; exposing it is a deliberate configuration change.
 
 ## Defaults
 
