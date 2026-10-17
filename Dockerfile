@@ -38,6 +38,8 @@ RUN PATH="$PATH:/usr/sbin" TARGETARCH=$TARGETARCH sh /icu-slim.sh
 # No shell, no package manager, non-root (UID 1654).
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-noble-chiseled AS base-slim
 COPY --from=icu /out/ /
+# Plain chiseled defaults to invariant mode (no ICU); turn ICU back on now that it is present.
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-noble-chiseled-extra AS base-extra
 
