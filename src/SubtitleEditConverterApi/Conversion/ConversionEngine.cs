@@ -12,9 +12,15 @@ using SubtitleEditConverterApi.Profiles;
 
 namespace SubtitleEditConverterApi.Conversion;
 
+/// <summary>
+/// What detection found. <c>bom</c> and <c>lineEndings</c> (crlf|lf|cr|mixed|none) are set for text input only.
+/// <c>warnings</c> (zero-length-cue, source-replacement-chars) is set by /v1/detect only; conversions put them in the
+/// response's warnings.
+/// </summary>
 public sealed record DetectedInfo(string Format, string Id, string Encoding, string EncodingConfidence, string? Language, int Paragraphs, List<string>? Candidates = null,
-    string Kind = FormatKinds.Text, string? CodePage = null, Dictionary<string, object?>? FormatDetails = null);
-public sealed record ConvertedOutput(string FileName, FormatInfo Format, byte[] Bytes, string EncodingName, bool Unicode, int Cues);
+    string Kind = FormatKinds.Text, string? CodePage = null, Dictionary<string, object?>? FormatDetails = null,
+    bool? Bom = null, string? LineEndings = null, List<Warning>? Warnings = null);
+public sealed record ConvertedOutput(string FileName, FormatInfo Format, byte[] Bytes, string EncodingName, bool Unicode, int Cues, Verification? Verification = null);
 public sealed record ConversionResult(List<ConvertedOutput> Outputs, DetectedInfo Detected, int ParagraphsIn, List<Warning> Warnings, long ElapsedMs);
 
 /// <summary>What Load found: the subtitle, its format, and how it was decoded (text) or read (binary).</summary>
@@ -28,7 +34,7 @@ internal sealed record Loaded(Subtitle Subtitle, SubtitleFormat Format, FormatIn
 /// Text stays in memory; binary formats go through a private temp file because libse's binary
 /// readers need a path (BinaryIO). MUST run on the conversion worker: it mutates libse's global settings.
 /// </summary>
-public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions opts)
+public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions opts, ILogger<ConversionEngine> log)
 {
     /// <summary>Stand-in DecodedText for binary input: reported as encoding "binary", confidence "n/a".</summary>
     private static DecodedText BinaryDecoded() => new("", new UTF8Encoding(true), "binary", "n/a", true);
@@ -46,6 +52,7 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             var (subtitle, sourceFormat, sourceInfo, decoded) = (loaded.Subtitle, loaded.Format, loaded.Info, loaded.Decoded);
             var paragraphsIn = subtitle.Paragraphs.Count;
             var language = Language.DetectOrNull(subtitle);
+            warnings.AddRange(SourceChecks.Check(subtitle, decoded, loaded.IsBinary));
             if (loaded.IsBinary && (profile.Encoding?.Input != null || profile.Encoding?.InputFallback != null))
                 warnings.Add(new("encoding-ignored", $"encoding.input/inputFallback don't apply to binary source '{sourceInfo.Id}'; its character set comes from the file."));
 
@@ -87,8 +94,8 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
                     {
                         if (profile.Encoding?.Output != null)
                             warnings.Add(new("encoding-ignored", $"encoding.output doesn't apply to binary target '{info.Id}'; its character set comes from formatOptions."));
-                        var (data, encName) = WriteBinary(copy, info, format, loaded, profile, name, temp, warnings);
-                        outputs.Add(new ConvertedOutput(name, info, data, encName, false, copy.Paragraphs.Count));
+                        var (data, encName, verification) = WriteBinary(copy, info, format, loaded, profile, name, temp, language, warnings);
+                        outputs.Add(new ConvertedOutput(name, info, data, encName, false, copy.Paragraphs.Count, verification));
                         continue;
                     }
                     if (loaded.IsBinary && string.Equals(profile.Encoding?.Output, "source", StringComparison.OrdinalIgnoreCase))
@@ -115,7 +122,8 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
                         outputs[i] = outputs[i] with { FileName = $"{stem}.{outputs[i].Format.Id}.{outputs[i].Format.Extension.TrimStart('.')}" };
             }
             var detected = new DetectedInfo(sourceInfo.Name, sourceInfo.Id, decoded.EncodingName, decoded.Confidence, language, paragraphsIn,
-                Kind: sourceInfo.Kind, CodePage: loaded.CodePage, FormatDetails: loaded.Details);
+                Kind: sourceInfo.Kind, CodePage: loaded.CodePage, FormatDetails: loaded.Details,
+                Bom: loaded.IsBinary ? null : decoded.HadBom, LineEndings: loaded.IsBinary ? null : SourceChecks.LineEndings(decoded.Text));
             return new ConversionResult(outputs, detected, paragraphsIn, warnings, sw.ElapsedMilliseconds);
         }
         finally
@@ -133,8 +141,11 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         try
         {
             var l = Load(bytes, fileName, new Profile { Encoding = new EncodingOptions(forcedEncoding, null, null) }, temp, collectCandidates: true);
+            var warnings = SourceChecks.Check(l.Subtitle, l.Decoded, l.IsBinary);
             return new DetectedInfo(l.Info.Name, l.Info.Id, l.Decoded.EncodingName, l.Decoded.Confidence, Language.DetectOrNull(l.Subtitle), l.Subtitle.Paragraphs.Count,
-                l.Candidates, l.Info.Kind, l.CodePage, l.Details);
+                l.Candidates, l.Info.Kind, l.CodePage, l.Details,
+                Bom: l.IsBinary ? null : l.Decoded.HadBom, LineEndings: l.IsBinary ? null : SourceChecks.LineEndings(l.Decoded.Text),
+                Warnings: warnings.Count > 0 ? warnings : null);
         }
         finally
         {
@@ -272,8 +283,47 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
                 // A reader that throws on foreign bytes simply isn't this format.
             }
         }
-        if (first != null) RestoreAfterProbes(first, bytes, file, profile);
+        if (first != null)
+        {
+            CheckPacAmbiguity(first, bytes, callerExt, file, profile);
+            RestoreAfterProbes(first, bytes, file, profile);
+        }
         return (first, candidates);
+    }
+
+    private static readonly string[] PacFamily = ["pacscreenelectronics", "pacunicodeunipac"];
+
+    /// <summary>
+    /// PAC and PAC Unicode (FPC) share their header bytes, so the bytes alone can't tell them apart. Only a
+    /// .pac / .fpc file name decides; otherwise reject (Wauter, 2026-10-17: ambiguity is rejected, never guessed).
+    /// An explicit source.format never gets here.
+    /// </summary>
+    private void CheckPacAmbiguity(Loaded winner, byte[] bytes, string? callerExt, TempFile file, Profile profile)
+    {
+        if (!PacFamily.Contains(winner.Info.Id) || callerExt is ".pac" or ".fpc") return;
+        var otherId = PacFamily.First(id => id != winner.Info.Id);
+        var (otherInfo, other) = formats.Resolve(otherId, "/source/format");
+        bool both;
+        try
+        {
+            file.WithExtension(otherInfo.Extension);
+            both = other.IsMine([], file.Path) && ReadWith(other, otherInfo, bytes, file.Path, profile).Subtitle is { Paragraphs.Count: > 0 } s && Plausible(s);
+        }
+        catch
+        {
+            both = false;
+        }
+        if (!both) return;
+        var names = PacFamily.Select(id => formats.Find(id)!).ToList();
+        var ex = new ApiException(422, ErrorCodes.AmbiguousFormat,
+            $"The bytes are valid as both {names[0].Name} and {names[1].Name}: the two formats share their header, and no .pac or .fpc file name decides it.",
+            "Set profile.source.format to 'pac' (PAC, 8-bit code pages) or 'fpc' (PAC Unicode), or send the file with its .pac / .fpc name (for /v1/detect: fileName).")
+        {
+            Errors = [new FieldError("/source/format", "Ambiguous: pacscreenelectronics or pacunicodeunipac.", "Set it to 'pac' or 'fpc'.")],
+        };
+        ex.Extensions["candidates"] = PacFamily;
+        ex.Debug["callerExtension"] = callerExt;
+        throw ex;
     }
 
     /// <summary>
@@ -368,7 +418,7 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         return total > 0 && good >= total * 0.9;
     }
 
-    private (byte[] Bytes, string EncodingName) WriteBinary(Subtitle copy, FormatInfo info, SubtitleFormat format, Loaded source, Profile profile, string fileName, JobTemp temp, List<Warning> warnings)
+    private (byte[] Bytes, string EncodingName, Verification Verification) WriteBinary(Subtitle copy, FormatInfo info, SubtitleFormat format, Loaded source, Profile profile, string fileName, JobTemp temp, string? language, List<Warning> warnings)
     {
         var g = Configuration.Settings.General;
         var savedFps = g.CurrentFrameRate;
@@ -411,8 +461,8 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             var bytes = BinaryIO.Save(format, copy, fileName, header);
             if (info.Lossy)
                 warnings.Add(new("lossy-format", $"{info.Name} can't store everything: characters outside its table are dropped or replaced, and timing may shift."));
-            Verify(bytes, info, format, expected, frame, encName, temp, profile, warnings);
-            return (bytes, encName);
+            var verification = Verify(bytes, info, format, expected, frame, encName, temp, language, warnings);
+            return (bytes, encName, verification);
         }
         finally
         {
@@ -421,10 +471,12 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
     }
 
     /// <summary>
-    /// Re-read the written bytes and compare with what we meant to write (plan §4.3): characters the
-    /// target couldn't encode, cues lost, and timing moved to frame boundaries become warnings, never silence.
+    /// Re-read the written bytes and compare with what we meant to write (plan §4.3, structured in 1.2.0):
+    /// characters the target couldn't encode, cut-off text, lost cues and timing moved to frame boundaries
+    /// become a <see cref="Verification"/> plus warnings, never silence. A reader that throws on our own
+    /// output gives verdict "unverified" with the reason and a verification-failed warning.
     /// </summary>
-    private void Verify(byte[] bytes, FormatInfo info, SubtitleFormat writer, Subtitle expected, double frameMs, string encName, JobTemp temp, Profile profile, List<Warning> warnings)
+    private Verification Verify(byte[] bytes, FormatInfo info, SubtitleFormat writer, Subtitle expected, double frameMs, string encName, JobTemp temp, string? language, List<Warning> warnings)
     {
         var g = Configuration.Settings.General;
         var ss = Configuration.Settings.SubtitleSettings;
@@ -438,51 +490,22 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             if (reader is Pac rp && writer is Pac wp) rp.CodePage = wp.CodePage;
             back = BinaryIO.Load(reader, bytes, file.Path);
         }
-        catch
+        catch (Exception ex)
         {
-            return; // verification is best effort; the bytes were written
+            // Exception type only: messages from readers could quote file content.
+            log.LogWarning("verify.readback-failed format={format} exception={exception}", info.Id, ex.GetType().Name);
+            var reason = $"The {info.Name} output couldn't be read back by libse's {info.Name} reader ({ex.GetType().Name}).";
+            warnings.Add(new("verification-failed", reason + " The file was written but not checked.", null,
+                "Check the file in the target software; report it with the requestId if it was written from valid input."));
+            return Verifier.Unverified(expected.Paragraphs.Count, reason);
         }
         finally
         {
             (g.CurrentFrameRate, Ebu.OverrideReadFrameRate, ss.CurrentCavena890LanguageIdLine1, ss.CurrentCavena890LanguageIdLine2) = (fps, ovr, l1, l2);
         }
-        if (back.Paragraphs.Count != expected.Paragraphs.Count)
-        {
-            warnings.Add(new("lossy-format", $"{back.Paragraphs.Count} of {expected.Paragraphs.Count} cues read back from the {info.Name} output.", expected.Paragraphs.Count - back.Paragraphs.Count));
-            return;
-        }
-        var replaced = 0;
-        var drift = 0.0;
-        for (var i = 0; i < expected.Paragraphs.Count; i++)
-        {
-            var a = expected.Paragraphs[i];
-            var b = back.Paragraphs[i];
-            replaced += MissingChars(Normalize(a.Text), Normalize(b.Text));
-            drift = Math.Max(drift, Math.Max(Math.Abs(a.StartTime.TotalMilliseconds - b.StartTime.TotalMilliseconds), Math.Abs(a.EndTime.TotalMilliseconds - b.EndTime.TotalMilliseconds)));
-        }
-        if (replaced > 0)
-            warnings.Add(new("characters-replaced", $"{replaced} character(s) couldn't be encoded in {encName} and were replaced or dropped.", replaced));
-        if (drift > 1.5 && drift <= frameMs + 1.5)
-            warnings.Add(new("frame-quantised", $"Times were rounded to {info.Name} frames (up to {Math.Round(drift)} ms at {Math.Round(1000 / frameMs, 3)} fps)."));
-        else if (drift > frameMs + 1.5 && !info.Lossy)
-            warnings.Add(new("lossy-format", $"Timing changed by up to {Math.Round(drift)} ms when read back from the {info.Name} output."));
-    }
-
-    private static string Normalize(string? text) =>
-        new((HtmlUtil.RemoveHtmlTags(text ?? "", true)).Where(c => !char.IsWhiteSpace(c)).ToArray());
-
-    /// <summary>Characters of <paramref name="want"/> missing from <paramref name="got"/> (multiset difference).</summary>
-    internal static int MissingChars(string want, string got)
-    {
-        var counts = new Dictionary<char, int>();
-        foreach (var c in got) counts[c] = counts.GetValueOrDefault(c) + 1;
-        var missing = 0;
-        foreach (var c in want)
-        {
-            if (counts.TryGetValue(c, out var n) && n > 0) counts[c] = n - 1;
-            else missing++;
-        }
-        return missing;
+        var (v, w) = Verifier.Compare(expected, back, info, frameMs, encName, language);
+        warnings.AddRange(w);
+        return v;
     }
 
     private ApiException NotDetected(DecodedText decoded, List<string> lines, string detail, Exception? inner)

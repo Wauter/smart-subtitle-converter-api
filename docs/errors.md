@@ -15,6 +15,8 @@ Extension members:
 - `entry`: the zip entry name, on per-entry errors in the manifest and on `failFast=true` errors.
 - `phase`: on `conversion-timeout`, either `queue` (the job never started; retry like a 503) or
   `running` (the conversion itself was too slow; split the file or simplify operations).
+- `candidates`: on `ambiguous-format`, the format ids the bytes match (`pacscreenelectronics`,
+  `pacunicodeunipac`).
 - `groups`: on `ambiguous-batch-names`, an array of arrays of zip entry paths that clash. Output-path
   clashes also carry `outputs`, the clashing output paths. Here `errors[].pointer` is the **entry path**
   (e.g. `s1/ep1.srt`), not a JSON pointer.
@@ -41,6 +43,7 @@ request's `X-Request-Id` covers all entries.
 | 422 | <a id="encoding-error"></a>`encoding-error` | Reserved: the input could not be decoded; set `encoding.input`. |
 | 422 | <a id="unsafe-xml"></a>`unsafe-xml` | DTD / entity declarations are not allowed. |
 | 422 | <a id="ambiguous-batch-names"></a>`ambiguous-batch-names` | Two or more zip entries share a folder and stem (the file name without its last extension, case-insensitive: `ep1.srt` + `EP1.vtt`). Their outputs would collide. Checked before any conversion, whatever `failFast` says. The same code is used when final output paths still collide after conversion (a `target.fileName` template without `{stem}`, `manifest.json`). Names are never renamed or overwritten. Rename the entries or use folders. |
+| 422 | <a id="ambiguous-format"></a>`ambiguous-format` | Since 1.2.0. Auto-detection found bytes that are valid as both PAC (Screen Electronics) and PAC Unicode (FPC): the two formats share their header, so only a `.pac` / `.fpc` file name decides. Without one (no file name, `.bin`, inline content) the input is rejected instead of guessed. `candidates` lists both ids; `errors[0].pointer` is `/source/format`. Set `profile.source.format` to `pac` or `fpc`, or send the file under its real extension (for `/v1/detect`: `fileName`). Zip entries are checked the same way, by entry name. |
 | 422 | <a id="unsafe-zip"></a>`unsafe-zip` | A zip entry name has a `..` path segment, an absolute path, a drive letter or a backslash. (`a..b.srt` is fine.) |
 | 422 | <a id="input-limits-exceeded"></a>`input-limits-exceeded` | More than `MAX_CUES` cues or a line over `MAX_LINE_CHARS`. |
 | 422 | <a id="conversion-failed"></a>`conversion-failed` | An operation or writer threw; `debug.operation` names it. |
@@ -52,14 +55,60 @@ request's `X-Request-Id` covers all entries.
 ## Warning codes
 
 Warnings are not errors: the conversion succeeded. They appear in `warnings[]`, the manifest and
-`X-Warnings`/`X-Warnings-Count`. The binary-format ones:
+`X-Warnings`/`X-Warnings-Count`. Each warning has `code` and `message`, and may have `count`, `hint` (what
+to do) and `details` (since 1.2.0: `cueCount`, `cues` (1-based cue numbers, at most 20 listed),
+`distinctCodePoints`, `codePoints` (`[{codePoint: "U+039A", count}]`, at most 20)). `X-Warnings` carries only
+`code`, `message` and `count`; `hint` and `details` are in the JSON body and the manifest. Details never
+contain subtitle text, only positions and code points.
+
+Cue numbers in source warnings (`zero-length-cue`, `source-replacement-chars`) are positions in the
+source; in read-back warnings (`characters-replaced`, `text-truncated`, `lossy-format`) they are positions
+in the written output (after operations).
 
 | code | Meaning |
 |---|---|
-| `characters-replaced` | Characters the target code page can't represent were replaced (`count`). |
+| `characters-replaced` | Read back from a binary output, characters the target's character table can't hold were replaced or dropped. `count` = characters; `details` = cues and code points; `hint` = remedy for that target and the detected script/language (e.g. `formatOptions.pac.codePage = "greek"` or target `fpc`; `formatOptions.ebuStl.characterTable`; `formatOptions.cavena890.language`). The code page is never switched automatically. U+FFFD already in the source is not counted here (see `source-replacement-chars`). |
+| `text-truncated` | Since 1.2.0. The binary writer cut cues short (Cavena 890 and Cheetah CAP Old cut long lines and drop extra lines). `count` = characters lost; `details.cues`. |
+| `zero-length-cue` | Since 1.2.0. Source cues with zero or negative duration (often metadata cues). `details.cues`. EBU STL can't store them (they read back as 99:59:59,999, reported as `lossy-format` with the cue numbers) and CapMaker Plus drops them. |
+| `source-replacement-chars` | Since 1.2.0. The source already contains U+FFFD replacement characters (damaged by an earlier wrong decoding). `count` = characters; `details.cues`. |
+| `verification-failed` | Since 1.2.0. The written binary output couldn't be read back; the file was written but not checked (`verification.verdict` = `unverified` with `reason`). |
 | `frame-quantised` | Times were rounded to the target frame rate (at most one frame). |
 | `frame-rate-changed` | EBU STL only (since 1.1.0): the written Disk Format Code implies a different frame rate (by more than 0.01 fps) than the intended one: the requested rate (`formatOptions.ebuStl.frameRate`, else `target.fps`) or, when none was requested, the source's (the rate an EBU source was read at, i.e. `readFrameRate` or its own code; else `source.fps`). Typical case: a 29.97 fps source or request written as `STL30.01`, because EBU Tech 3264 only defines `STL25.01` and `STL30.01`. The message names the code, both rates and the workaround (`formatOptions.ebuStl.frameRate`, or `headerFromSource:false`). No `count`. |
-| `lossy-format` | The target format can't keep everything (Cheetah styling, cue count changed, larger timing drift). |
+| `lossy-format` | The target format can't keep everything: Cheetah styling, cues missing on read-back (`details.cues`, matched by start time), zero-length cues the target can't store, or timing moved by more than one frame (`details.cues`). |
 | `encoding-ignored` | `encoding.output` / `responseEncoding=text` doesn't apply to binary output (always base64 in JSON). |
 | `format-option-ignored` | A `formatOptions` block doesn't apply to this source or target. |
 | `zip-nested-skipped` | A nested zip was skipped (also listed in the manifest as `status: "skipped"`). |
+
+## Verification (binary outputs, since 1.2.0)
+
+Every binary output is read back with the same libse reader and compared with the cues that were meant
+to be written. The result is `outputs[].verification` in `POST /v1/convert/json`, `entries[].verification`
+(keyed by output path) in zip manifests, `outputs[].verification` in the multi-output manifest, and the
+`X-Verification-Verdict` header for a single binary output from `POST /v1/convert`.
+
+Greek SRT written as PAC with the default latin code page (code points shortened):
+
+```json
+{
+  "verdict": "lossy",
+  "cuesWritten": 3, "cuesReadBack": 3,
+  "timing": { "maxShiftMs": 13, "meanShiftMs": 4.3, "frameMs": 41.7, "cuesOverOneFrame": 0 },
+  "replacedChars": { "total": 50, "cueCount": 3, "cues": [1, 2, 3], "distinctCodePoints": 27,
+                     "codePoints": [{ "codePoint": "U+03B1", "count": 5 }, { "codePoint": "U+03B9", "count": 4 }] }
+}
+```
+
+With `formatOptions.pac.codePage: "greek"` the same input is `"verdict": "quantised"`.
+
+- `verdict`: `lossless` (identical after normalising tags and whitespace, times within 1.5 ms),
+  `quantised` (only times moved, each by at most one frame), `lossy` (characters replaced, text cut,
+  cues missing, or a time moved by more than a frame) or `unverified` (read-back failed; `reason`).
+- `timing`: largest and mean shift of start/end over the matched cues, the frame length used, and how
+  many cues moved more than one frame. When the cue counts differ, cues are matched by start time.
+- `replacedChars`, `truncatedCues`, `missingCues`: exact totals, first 20 cue numbers / code points.
+- `zeroLengthCues`: zero-length cues the target couldn't store (EBU STL reads them back as 99:59:59,999).
+  They are kept out of `timing` and make the verdict `lossy`; the `lossy-format` warning names them.
+- Absent members mean "nothing found" (e.g. no `replacedChars` = no characters lost).
+
+A round trip proves the file is self-consistent through libse's own reader; it does not prove that the
+target playout or editing software accepts it.

@@ -40,7 +40,7 @@ public static class OpenApiContract
         schemas["ApiProblem"] = new OpenApiSchema
         {
             Type = JsonSchemaType.Object,
-            Description = "RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `entry` (zip entry name), `phase` (conversion-timeout: queue|running), `groups`/`outputs` (ambiguous-batch-names).",
+            Description = "RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `entry` (zip entry name), `phase` (conversion-timeout: queue|running), `groups`/`outputs` (ambiguous-batch-names), `candidates` (ambiguous-format).",
             Required = new HashSet<string> { "type", "title", "status", "code", "detail", "hint" },
             Properties = new Dictionary<string, IOpenApiSchema>
             {
@@ -65,6 +65,11 @@ public static class OpenApiContract
                     Items = new OpenApiSchema { Type = JsonSchemaType.String },
                 },
                 ["phase"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["queue", "running"], Description = "conversion-timeout only: queue is retryable like 503." },
+                ["candidates"] = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.Array, Description = "ambiguous-format only: the format ids the bytes match; set profile.source.format to one of them.",
+                    Items = new OpenApiSchema { Type = JsonSchemaType.String },
+                },
             },
             AdditionalPropertiesAllowed = true,
         };
@@ -147,7 +152,8 @@ public static class OpenApiContract
         ("X-Cue-Count", "Cues in the (first) output."),
         ("X-Cue-Count-In", "Cues read from the input."),
         ("X-Warnings-Count", "Number of warnings."),
-        ("X-Warnings", "Warnings as compact JSON (ASCII, truncated to 4 KB)."),
+        ("X-Warnings", "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest."),
+        ("X-Verification-Verdict", "Single binary output only: read-back verdict lossless | quantised | lossy | unverified (details in the JSON response's outputs[].verification)."),
         ("X-Profile", "Preset name, when one was used."),
         ("X-Entries-Ok", "Zip input: entries converted."),
         ("X-Entries-Failed", "Zip input: entries that failed."),

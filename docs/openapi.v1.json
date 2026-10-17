@@ -3,7 +3,7 @@
   "info": {
     "title": "Subtitle Edit Converter API",
     "description": "Convert subtitles between text and binary broadcast formats (EBU STL, PAC, Cavena 890, ...) with Subtitle Edit\u0027s libse. Errors are RFC 7807 problem\u002Bjson with a stable \u0060code\u0060, a \u0060hint\u0060 and the \u0060requestId\u0060. Send \u0060Authorization: Bearer \u003Ckey\u003E\u0060 when API keys are configured.",
-    "version": "1.1.1"
+    "version": "1.2.0"
   },
   "servers": null,
   "paths": {
@@ -115,7 +115,13 @@
                 }
               },
               "X-Warnings": {
-                "description": "Warnings as compact JSON (ASCII, truncated to 4 KB).",
+                "description": "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Verification-Verdict": {
+                "description": "Single binary output only: read-back verdict lossless | quantised | lossy | unverified (details in the JSON response\u0027s outputs[].verification).",
                 "schema": {
                   "type": "string"
                 }
@@ -411,7 +417,13 @@
                 }
               },
               "X-Warnings": {
-                "description": "Warnings as compact JSON (ASCII, truncated to 4 KB).",
+                "description": "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Verification-Verdict": {
+                "description": "Single binary output only: read-back verdict lossless | quantised | lossy | unverified (details in the JSON response\u0027s outputs[].verification).",
                 "schema": {
                   "type": "string"
                 }
@@ -1537,6 +1549,7 @@
               "format-option-invalid",
               "invalid-binary-input",
               "ambiguous-batch-names",
+              "ambiguous-format",
               "encoding-error",
               "unsafe-xml",
               "input-limits-exceeded",
@@ -1597,9 +1610,36 @@
             ],
             "type": "string",
             "description": "conversion-timeout only: queue is retryable like 503."
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "ambiguous-format only: the format ids the bytes match; set profile.source.format to one of them."
           }
         },
-        "description": "RFC 7807 problem details with a stable \u0060code\u0060 (docs/errors.md). Extra members may appear: \u0060entry\u0060 (zip entry name), \u0060phase\u0060 (conversion-timeout: queue|running), \u0060groups\u0060/\u0060outputs\u0060 (ambiguous-batch-names)."
+        "description": "RFC 7807 problem details with a stable \u0060code\u0060 (docs/errors.md). Extra members may appear: \u0060entry\u0060 (zip entry name), \u0060phase\u0060 (conversion-timeout: queue|running), \u0060groups\u0060/\u0060outputs\u0060 (ambiguous-batch-names), \u0060candidates\u0060 (ambiguous-format)."
+      },
+      "CodePointCount": {
+        "required": [
+          "codePoint",
+          "count"
+        ],
+        "type": "object",
+        "properties": {
+          "codePoint": {
+            "type": "string"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
       },
       "ConvertJsonRequest": {
         "required": [
@@ -1708,6 +1748,34 @@
           }
         }
       },
+      "CueList": {
+        "required": [
+          "total",
+          "cues"
+        ],
+        "type": "object",
+        "properties": {
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "cues": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        }
+      },
       "DetectedInfo": {
         "required": [
           "format",
@@ -1769,6 +1837,27 @@
               "null",
               "object"
             ]
+          },
+          "bom": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "lineEndings": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Warning"
+            }
           }
         }
       },
@@ -2177,6 +2266,15 @@
               "string"
             ],
             "description": "Why a skipped entry wasn\u0027t converted."
+          },
+          "verification": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Verification"
+            }
           }
         }
       },
@@ -2231,6 +2329,16 @@
           "kind": {
             "type": "string",
             "default": "text"
+          },
+          "verification": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Verification"
+              }
+            ]
           }
         }
       },
@@ -2422,6 +2530,59 @@
           }
         }
       },
+      "ReplacedChars": {
+        "required": [
+          "total",
+          "cueCount",
+          "cues",
+          "distinctCodePoints",
+          "codePoints"
+        ],
+        "type": "object",
+        "properties": {
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "cueCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "cues": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          "distinctCodePoints": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "codePoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodePointCount"
+            }
+          }
+        }
+      },
       "StatsDto": {
         "required": [
           "paragraphsIn",
@@ -2465,6 +2626,49 @@
           }
         }
       },
+      "TimingCheck": {
+        "required": [
+          "maxShiftMs",
+          "meanShiftMs",
+          "frameMs",
+          "cuesOverOneFrame"
+        ],
+        "type": "object",
+        "properties": {
+          "maxShiftMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "meanShiftMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "frameMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "cuesOverOneFrame": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "ValidateResponse": {
         "required": [
           "valid",
@@ -2501,6 +2705,96 @@
           }
         }
       },
+      "Verification": {
+        "required": [
+          "verdict",
+          "cuesWritten",
+          "cuesReadBack",
+          "timing",
+          "replacedChars",
+          "truncatedCues",
+          "missingCues"
+        ],
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "type": "string"
+          },
+          "cuesWritten": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "cuesReadBack": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "timing": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TimingCheck"
+              }
+            ]
+          },
+          "replacedChars": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReplacedChars"
+              }
+            ]
+          },
+          "truncatedCues": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CueList"
+              }
+            ]
+          },
+          "missingCues": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CueList"
+              }
+            ]
+          },
+          "zeroLengthCues": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CueList"
+              }
+            ]
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "Warning": {
         "required": [
           "code",
@@ -2522,6 +2816,68 @@
               "string"
             ],
             "format": "int32"
+          },
+          "hint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "details": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WarningDetails"
+              }
+            ]
+          }
+        }
+      },
+      "WarningDetails": {
+        "type": "object",
+        "properties": {
+          "cueCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "cues": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          "distinctCodePoints": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "codePoints": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CodePointCount"
+            }
           }
         }
       }
