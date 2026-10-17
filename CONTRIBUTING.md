@@ -14,7 +14,8 @@ come from the csproj, so clients (the MCP server among them) can log and compare
 
 CI's `version-check` job fails a PR that changes `src/` without raising the version above its merge
 base. For a change under `src/` that really doesn't ship (comments, a refactor with no behaviour
-change), label the PR `skip-version-check`. Renovate PRs are exempt; a dependency bump is folded into
+change), label the PR `skip-version-check` (the job reads the labels of the triggering event, so add the label before
+pushing, or push again after labelling). Renovate PRs are exempt; a dependency bump is folded into
 the next versioned change.
 
 Bumping the version is not a release: tags (`vX.Y.Z`) and GitHub Releases are cut only on the owner's go-ahead.
