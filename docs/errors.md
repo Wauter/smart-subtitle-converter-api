@@ -43,7 +43,7 @@ request's `X-Request-Id` covers all entries.
 | 422 | <a id="encoding-error"></a>`encoding-error` | Reserved: the input could not be decoded; set `encoding.input`. |
 | 422 | <a id="unsafe-xml"></a>`unsafe-xml` | DTD / entity declarations are not allowed. |
 | 422 | <a id="ambiguous-batch-names"></a>`ambiguous-batch-names` | Two or more zip entries share a folder and stem (the file name without its last extension, case-insensitive: `ep1.srt` + `EP1.vtt`). Their outputs would collide. Checked before any conversion, whatever `failFast` says. The same code is used when final output paths still collide after conversion (a `target.fileName` template without `{stem}`, `manifest.json`). Names are never renamed or overwritten. Rename the entries or use folders. |
-| 422 | <a id="ambiguous-format"></a>`ambiguous-format` | Since 1.2.0. Auto-detection found bytes that are valid as both PAC (Screen Electronics) and PAC Unicode (FPC): the two formats share their header, so only a `.pac` / `.fpc` file name decides. Without one (no file name, `.bin`, inline content) the input is rejected instead of guessed. `candidates` lists both ids; `errors[0].pointer` is `/source/format`. Set `profile.source.format` to `pac` or `fpc`, or send the file under its real extension (for `/v1/detect`: `fileName`). Zip entries are checked the same way, by entry name. |
+| 422 | <a id="ambiguous-format"></a>`ambiguous-format` | Auto-detection found bytes that are valid as both PAC (Screen Electronics) and PAC Unicode (FPC): the two formats share their header, so only a `.pac` / `.fpc` file name decides. Without one (no file name, `.bin`, inline content) the input is rejected instead of guessed. `candidates` lists both ids; `errors[0].pointer` is `/source/format`. Set `profile.source.format` to `pac` or `fpc`, or send the file under its real extension (for `/v1/detect`: `fileName`). Zip entries are checked the same way, by entry name. |
 | 422 | <a id="unsafe-zip"></a>`unsafe-zip` | A zip entry name has a `..` path segment, an absolute path, a drive letter or a backslash. (`a..b.srt` is fine.) |
 | 422 | <a id="input-limits-exceeded"></a>`input-limits-exceeded` | More than `MAX_CUES` cues or a line over `MAX_LINE_CHARS`. |
 | 422 | <a id="conversion-failed"></a>`conversion-failed` | An operation or writer threw; `debug.operation` names it. |
@@ -56,7 +56,7 @@ request's `X-Request-Id` covers all entries.
 
 Warnings are not errors: the conversion succeeded. They appear in `warnings[]`, the manifest and
 `X-Warnings`/`X-Warnings-Count`. Each warning has `code` and `message`, and may have `count`, `hint` (what
-to do) and `details` (since 1.2.0: `cueCount`, `cues` (1-based cue numbers, at most 20 listed),
+to do) and `details` (`cueCount`, `cues` (1-based cue numbers, at most 20 listed),
 `distinctCodePoints`, `codePoints` (`[{codePoint: "U+039A", count}]`, at most 20)). `X-Warnings` carries only
 `code`, `message` and `count`; `hint` and `details` are in the JSON body and the manifest. Details never
 contain subtitle text, only positions and code points.
@@ -67,19 +67,19 @@ in the written output (after operations).
 
 | code | Meaning |
 |---|---|
-| `characters-replaced` | Read back from a binary output, characters the target's character table can't hold were replaced or dropped. `count` = characters; `details` = cues, code points and (since 1.2.1) `remedy`, the facts needed to choose a fix (see [Remedy](#remedy-characters-replaced-since-121)); `hint` says the same in words, with code points, never text. Nothing is switched automatically. U+FFFD already in the source is not counted here (see `source-replacement-chars`). |
-| `text-truncated` | Since 1.2.0. The binary writer cut cues short (Cavena 890 and Cheetah CAP Old cut long lines and drop extra lines). `count` = characters lost; `details.cues`. |
-| `zero-length-cue` | Since 1.2.0. Source cues with zero or negative duration (often metadata cues). `details.cues`. EBU STL can't store them (they read back as 99:59:59,999, reported as `lossy-format` with the cue numbers) and CapMaker Plus drops them. |
-| `source-replacement-chars` | Since 1.2.0. The source already contains U+FFFD replacement characters (damaged by an earlier wrong decoding). `count` = characters; `details.cues`. |
-| `verification-failed` | Since 1.2.0. The written binary output couldn't be read back; the file was written but not checked (`verification.verdict` = `unverified` with `reason`). |
+| `characters-replaced` | Read back from a binary output, characters the target's character table can't hold were replaced or dropped. `count` = characters; `details` = cues, code points and `remedy`, the facts needed to choose a fix (see [Remedy](#remedy-characters-replaced)); `hint` says the same in words, with code points, never text. Nothing is switched automatically. U+FFFD already in the source is not counted here (see `source-replacement-chars`). |
+| `text-truncated` | The binary writer cut cues short (Cavena 890 and Cheetah CAP Old cut long lines and drop extra lines). `count` = characters lost; `details.cues`. |
+| `zero-length-cue` | Source cues with zero or negative duration (often metadata cues). `details.cues`. EBU STL can't store them (they read back as 99:59:59,999, reported as `lossy-format` with the cue numbers) and CapMaker Plus drops them. |
+| `source-replacement-chars` | The source already contains U+FFFD replacement characters (damaged by an earlier wrong decoding). `count` = characters; `details.cues`. |
+| `verification-failed` | The written binary output couldn't be read back; the file was written but not checked (`verification.verdict` = `unverified` with `reason`). |
 | `frame-quantised` | Times were rounded to the target frame rate (at most one frame). |
-| `frame-rate-changed` | EBU STL only (since 1.1.0): the written Disk Format Code implies a different frame rate (by more than 0.01 fps) than the intended one: the requested rate (`formatOptions.ebuStl.frameRate`, else `target.fps`) or, when none was requested, the source's (the rate an EBU source was read at, i.e. `readFrameRate` or its own code; else `source.fps`). Typical case: a 29.97 fps source or request written as `STL30.01`, because EBU Tech 3264 only defines `STL25.01` and `STL30.01`. The message names the code, both rates and the workaround (`formatOptions.ebuStl.frameRate`, or `headerFromSource:false`). No `count`. |
+| `frame-rate-changed` | EBU STL only: the written Disk Format Code implies a different frame rate (by more than 0.01 fps) than the intended one: the requested rate (`formatOptions.ebuStl.frameRate`, else `target.fps`) or, when none was requested, the source's (the rate an EBU source was read at, i.e. `readFrameRate` or its own code; else `source.fps`). Typical case: a 29.97 fps source or request written as `STL30.01`, because EBU Tech 3264 only defines `STL25.01` and `STL30.01`. The message names the code, both rates and the workaround (`formatOptions.ebuStl.frameRate`, or `headerFromSource:false`). No `count`. |
 | `lossy-format` | The target format can't keep everything: Cheetah styling, cues missing on read-back (`details.cues`, matched by start time), zero-length cues the target can't store, or timing moved by more than one frame (`details.cues`). |
 | `encoding-ignored` | `encoding.output` / `responseEncoding=text` doesn't apply to binary output (always base64 in JSON). |
 | `format-option-ignored` | A `formatOptions` block doesn't apply to this source or target. |
 | `zip-nested-skipped` | A nested zip was skipped (also listed in the manifest as `status: "skipped"`). |
 
-## Verification (binary outputs, since 1.2.0)
+## Verification (binary outputs)
 
 Every binary output is read back with the same libse reader and compared with the cues that were meant
 to be written. The result is `outputs[].verification` in `POST /v1/convert/json`, `entries[].verification`
@@ -113,10 +113,10 @@ With `formatOptions.pac.codePage: "greek"` the same input is `"verdict": "quanti
 A round trip proves the file is self-consistent through libse's own reader; it does not prove that the
 target playout or editing software accepts it.
 
-## Remedy (`characters-replaced`, since 1.2.1)
+## Remedy (`characters-replaced`)
 
 `warnings[].details.remedy` (JSON body and manifests only, never `X-Warnings`) gives the caller the facts to
-choose a fix instead of the API guessing one (1.2.0 picked e.g. `czech` for any Latin extended text):
+choose a fix instead of the API guessing one:
 
 | field | meaning |
 |---|---|

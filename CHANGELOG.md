@@ -12,7 +12,7 @@ the version of the `main` commit it was built from.
 
 - `warnings[].details.remedy` (JSON body and manifests only): `scripts`, `detectedLanguage`, `currentEncoding`,
   `option`, `currentValue`, `allowedValues`, `candidates`, `candidatesTested`, `suggested`, `unicodeAlternative`,
-  `note`. See [docs/errors.md](docs/errors.md#remedy-characters-replaced-since-121).
+  `note`. See [docs/errors.md](docs/errors.md#remedy-characters-replaced).
 - PAC candidates are tested: every non-ASCII code point of the output (code points only) is written with each code
   page and read back; only code pages that keep all of them are listed. `suggested` is set only when exactly one
   value fits. 1.2.0 guessed from the script and detected language (e.g. `czech` for any Latin extended text, which
@@ -34,7 +34,7 @@ Conversion verification and diagnostics (client feedback 2026-10-17, approved by
   (cue numbers and code points, first 20, exact totals), `truncatedCues`, `missingCues`, `zeroLengthCues`.
   When cue counts differ, cues are matched by start time (1.1 skipped every check). A read-back that throws
   now gives `unverified` with a `reason` and a `verification-failed` warning (1.1 stayed silent). Positions
-  and code points only, never cue text, in responses and logs. See [docs/errors.md](docs/errors.md#verification-binary-outputs-since-120).
+  and code points only, never cue text, in responses and logs. See [docs/errors.md](docs/errors.md#verification-binary-outputs).
 - **Warnings carry `hint` and `details`** (JSON body and manifest only; `X-Warnings` keeps code, message,
   count). `characters-replaced` names the script, the cues and the code points, and suggests the remedy
   for the target (`formatOptions.pac.codePage`, `formatOptions.ebuStl.characterTable`,

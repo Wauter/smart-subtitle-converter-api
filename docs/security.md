@@ -1,0 +1,49 @@
+# Security
+
+The API is built to run safely on your own machine by default and to be exposed only deliberately.
+
+## Defaults
+
+- The reference Compose and the quick start publish the port on `127.0.0.1` only.
+- Without API keys the API is open (fine for local and sidecar use); startup logs a `WARN auth.disabled` line.
+- The image is a chiseled ASP.NET Core base with no shell or curl, running as a non-root user.
+- The reference [`docker-compose.yml`](../docker-compose.yml) adds a read-only root filesystem, a RAM-backed `tmpfs`
+  for `/tmp`, `cap_drop: [ALL]` and `no-new-privileges`.
+
+## Exposing it beyond localhost
+
+Enable API keys first (below). Then change the port mapping:
+
+- Compose: `"4041:8080"` (all interfaces) or `"192.168.1.10:4041:8080"` (one interface) in `docker-compose.yml`.
+- `docker run`: `-p 4041:8080`.
+
+Behind a reverse proxy, set `KNOWN_PROXIES` so `X-Forwarded-*` headers are trusted only from it. For browser
+clients, set `CORS_ORIGINS` to an allow-list.
+
+## API keys
+
+- `API_KEYS`: comma-separated bearer keys, `name:key` allowed.
+- `API_KEYS_FILE`: one key per line, `#` comments, `name:key`; reloaded when the file changes. In Compose, mount it
+  as a secret (`./api_keys.txt:/run/secrets/api_keys:ro`, `API_KEYS_FILE: /run/secrets/api_keys`).
+
+Clients send `Authorization: Bearer <key>`. `/healthz` and `/readyz` stay open; everything under `/v1` needs a key.
+`GET /v1/limits` says whether auth is required, never anything about keys.
+
+## Abuse limits
+
+- `RATE_LIMIT_PER_MINUTE`: per key name, or per client IP when auth is off (`429 rate-limited`).
+- Size and shape limits: `MAX_UPLOAD_BYTES`, `PROFILE_MAX_BYTES`, `MAX_CUES`, `MAX_LINE_CHARS`.
+- Zip guards: `ZIP_MAX_ENTRIES`, `ZIP_MAX_UNPACKED_BYTES`, `ZIP_MAX_RATIO`; unsafe entry names (`..`, absolute
+  paths, drive letters, backslashes) give `422 unsafe-zip`.
+- XML with DTD or entity declarations is refused (`422 unsafe-xml`).
+
+All values: [configuration.md](configuration.md).
+
+## Files and logs
+
+- Binary files are handled in a private `0700` temp dir with random names, deleted after every job, including
+  timeouts and worker restarts, and swept at startup.
+- Error `debug` details never contain file content; set `ERRORS_VERBOSE=false` to remove stack traces and internals.
+- Warnings and verification report cue numbers and code points, never subtitle text.
+
+Design background: [design.md §6](design.md#6-security-and-auth).
