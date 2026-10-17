@@ -29,7 +29,23 @@ public sealed record Verification(
     CueList? TruncatedCues, CueList? MissingCues, CueList? ZeroLengthCues = null, string? Reason = null);
 
 /// <summary>Structured warning details (JSON body only, never the X-Warnings header).</summary>
-public sealed record WarningDetails(int? CueCount = null, int[]? Cues = null, int? DistinctCodePoints = null, List<CodePointCount>? CodePoints = null);
+public sealed record WarningDetails(int? CueCount = null, int[]? Cues = null, int? DistinctCodePoints = null, List<CodePointCount>? CodePoints = null, RemedyInfo? Remedy = null);
+
+/// <summary>
+/// characters-replaced (v1.2.1): the facts needed to choose a fix, so the caller decides instead of the API guessing.
+/// <c>Suggested</c> is set only when the lost script maps to exactly one value of <c>Option</c>; otherwise it is null and
+/// <c>Candidates</c> lists the values that may cover it. Static per format: no cue text.
+/// </summary>
+public sealed record RemedyInfo(
+    string[] Scripts, string? DetectedLanguage, string CurrentEncoding, string? Option, string? CurrentValue, string[]? AllowedValues,
+    string? Suggested, string[]? Candidates, bool CandidatesTested, string UnicodeAlternative, string? Note = null);
+
+/// <summary>
+/// What the writer used, and (PAC) a probe that writes the given code points (every non-ASCII code point of the
+/// output, not just the lost ones: another value may lose others) with each other value of the option and returns
+/// the values that keep all of them (null when it can't tell).
+/// </summary>
+public sealed record RemedyContext(string? CurrentValue, Func<IReadOnlyCollection<int>, string[]?>? Covering = null);
 
 public static class Verdicts
 {
@@ -48,7 +64,7 @@ public static class Verifier
     public static Verification Unverified(int cuesWritten, string reason) =>
         new(Verdicts.Unverified, cuesWritten, null, null, null, null, null, null, reason);
 
-    public static (Verification Verification, List<Warning> Warnings) Compare(Subtitle expected, Subtitle back, FormatInfo info, double frameMs, string encName, string? language)
+    public static (Verification Verification, List<Warning> Warnings) Compare(Subtitle expected, Subtitle back, FormatInfo info, double frameMs, string encName, string? language, RemedyContext? remedyContext = null)
     {
         var warnings = new List<Warning>();
         var e = expected.Paragraphs;
@@ -131,11 +147,14 @@ public static class Verifier
         if (replaced != null)
         {
             var scripts = Scripts(codePoints.Keys);
+            var top = TopCodePoints(codePoints);
+            var (hint, remedy) = Remedy(info, scripts, language, encName, top.Take(5).Select(c => c.CodePoint).ToList(), codePoints.Keys,
+                e.SelectMany(p => (p.Text ?? "").EnumerateRunes()).Select(r => r.Value).Where(c => c >= 0x80 && c != 0xFFFD).ToHashSet(), remedyContext);
             warnings.Add(new("characters-replaced",
                 $"{replacedTotal} character(s) in {replacedCues.Count} cue(s) couldn't be encoded in {encName} and were replaced or dropped" +
                 (scripts.Count > 0 ? $" ({string.Join(", ", scripts)})" : "") + $"; cue(s) {List(replacedCues)}.",
-                replacedTotal, Remedy(info, scripts, language, encName),
-                new WarningDetails(replacedCues.Count, Numbers(replacedCues), codePoints.Count, TopCodePoints(codePoints))));
+                replacedTotal, hint,
+                new WarningDetails(replacedCues.Count, Numbers(replacedCues), codePoints.Count, top, remedy)));
         }
         if (truncated.Count > 0)
         {
@@ -257,47 +276,87 @@ public static class Verifier
     }
 
     /// <summary>
-    /// What to change so the characters survive. Suggests, never switches: the code page or language stays
-    /// what the caller (or the default) chose.
+    /// What to change so the characters survive, as facts (v1.2.1): the option, its allowed values, the value in
+    /// effect, and candidates. For PAC the candidates are tested (the lost code points are written with every other
+    /// code page and read back); elsewhere they come from the script. <c>Suggested</c> is set only when exactly one
+    /// value fits; with several (CJK, Latin extended, …) they are listed and the caller chooses. Never switches anything.
     /// </summary>
-    internal static string Remedy(FormatInfo info, List<string> scripts, string? language, string encName)
+    internal static (string Hint, RemedyInfo Remedy) Remedy(FormatInfo info, List<string> scripts, string? language, string encName,
+        List<string> topCodePoints, IReadOnlyCollection<int> lost, IReadOnlyCollection<int> used, RemedyContext? ctx)
     {
-        var main = scripts.FirstOrDefault(s => s is not ("other" or "Latin extended")) ?? scripts.FirstOrDefault();
+        var real = scripts.Where(x => x != "other").ToList();
         var lang = language != null ? $" (detected source language: {language})" : "";
-        const string Unicode = "use a Unicode target such as fpc (PAC Unicode)";
-        // The suggested setting is already in effect (e.g. pac-greek and a few characters still don't fit).
-        bool Active(string value) => encName.EndsWith("-" + value, StringComparison.OrdinalIgnoreCase) || encName.Equals(value, StringComparison.OrdinalIgnoreCase);
+        var cps = string.Join(", ", topCodePoints) + (lost.Count > topCodePoints.Count ? ", …" : "");
+        var lostText = $"Lost characters are {(real.Count > 0 ? string.Join(" + ", real) : "outside the known scripts")} ({cps}){lang}";
+        var current = ctx?.CurrentValue;
+        bool IsCurrent(string v) => current != null && v.Equals(current, StringComparison.OrdinalIgnoreCase);
+        const string Never = " Never switched automatically.";
+        const string UnicodeText = "use target fpc (Unicode PAC)";
+
+        string? option; string[]? allowed; string? note = null;
+        Func<string, string[]> byScript;
         switch (info.Id)
         {
             case "pacscreenelectronics":
-                var cp = main switch
+                option = "formatOptions.pac.codePage"; allowed = Binary.BinaryOptions.PacCodePages;
+                byScript = sc => sc switch
                 {
-                    "Greek" => "greek", "Cyrillic" => "cyrillic", "Arabic" => "arabic", "Hebrew" => "hebrew", "Thai" => "thai",
-                    "Hangul" => "korean", "Japanese kana" => "japanese",
-                    "CJK" => language is "zh-hant" or "zh-tw" ? "chinese-traditional" : language == "ja" ? "japanese" : "chinese-simplified",
-                    "Latin extended" => language == "tr" ? "turkish" : language is "pt" ? "portuguese" : "czech",
-                    _ => null,
+                    "Greek" => ["greek"], "Cyrillic" => ["cyrillic"], "Arabic" => ["arabic"], "Hebrew" => ["hebrew"], "Thai" => ["thai"],
+                    "Hangul" => ["korean"], "Japanese kana" => ["japanese"], "CJK" => ["chinese-traditional", "chinese-simplified", "japanese"],
+                    "Latin extended" => ["latin", "czech", "turkish", "portuguese"], _ => [],
                 };
-                if (cp != null && !Active(cp))
-                    return $"Set formatOptions.pac.codePage to \"{cp}\"{lang}, or write Unicode PAC with target fpc. The code page is never switched automatically.";
-                return $"These characters don't fit PAC code page {encName}{lang}; write Unicode PAC with target fpc, or remove them (operations MultipleReplace).";
+                break;
             case "ebustl":
-                var table = main switch { "Greek" => "greek", "Cyrillic" => "cyrillic", "Arabic" => "arabic", "Hebrew" => "hebrew", _ => null };
-                if (table != null)
-                    return $"Set formatOptions.ebuStl.characterTable to \"{table}\"{lang} (if it isn't already), or {Unicode}. The character table is never switched automatically.";
-                return $"EBU STL's character tables can't hold these characters{lang}; {Unicode}, or remove them (operations MultipleReplace).";
+                option = "formatOptions.ebuStl.characterTable"; allowed = [.. Binary.BinaryOptions.EbuCharacterTables.Keys];
+                byScript = sc => sc switch { "Greek" => ["greek"], "Cyrillic" => ["cyrillic"], "Arabic" => ["arabic"], "Hebrew" => ["hebrew"], "Latin extended" => ["latin"], _ => [] };
+                break;
             case "cavena890":
+                option = "formatOptions.cavena890.language"; allowed = Binary.BinaryOptions.CavenaLanguageNames;
                 // libse 5.1.0: Greek, Cyrillic and Arabic don't survive a Cavena 890 round trip whatever the language id
-                // (garbled, or the reader throws); Hebrew and Chinese do.
-                if (main is "Greek" or "Cyrillic" or "Arabic")
-                    return $"libse's Cavena 890 writer doesn't keep {main} text intact{lang} (it reads back garbled); {Unicode}.";
-                var cl = main switch { "Hebrew" => "he", "CJK" => language is "zh-hant" or "zh-tw" ? "zh-hant" : "zh-hans", _ => null };
-                if (cl != null && !Active(BinaryCavenaScript(cl)))
-                    return $"Set formatOptions.cavena890.language to \"{cl}\"{lang}, or {Unicode}. The language is never switched automatically.";
-                return $"Cavena 890 ({encName}) can't hold these characters{lang}; {Unicode}, or remove them (operations MultipleReplace).";
+                // (garbled, or the reader throws); Hebrew and Chinese do. The Latin languages (en, da, sv, no, nb, ro)
+                // share one character table, so switching between them never helps.
+                var broken = real.Where(x => x is "Greek" or "Cyrillic" or "Arabic").ToList();
+                if (broken.Count > 0) note = $"libse's Cavena 890 writer doesn't keep {string.Join(" / ", broken)} text intact (it reads back garbled), whatever the language.";
+                else if (real.Contains("Latin extended")) note = "Cavena 890's Latin languages (en, da, sv, no, nb, ro) share one character table; none keeps these characters.";
+                byScript = sc => sc switch { "Hebrew" => ["he"], "CJK" => ["zh-hant", "zh-hans"], _ => [] };
+                break;
             default:
-                return $"{info.Name} has a fixed character table{lang}; {Unicode} or a text format, or remove the characters (operations MultipleReplace).";
+                var r0 = new RemedyInfo([.. scripts], language, encName, null, null, null, null, null, false, "fpc");
+                return ($"{lostText}. {info.Name} has a fixed character table; use a Unicode target such as fpc (Unicode PAC) or a text format, or remove the characters (operations MultipleReplace).", r0);
         }
+
+        // Tested coverage (PAC) wins; otherwise values for every lost script (intersection), minus the one in effect.
+        var tested = note == null ? ctx?.Covering?.Invoke(used) : null;
+        if (tested != null && current != null && tested.Contains(current, StringComparer.OrdinalIgnoreCase))
+        {
+            // The code page in effect keeps every one of these characters on its own, so the loss comes from how
+            // libse's PAC writer combines neighbouring characters; another code page wouldn't fix it.
+            note = $"Each of these characters survives on its own in PAC code page {current}; they are lost in combination with neighbouring characters (libse's PAC writer), so switching the code page won't help.";
+            tested = [];
+        }
+        string[] candidates;
+        if (tested != null) candidates = tested;
+        else if (note != null || real.Count == 0) candidates = [];
+        else
+        {
+            var per = real.Select(byScript).ToList();
+            candidates = per.Skip(1).Aggregate((IEnumerable<string>)per[0], (acc, c) => acc.Intersect(c)).Where(v => !IsCurrent(v)).ToArray();
+        }
+        var suggested = candidates.Length == 1 ? candidates[0] : null;
+        var remedy = new RemedyInfo([.. scripts], language, encName, option, current, allowed, suggested, candidates.Length > 0 ? candidates : null, tested != null, "fpc", note);
+
+        var basis = tested != null ? ", tested: each keeps every character of this text" : "";
+        var cur = current != null ? $"; current: {current}" : "";
+        string hint;
+        if (note != null)
+            hint = $"{lostText}. {note} Use a Unicode target such as fpc (Unicode PAC), or remove them (operations MultipleReplace).";
+        else if (suggested != null)
+            hint = $"{lostText}; set {option} to \"{suggested}\" (the only value that {(tested != null ? "keeps every character of this text, tested" : "covers " + string.Join(" + ", real))}{cur}) or {UnicodeText}.{Never}";
+        else if (candidates.Length > 0)
+            hint = $"{lostText}; choose the {option} that covers them (options: {string.Join(", ", candidates)}{basis}{cur}) or {UnicodeText}.{Never}";
+        else
+            hint = $"{lostText}; no {option} value keeps them{(real.Count > 1 && tested == null ? " all at once" : "")} ({(tested != null ? "tested" : "by script")}{cur}); {UnicodeText}, or remove them (operations MultipleReplace).";
+        return (hint, remedy);
     }
 
     private static string BinaryCavenaScript(string language) =>

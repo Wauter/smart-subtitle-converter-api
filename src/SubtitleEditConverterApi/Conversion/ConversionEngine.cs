@@ -461,7 +461,16 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             var bytes = BinaryIO.Save(format, copy, fileName, header);
             if (info.Lossy)
                 warnings.Add(new("lossy-format", $"{info.Name} can't store everything: characters outside its table are dropped or replaced, and timing may shift."));
-            var verification = Verify(bytes, info, format, expected, frame, encName, temp, language, warnings);
+            var remedyCtx = format switch
+            {
+                Ebu => new RemedyContext(BinaryOptions.EbuCharacterTableName(
+                    BinaryOptions.IsStlHeader(copy.Header) && copy.Header!.Length >= 14 ? copy.Header[12..14] : header!.CharacterCodeTableNumber)),
+                PacUnicode => null,
+                Pac p => new RemedyContext(BinaryOptions.PacCodePageName(p.CodePage), lost => PacCovering(lost, p.CodePage, temp)),
+                Cavena890 => new RemedyContext(BinaryOptions.CavenaLanguageNames.FirstOrDefault(n => BinaryOptions.CavenaLanguages[n].Id == BinaryOptions.CavenaLanguageFor(copy, fo?.Cavena890))),
+                _ => null,
+            };
+            var verification = Verify(bytes, info, format, expected, frame, encName, temp, language, warnings, remedyCtx);
             return (bytes, encName, verification);
         }
         finally
@@ -476,7 +485,7 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
     /// become a <see cref="Verification"/> plus warnings, never silence. A reader that throws on our own
     /// output gives verdict "unverified" with the reason and a verification-failed warning.
     /// </summary>
-    private Verification Verify(byte[] bytes, FormatInfo info, SubtitleFormat writer, Subtitle expected, double frameMs, string encName, JobTemp temp, string? language, List<Warning> warnings)
+    private Verification Verify(byte[] bytes, FormatInfo info, SubtitleFormat writer, Subtitle expected, double frameMs, string encName, JobTemp temp, string? language, List<Warning> warnings, RemedyContext? remedyCtx = null)
     {
         var g = Configuration.Settings.General;
         var ss = Configuration.Settings.SubtitleSettings;
@@ -503,9 +512,69 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         {
             (g.CurrentFrameRate, Ebu.OverrideReadFrameRate, ss.CurrentCavena890LanguageIdLine1, ss.CurrentCavena890LanguageIdLine2) = (fps, ovr, l1, l2);
         }
-        var (v, w) = Verifier.Compare(expected, back, info, frameMs, encName, language);
+        var (v, w) = Verifier.Compare(expected, back, info, frameMs, encName, language, remedyCtx);
         warnings.AddRange(w);
         return v;
+    }
+
+    private const int MaxProbeCodePoints = 1500;
+
+    /// <summary>
+    /// v1.2.1: which other PAC code pages keep every given code point (all non-ASCII code points of the output).
+    /// Writes the code points (only those, never cue text; 4 per cue so CJK lines stay short) with each code page,
+    /// the current one included, and reads them back. Null when the probe can't tell.
+    /// </summary>
+    private string[]? PacCovering(IReadOnlyCollection<int> lost /* = the code points to keep */, int currentCodePage, JobTemp temp)
+    {
+        if (lost.Count == 0 || lost.Count > MaxProbeCodePoints) return null;
+        var probe = new Subtitle();
+        var chunk = new List<string>();
+        foreach (var cp in lost.OrderBy(c => c))
+        {
+            chunk.Add(char.ConvertFromUtf32(cp));
+            if (chunk.Count == 4) Flush();
+        }
+        Flush();
+        void Flush()
+        {
+            if (chunk.Count == 0) return;
+            var n = probe.Paragraphs.Count;
+            probe.Paragraphs.Add(new Paragraph(string.Concat(chunk), 1000 + n * 2000, 2000 + n * 2000));
+            chunk.Clear();
+        }
+        var g = Configuration.Settings.General;
+        var savedFps = g.CurrentFrameRate;
+        var keep = new List<string>();
+        try
+        {
+            g.CurrentFrameRate = 25;
+            for (var i = 0; i < BinaryOptions.PacCodePages.Length; i++)
+            {
+                try
+                {
+                    var bytes = BinaryIO.Save(new Pac { CodePage = i }, new Subtitle(probe, false), "probe.pac", null);
+                    using var file = new TempFile(temp, bytes, ".pac");
+                    var back = BinaryIO.Load(new Pac { CodePage = i }, bytes, file.Path);
+                    var have = string.Concat(back.Paragraphs.Select(p => p.Text)).EnumerateRunes().Select(r => r.Value).ToHashSet();
+                    if (lost.All(have.Contains)) keep.Add(BinaryOptions.PacCodePages[i]);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // libse can't write or read these code points with this code page: it doesn't keep them.
+                    log.LogDebug("verify.pac-probe codePage={codePage} exception={exception}", i, ex.GetType().Name);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning("verify.pac-probe-failed exception={exception}", ex.GetType().Name);
+            return null;
+        }
+        finally
+        {
+            g.CurrentFrameRate = savedFps;
+        }
+        return [.. keep];
     }
 
     private ApiException NotDetected(DecodedText decoded, List<string> lines, string detail, Exception? inner)

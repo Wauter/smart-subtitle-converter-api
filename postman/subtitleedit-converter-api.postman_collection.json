@@ -1504,6 +1504,7 @@
                   "pm.test(\"replacedChars lists cues and Greek code points\", () => { pm.expect(v.replacedChars.cues).to.eql([1, 2]); pm.expect(v.replacedChars.codePoints[0].codePoint).to.match(/^U\\+03/); });",
                   "const w = j.warnings.find(x => x.code === \"characters-replaced\");",
                   "pm.test(\"warning has details and a remedy hint\", () => { pm.expect(w.details.cues).to.eql([1, 2]); pm.expect(w.hint).to.include(\"greek\"); pm.expect(w.hint).to.include(\"fpc\"); });",
+                  "pm.test(\"remedy facts (1.2.1)\", () => { const r = w.details.remedy; pm.expect(r.option).to.eql(\"formatOptions.pac.codePage\"); pm.expect(r.allowedValues).to.include(\"greek\"); pm.expect(r.suggested).to.eql(\"greek\"); pm.expect(r.candidatesTested).to.eql(true); pm.expect(r.unicodeAlternative).to.eql(\"fpc\"); });",
                   "pm.test(\"X-Warnings header has no details\", () => pm.expect(pm.response.headers.get(\"X-Warnings\") || \"\").to.not.include(\"details\"));"
                 ]
               }

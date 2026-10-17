@@ -6,6 +6,23 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Nothing here has been tagged or released yet; the private `:edge` image carries
 the version of the `main` commit it was built from.
 
+## 1.2.1 (unreleased)
+
+`characters-replaced` remedies state facts instead of guessing (approved by Wauter).
+
+- `warnings[].details.remedy` (JSON body and manifests only): `scripts`, `detectedLanguage`, `currentEncoding`,
+  `option`, `currentValue`, `allowedValues`, `candidates`, `candidatesTested`, `suggested`, `unicodeAlternative`,
+  `note`. See [docs/errors.md](docs/errors.md#remedy-characters-replaced-since-121).
+- PAC candidates are tested: every non-ASCII code point of the output (code points only) is written with each code
+  page and read back; only code pages that keep all of them are listed. `suggested` is set only when exactly one
+  value fits. 1.2.0 guessed from the script and detected language (e.g. `czech` for any Latin extended text, which
+  doesn't help in libse 5.1.0: latin, czech and portuguese keep the same Latin extended characters).
+- When several values fit (Latin extended, CJK, …) the hint lists them; when none does, it says so and points to
+  target `fpc`. Hints list code points, never text. Never switched automatically.
+- Notes for libse limits: Cavena 890 garbles Greek/Cyrillic/Arabic whatever the language (kept from 1.2.0); Cavena's
+  Latin languages share one table; PAC characters lost only next to certain neighbours (e.g. `ť` before `o`) can't
+  be fixed by a code page.
+
 ## 1.2.0 (unreleased)
 
 Conversion verification and diagnostics (client feedback 2026-10-17, approved by Wauter).
