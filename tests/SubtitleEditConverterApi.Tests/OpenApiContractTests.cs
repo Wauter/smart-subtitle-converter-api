@@ -39,4 +39,16 @@ public class OpenApiContractTests(ApiFactory f) : IClassFixture<ApiFactory>
             Assert.False(string.IsNullOrEmpty((string?)op!["summary"]), $"{method} {path} has no summary");
         }
     }
+
+    [Fact]
+    public async Task Healthz_and_openapi_report_the_csproj_version()
+    {
+        var csproj = File.ReadAllText(RepoFile("src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj"));
+        var want = System.Text.RegularExpressions.Regex.Match(csproj, "<Version>([^<]+)</Version>").Groups[1].Value;
+        var c = f.CreateClient();
+        var health = JsonNode.Parse(await c.GetStringAsync("/healthz"))!;
+        var doc = JsonNode.Parse(await c.GetStringAsync("/openapi/v1.json"))!;
+        Assert.Equal(want, (string)health["version"]!);
+        Assert.Equal(want, (string)doc["info"]!["version"]!);
+    }
 }

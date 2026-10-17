@@ -116,6 +116,39 @@ public static class BinaryOptions
     /// <summary>EBU's "23" disk format is 23.976 fps.</summary>
     public static double EbuFps(double fr) => Math.Abs(fr - 23) < 0.001 ? 23.976 : fr;
 
+    // ---------------- frame-rate-changed ----------------
+
+    public const string FrameRateChangedCode = "frame-rate-changed";
+
+    /// <summary>
+    /// The frame rate a reader assumes for a written GSI: libse's own Disk Format Code getter
+    /// (STL23/24/25/29/30/35/48/50/60, anything else 30), because libse doesn't store
+    /// FrameRateFromSaveDialog in the file. STL23 is taken as 23.976, the API's convention (<see cref="EbuFps"/>).
+    /// </summary>
+    public static double ImpliedFps(string? diskFormatCode) =>
+        EbuFps(new Ebu.EbuGeneralSubtitleInformation { DiskFormatCode = diskFormatCode ?? "", FrameRateFromSaveDialog = 0 }.FrameRate);
+
+    /// <summary>
+    /// frame-rate-changed: the written Disk Format Code implies a frame rate that differs (by more
+    /// than 0.01 fps) from the intended one: the requested rate (formatOptions.ebuStl.frameRate, else
+    /// target.fps) or, when none was requested, the source's rate (the rate an EBU source was read at,
+    /// else profile source.fps). Null when nothing is known about the intended rate or the rates agree.
+    /// </summary>
+    public static Warning? FrameRateChanged(string? writtenDiskFormatCode, double? requestedFps, double? sourceFps)
+    {
+        var (intended, what) = requestedFps is > 0 and { } r ? (EbuFps(r), "requested") : sourceFps is > 0 and { } s ? (s, "source") : (0d, "");
+        if (intended <= 0) return null;
+        var implied = ImpliedFps(writtenDiskFormatCode);
+        if (Math.Abs(implied - intended) <= 0.01) return null;
+        var dfc = (writtenDiskFormatCode ?? "").Trim();
+        return new Warning(FrameRateChangedCode,
+            $"The EBU STL output declares disk format code {dfc}, which readers take as {Fps(implied)} fps, but the {what} frame rate is {Fps(intended)} fps. " +
+            "EBU Tech 3264 only defines STL25.01 and STL30.01, so 29.97 has no code of its own. " +
+            "Set formatOptions.ebuStl.frameRate to the rate the file should declare, or headerFromSource:false to stop reusing the source header's code.");
+    }
+
+    private static string Fps(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+
     // ---------------- global settings (SettingsScope.Apply) ----------------
 
     public static void ApplyGlobals(FormatOptionsSpec? fo)

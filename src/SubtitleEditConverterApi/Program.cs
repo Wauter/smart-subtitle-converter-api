@@ -59,6 +59,7 @@ builder.Services.AddOpenApi("v1", o =>
     o.AddDocumentTransformer((doc, _, _) =>
     {
         doc.Info.Title = "Subtitle Edit Converter API";
+        doc.Info.Version = LibseInfo.AppVersion; // the csproj <Version>, same as /healthz
         doc.Info.Description = "Convert subtitles between text and binary broadcast formats (EBU STL, PAC, Cavena 890, ...) with Subtitle Edit's libse. Errors are RFC 7807 problem+json with a stable `code`, a `hint` and the `requestId`. Send `Authorization: Bearer <key>` when API keys are configured.";
         return OpenApiContract.Apply(doc);
     });

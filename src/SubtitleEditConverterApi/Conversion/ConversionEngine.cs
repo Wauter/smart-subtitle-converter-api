@@ -383,6 +383,11 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             {
                 case Ebu:
                     header = BinaryOptions.BuildEbuHeader(copy, fo?.EbuStl, profile.Target?.Fps, warnings);
+                    var sourceFps = source.Format is Ebu
+                        ? fo?.EbuStl?.ReadFrameRate is > 20 and { } rfr ? rfr : source.Details?.GetValueOrDefault("frameRate") as double?
+                        : profile.Source?.Fps;
+                    if (BinaryOptions.FrameRateChanged(header.DiskFormatCode, fo?.EbuStl?.FrameRate ?? profile.Target?.Fps, sourceFps is { } sf ? BinaryOptions.EbuFps(sf) : null) is { } frw)
+                        warnings.Add(frw);
                     encName = "cp" + (BinaryOptions.IsStlHeader(copy.Header) ? copy.Header![..3] : header.CodePageNumber);
                     g.CurrentFrameRate = header.FrameRate;
                     break;

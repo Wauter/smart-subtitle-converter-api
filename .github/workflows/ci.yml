@@ -21,6 +21,31 @@ env:
   DOTNET_NOLOGO: "1"
 
 jobs:
+  # Every API change that ships bumps <Version> (CONTRIBUTING.md). PRs that touch src/ must raise it
+  # above the merge base. Escape hatch: the `skip-version-check` label; Renovate PRs are exempt
+  # (dependency bumps get folded into the next versioned change).
+  version-check:
+    if: github.event_name == 'pull_request' && github.actor != 'renovate[bot]' && !contains(github.event.pull_request.labels.*.name, 'skip-version-check')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: src/ changes bump the csproj <Version>
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          csproj=src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj
+          base=$(git merge-base "$BASE_SHA" HEAD)
+          if git diff --quiet "$base" HEAD -- src/; then echo "no src/ changes"; exit 0; fi
+          ver() { sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' | head -1; }
+          old=$(git show "$base:$csproj" | ver); new=$(ver < "$csproj")
+          echo "base $old -> head $new"
+          if [ "$old" = "$new" ] || [ "$(printf '%s\n%s\n' "$old" "$new" | sort -V | tail -1)" != "$new" ]; then
+            echo "::error file=$csproj::src/ changed but <Version> did not go up ($old -> $new). Bump it (minor: additive, patch: fix) and add a CHANGELOG.md entry, or label the PR skip-version-check."
+            exit 1
+          fi
+
   build-test:
     runs-on: ubuntu-latest
     steps:

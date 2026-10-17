@@ -1114,7 +1114,59 @@
                   "pm.test(\"file name sample.stl\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.include(\"sample.stl\"));",
                   "pm.test(\"X-Output-Kind: binary\", () => pm.expect(pm.response.headers.get(\"X-Output-Kind\")).to.eql(\"binary\"));",
                   "pm.test(\"GSI: CPN 850, STL25.01\", () => pm.expect(pm.response.stream.slice(0, 11).toString(\"latin1\")).to.eql(\"850STL25.01\"));",
-                  "pm.test(\"warnings are listed\", () => pm.expect(Number(pm.response.headers.get(\"X-Warnings-Count\"))).to.be.at.least(1));"
+                  "pm.test(\"warnings are listed\", () => pm.expect(Number(pm.response.headers.get(\"X-Warnings-Count\"))).to.be.at.least(1));",
+                  "pm.test(\"no frame-rate-changed at 25 fps\", () => pm.expect(pm.response.headers.get(\"X-Warnings\") || \"\").to.not.include(\"frame-rate-changed\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "EBU STL 29.97 (STL30.01) -> EBU STL: frame-rate-changed",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert"
+              ]
+            },
+            "description": "An STL30.01 file whose cues are 29.97 fps (readFrameRate), rewritten with defaults (the source GSI is reused). EBU Tech 3264 has no 29.97 code, so the output still says STL30.01 and the API warns frame-rate-changed. Fix: formatOptions.ebuStl.frameRate (e.g. 30) or headerFromSource:false.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "postman/fixtures/sample-2997.stl"
+                },
+                {
+                  "key": "target",
+                  "type": "text",
+                  "value": "ebustl"
+                },
+                {
+                  "key": "profile",
+                  "type": "text",
+                  "value": "{\"formatOptions\":{\"ebuStl\":{\"readFrameRate\":29.97}}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"GSI still STL30.01\", () => pm.expect(pm.response.stream.slice(3, 11).toString(\"latin1\")).to.eql(\"STL30.01\"));",
+                  "pm.test(\"frame-rate-changed warning\", () => pm.expect(pm.response.headers.get(\"X-Warnings\")).to.include(\"frame-rate-changed\"));"
                 ]
               }
             }

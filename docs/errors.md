@@ -58,6 +58,7 @@ Warnings are not errors: the conversion succeeded. They appear in `warnings[]`, 
 |---|---|
 | `characters-replaced` | Characters the target code page can't represent were replaced (`count`). |
 | `frame-quantised` | Times were rounded to the target frame rate (at most one frame). |
+| `frame-rate-changed` | EBU STL only (since 1.1.0): the written Disk Format Code implies a different frame rate (by more than 0.01 fps) than the intended one: the requested rate (`formatOptions.ebuStl.frameRate`, else `target.fps`) or, when none was requested, the source's (the rate an EBU source was read at, i.e. `readFrameRate` or its own code; else `source.fps`). Typical case: a 29.97 fps source or request written as `STL30.01`, because EBU Tech 3264 only defines `STL25.01` and `STL30.01`. The message names the code, both rates and the workaround (`formatOptions.ebuStl.frameRate`, or `headerFromSource:false`). No `count`. |
 | `lossy-format` | The target format can't keep everything (Cheetah styling, cue count changed, larger timing drift). |
 | `encoding-ignored` | `encoding.output` / `responseEncoding=text` doesn't apply to binary output (always base64 in JSON). |
 | `format-option-ignored` | A `formatOptions` block doesn't apply to this source or target. |
