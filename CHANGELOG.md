@@ -9,7 +9,7 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 ## 1.3.1 — Unreleased
 
 - Add a GitHub security policy (`SECURITY.md`) pointing at [docs/security.md](docs/security.md).
-- Publish job marks the GHCR package public after each push (packages created while the repo was private stay private until then).
+- Document that GHCR package visibility is a one-time UI setting (Packages REST API cannot change it).
 - Default published host port is **8080** again (`127.0.0.1:8080:8080` in Compose and the docs). The container still
   listens on 8080; change only the host side if 8080 is taken. Keep the `127.0.0.1` bind by default. No API contract
   change.
