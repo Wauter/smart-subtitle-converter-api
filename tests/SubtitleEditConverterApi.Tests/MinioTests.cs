@@ -78,7 +78,27 @@ public class MinioTests
             Assert.Equal(200, (int)put.StatusCode); Assert.Contains("sidecar-skipped", (await put.Json())["warnings"]!.ToJsonString()); Assert.NotNull(https.Written);
             var job = await (await c.GetAsync("/v1/jobs/" + put.Header("X-Job-Id"))).Json(); Assert.DoesNotContain("signature", job.ToJsonString());
             var again = await c.PostAsJsonAsync("/v1/convert/json", new { input = output, output = "s3://subs/out/show.srt", target = "srt" });
-            Assert.Equal(200, (int)again.StatusCode); // S3 single PUT replaces the object as a whole.
+            Assert.Equal(409, (int)again.StatusCode);
+            Assert.Contains("error | replace", (string)(await again.Json())["hint"]!);
+            var replace = await c.PostAsJsonAsync("/v1/convert/json", new { input = output, output = "s3://subs/out/show.srt", target = "srt", ifExists = "replace", sidecar = true });
+            Assert.Equal(200, (int)replace.StatusCode);
+            var reread = await c.GetAsync("/v1/jobs/" + b.Header("X-Job-Id") + "/output");
+            Assert.Equal(200, (int)reread.StatusCode); Assert.Contains("Hello", await reread.Content.ReadAsStringAsync());
+            var inputRead = await c.GetAsync("/v1/jobs/" + a.Header("X-Job-Id") + "/input");
+            Assert.Equal(Samples.Srt, await inputRead.Content.ReadAsStringAsync());
+            var storage = new S3Storage(opts, new AmazonS3Client(credentials, S3Storage.Configuration(opts)));
+            async Task<int> Race(string value) {
+                try { await storage.WriteAsync(StorageLocation.Parse("s3://subs/out/race.srt"), System.Text.Encoding.UTF8.GetBytes(value), "text/plain", default); return 200; }
+                catch (ApiException ex) { return ex.Status; }
+            }
+            var races = await Task.WhenAll(Race("first"), Race("second"));
+            Assert.Equal(new[] { 200, 409 }, races.Order().ToArray());
+            await storage.WriteAsync(StorageLocation.Parse("s3://subs/out/race.srt"), "replacement"u8.ToArray(), "text/plain", default, replace: true);
+            Assert.Equal("replacement", System.Text.Encoding.UTF8.GetString(await storage.ReadAsync(StorageLocation.Parse("s3://subs/out/race.srt"), default)));
+            storage.Dispose();
+            await client.DeleteObjectAsync("subs", "out/show.srt");
+            var gone = await c.GetAsync("/v1/jobs/" + b.Header("X-Job-Id") + "/output");
+            Assert.Equal("job-file-gone", (string)(await gone.Json())["code"]!);
             var absent = await c.PostAsJsonAsync("/v1/detect", new { input = "s3://subs/in/missing.srt" }); Assert.Equal(404, (int)absent.StatusCode);
         }
         finally

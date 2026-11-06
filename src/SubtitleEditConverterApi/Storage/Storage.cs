@@ -19,10 +19,12 @@ public sealed record StorageLocation(string Scheme, string Value, Uri? Uri, stri
             var raw = System.Uri.UnescapeDataString(value[7..]);
             return new("file", raw, uri, Path.GetFileName(raw));
         }
+        if (uri.Scheme == "s3" && uri.Query.Length != 0) throw Rejected("S3 locations must not contain query strings.");
         if (uri.Host.Length == 0 || !value.StartsWith(uri.Scheme + "://", StringComparison.OrdinalIgnoreCase) || uri.Scheme is not ("https" or "s3") || uri.AbsolutePath is "" or "/" || uri.AbsolutePath.EndsWith('/'))
             throw Rejected("Only file, s3 and https locations naming a complete file are supported.");
         return new(uri.Scheme, value, uri, Path.GetFileName(System.Uri.UnescapeDataString(uri.AbsolutePath)));
     }
+    public static ApiException OutputExists() => new(409, "output-exists", "The storage output already exists or a concurrent conditional write won; it was not replaced.", "Valid ifExists values: error | replace. Choose another output or explicitly replace. A previous job or attempt may have written, or still be writing, this location; inspect it first.");
     public static ApiException Rejected(string message) => new(422, "storage-location-rejected", message,
         "Check the URI and the server's storage allowlists. Empty allowlists disable that scheme.");
 }
@@ -30,7 +32,7 @@ public sealed record StorageLocation(string Scheme, string Value, Uri? Uri, stri
 public interface IStorage
 {
     Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct);
-    Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct);
+    Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false);
     Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct);
 }
 
@@ -44,7 +46,7 @@ public sealed class StorageRouter(FileStorage files, HttpStorage http, S3Storage
         _ => throw StorageLocation.Rejected($"The {location.Scheme} storage scheme is not enabled."),
     };
     public Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct) => For(location).ReadAsync(location, ct);
-    public Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct) => For(location).WriteAsync(location, bytes, contentType, ct);
+    public Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false) => For(location).WriteAsync(location, bytes, contentType, ct, replace);
     public Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct) => For(location).ExistsAsync(location, ct);
     public static async Task<byte[]> ReadCapped(Stream stream, long max, CancellationToken ct)
     {

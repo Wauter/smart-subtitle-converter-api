@@ -69,7 +69,7 @@ public sealed class HttpStorage : IStorage, IDisposable
         return uri;
     }
     public Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct) => Transfer(location, HttpMethod.Get, null, null, ct);
-    public async Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct)
+    public async Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false)
     {
         if (bytes.LongLength > _opts.MaxUploadBytes) throw Problems.TooLarge(_opts);
         await Transfer(location, HttpMethod.Put, bytes, contentType, ct);

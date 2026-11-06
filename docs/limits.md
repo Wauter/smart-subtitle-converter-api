@@ -6,6 +6,7 @@ as other API routes. It exposes whether auth is enabled, not keys, roots, bucket
 - `maxUploadBytes`, `maxRequestBodyBytes`, `json`, `maxProfileBytes`, `maxCues`, `maxLineChars`:
   decoded source size, framing/base64 budgets and conversion input limits. URI downloads have the same cap.
 - `conversionTimeoutSeconds`, `queue.capacity`, `queue.depth`: conversion run/queue budgets and live depth.
+- `requestMaxWaitSeconds`: maximum accepted caller wait.
 - `requestWaitSeconds`: default caller wait (per-request `Prefer: wait` accepts 0..60).
 - `io.timeoutSeconds`, `io.retries`: per-attempt timeout and number of **extra** transient attempts.
 - `jobs.maxEntries`, `jobs.ttlSeconds`: history cap and TTL from creation, not from completion.
@@ -16,6 +17,5 @@ as other API routes. It exposes whether auth is enabled, not keys, roots, bucket
 - `rateLimitPerMinute`, `auth.required`, `binary.ebuStlMaxBytes`: request rate, bearer requirement and
   the reader's EBU STL size bound.
 
-There are no archive limits. Submit one subtitle per job. Neither a 202 nor a retained job provides a file
-replay route. Use an output URI if work may outlive the wait. More: [configuration](configuration.md),
+There are no archive limits. Submit one subtitle per job. Job bytes are not cached. The job input/output routes re-read stored locations, not original upload or response bytes. Use an output URI if work may outlive the wait. More: [configuration](configuration.md),
 [usage](usage.md#waiting-and-polling), [errors](errors.md).

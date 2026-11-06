@@ -32,6 +32,12 @@ public sealed class ApiException : Exception
 
 public static class ErrorCodes
 {
+    public const string JobNotFound = "job-not-found";
+    public const string JobInputNotStored = "job-input-not-stored";
+    public const string JobOutputNotStored = "job-output-not-stored";
+    public const string JobNotReady = "job-not-ready";
+    public const string JobFileGone = "job-file-gone";
+    public const string JobLocationNotReplayable = "job-location-not-replayable";
     public const string StorageLocationRejected = "storage-location-rejected";
     public const string StorageNotFound = "storage-not-found";
     public const string StorageIoFailed = "storage-io-failed";

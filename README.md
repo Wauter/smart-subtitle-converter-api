@@ -117,3 +117,5 @@ metadata only, not a download cache. ZIP conversion is not supported.
 Start with [usage](docs/usage.md#job-metadata), [configuration](docs/configuration.md#jobs-and-storage),
 [limits](docs/limits.md), [mount deployment](docs/deployment.md#mounted-subtitle-storage),
 [allowlists and network checks](docs/security.md), and [`.env.example`](.env.example).
+
+Stored input/output may be re-read through job-file routes while history lives; this is not a file archive. Filesystem/S3 writes default to collision errors; explicit `ifExists:"replace"` permits replacement. HTTPS follows signer policy. See [job files and overwrite policy](docs/usage.md#re-reading-job-files-and-overwrite-policy).

@@ -63,11 +63,9 @@ file while the process is alive. A crash can leave a partial file. Enable atomic
 folders, and verify the mount's rename semantics. No filesystem operation crosses into another protocol.
 
 S3 bucket/key-prefix checks precede SDK requests. A custom endpoint is trusted operator configuration,
-not an untrusted request target; scope the role's permissions as well as the API allowlists. S3 PUT can replace
-an existing object. Sidecar and subtitle writes are independent, with warnings on sidecar failure.
+not an untrusted request target; scope the role's permissions as well as the API allowlists. S3 defaults to a conditional PUT (`If-None-Match: *`); explicit `ifExists:"replace"` permits replacement. Sidecar and subtitle writes are independent, with warnings on sidecar failure.
 
-Jobs are in-memory metadata, scoped to the API key **name** (use unique names per principal); an unauthenticated
-server has one shared job scope. Restart clears history; TTL/cap eviction may remove running records without
+Jobs are in-memory metadata. Any valid API key knowing an unguessable id may read metadata and re-read stored files; there is no owner check or admin key. An unauthenticated server grants the same id-based access. Restart clears history; TTL/cap eviction may remove running records without
 cancelling work. Run one instance or use sticky routing if polling through a load balancer; there is no shared
 store. Jobs do not retain subtitle content, but URIs, profiles and diagnostics may be sensitive. Protect access.
 Signed HTTPS queries are excluded from returned metadata; do not put credentials in path names.

@@ -11,24 +11,29 @@ public class JobTests
         public DateTimeOffset Now = DateTimeOffset.UtcNow;
         public override DateTimeOffset GetUtcNow() => Now;
     }
+    [Theory]
+    [InlineData("https://name:password@media.example/in.srt?signature=secret#part", "https://media.example/in.srt")]
+    [InlineData("s3://subs/in.srt?signature=secret", "s3://subs/in.srt")]
+    [InlineData("/data/file?literal.srt", "/data/file?literal.srt")]
+    public void Redaction_never_retains_uri_queries_or_credentials(string location, string expected) => Assert.Equal(expected, JobStore.Redact(location));
+
     [Fact]
-    public void Cap_ttl_owner_and_restart()
+    public void Cap_ttl_and_restart()
     {
         var clock = new Clock();
         var opts = new ApiOptions { JobMaxEntries = 2, JobTtlSeconds = 10 };
         using var store = new JobStore(opts, clock);
-        var a = store.Create("a"); store.Finish(a);
+        var a = store.Create(); store.Finish(a);
         clock.Now = clock.Now.AddSeconds(1);
-        var b = store.Create("b"); store.Finish(b);
+        var b = store.Create(); store.Finish(b);
         var c = store.Create();
         Assert.Equal(2, store.Count);
-        Assert.Null(store.Get(a, "a"));
-        Assert.Null(store.Get(b, "a"));
-        Assert.NotNull(store.Get(b, "b"));
+        Assert.Null(store.Get(a));
+        Assert.NotNull(store.Get(b));
         clock.Now = clock.Now.AddSeconds(11);
         Assert.Null(store.Get(c));
         using var restarted = new JobStore(opts, clock);
-        Assert.Null(restarted.Get(b, "b"));
+        Assert.Null(restarted.Get(b));
     }
     [Fact]
     public void Expiring_running_records_does_not_bypass_active_limit()

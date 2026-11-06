@@ -22,7 +22,7 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
     private static ApiException IoError(int errno, bool writing = false) => errno switch
     {
         2 => new(404, "storage-not-found", "The storage file or parent directory does not exist.", "Create the parent directories and check the full file path."),
-        17 => new(409, "output-exists", "The storage output already exists; it was not replaced.", "Choose a new output file or remove the existing one outside this API."),
+        17 => StorageLocation.OutputExists(),
         40 or 20 => StorageLocation.Rejected("A path component is a symlink or is not a directory. Symlinks are not followed."),
         _ => new(502, "storage-io-failed", $"Filesystem {(writing ? "write" : "read")} failed: {new Win32Exception(errno).Message}.", "Check mount availability, permissions and the container UID/GID."),
     };
@@ -57,14 +57,16 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
         if (stream.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
         return await StorageRouter.ReadCapped(stream, opts.MaxUploadBytes, ct);
     }
-    public async Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct)
+    public async Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false)
     {
         var path = CheckedPath(location);
         if (bytes.LongLength > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
         using var parent = Parent(path);
         var fd = (int)parent.DangerousGetHandle();
         var name = Path.GetFileName(path);
-        var staged = opts.StorageFileAtomic ? "." + name + "." + Guid.NewGuid().ToString("N") + ".partial" : name;
+        if (replace) EnsureReplaceable(fd, name);
+        var staging = opts.StorageFileAtomic || replace; // replacements preserve the old file until a complete write
+        var staged = staging ? "." + name + "." + Guid.NewGuid().ToString("N") + ".partial" : name;
         var created = false;
         try
         {
@@ -77,11 +79,24 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
                 stream.Flush(flushToDisk: true);
             }
             ct.ThrowIfCancellationRequested();
-            if (opts.StorageFileAtomic && renameat2(fd, staged, fd, name, 1) != 0) throw IoError(Marshal.GetLastPInvokeError(), true); // RENAME_NOREPLACE
+            if (replace) EnsureReplaceable(fd, name);
+            if (staging && renameat2(fd, staged, fd, name, replace ? 0u : 1u) != 0) throw IoError(Marshal.GetLastPInvokeError(), true);
             created = false;
         }
         catch (IOException ex) { throw new ApiException(502, "storage-io-failed", "Filesystem write failed.", "Check mount availability, space and permissions.", ex); }
         finally { if (created) _ = unlinkat(fd, staged, 0); }
+    }
+    private static void EnsureReplaceable(int fd, string name)
+    {
+        try
+        {
+            using var existing = Open(fd, name, 2097152); // O_PATH: inspect without reading/truncating, no-follow
+            if (statx((int)existing.DangerousGetHandle(), "", 0x1000, 1, out var stat) != 0)
+                throw IoError(Marshal.GetLastPInvokeError());
+            if ((stat.Mode & 0xf000) != 0x8000)
+                throw StorageLocation.Rejected("Replacement destinations must be regular files, never symlinks, directories or devices.");
+        }
+        catch (ApiException ex) when (ex.Code == "storage-not-found") { } // new file is allowed too
     }
     public Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct)
     {

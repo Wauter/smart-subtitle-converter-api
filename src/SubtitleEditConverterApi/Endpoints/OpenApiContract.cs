@@ -69,6 +69,9 @@ public static class OpenApiContract
             if (schemas.TryGetValue(name, out var rs) && rs is OpenApiSchema r) r.Required = new HashSet<string>();
         }
 
+        if (schemas.TryGetValue("ConvertJsonRequest", out var convertSchema) && convertSchema is OpenApiSchema convert && convert.Properties != null)
+            convert.Properties["ifExists"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["error", "replace"], Default = System.Text.Json.Nodes.JsonValue.Create("error"), Description = "Default error: exclusive filesystem create or conditional S3 PUT. replace explicitly permits replacement. HTTPS follows signer/receiver policy." };
+
         doc.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
         doc.Components.SecuritySchemes["bearer"] = new OpenApiSecurityScheme
         {

@@ -91,13 +91,13 @@ Every error and warning code: [errors.md](errors.md).
 
 ## Job metadata
 
-Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs/{id}` returns status, timestamps and result metadata, without subtitle content. Records live in memory only: restart, expiry or oldest-first eviction returns 404, not a failed status. Defaults: six-hour TTL from creation and 400 records. Running work has a separate cap, so eviction does not allow unlimited work. Metadata is bounded to 128 KiB per result; oversized diagnostics are replaced by a summary. Jobs belong to the authenticated key name (use a distinct name for each principal). Requests rejected before admission have no job. Failed admitted jobs also return their id.
+Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs/{id}` returns status, timestamps and result metadata, without subtitle content. Records live in memory only: restart, expiry or oldest-first eviction returns 404, not a failed status. Defaults: six-hour TTL from creation and 400 records. Running work has a separate cap, so eviction does not allow unlimited work. Metadata is bounded to 128 KiB per result; oversized diagnostics are replaced by a summary. Job ids are unguessable capability tokens: any valid API key knowing an id can read its metadata and stored files; there is no owner/admin role. Requests rejected before admission have no job. Failed admitted jobs also return their id.
 
 ## Waiting and polling
 
 `Prefer: wait=N` selects a wait from 0 to 60 seconds (default 30, set by `REQUEST_WAIT_SECONDS`). A fast conversion returns its normal 200; unfinished work returns 202 with `Location: /v1/jobs/{id}`, `X-Job-Id` and `Retry-After: 1`. Poll that URL until status is `succeeded` or `failed`; the polling HTTP status is 200 even for a failed job, whose `error` contains problem details. Destination never selects synchronous versus asynchronous mode. Disconnecting does not cancel accepted work; server shutdown does.
 
-**No replay of file bytes:** jobs retain metadata only. With upload/download and no `output`, only the original synchronous 200 carries content. If it becomes asynchronous, GET cannot recover that content: use an explicit output location for work that may exceed the wait. Do not blindly resubmit writes after a lost response; there is no idempotency-key deduplication.
+**No replay of file bytes:** jobs retain metadata only. With upload/download and no `output`, only the original synchronous 200 carries content. If it becomes asynchronous, GET cannot recover response-only content: use an explicit output location for work that may exceed the wait. Do not blindly resubmit writes after a lost response; there is no idempotency-key deduplication.
 
 ## Filesystem locations and sidecars
 
@@ -105,7 +105,7 @@ Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs
 {"input":"file:///data/in/show.srt","output":"/data/out/show.pac","target":"pac","sidecar":true}
 ```
 
-`input` is mutually exclusive with JSON `content` or multipart `file`. `output` is optional; with it the response contains output metadata and verification, not file bytes. An explicit `output` requires exactly one target; `target.additional` remains available for inline results. `detect` accepts `input` too. A path must name a file: no trailing slash, dot segments or symlinks. Only Linux server filesystem storage is supported; directory handles and no-follow opens prevent path-component symlink swaps. Pre-create parent directories. Existing output files are rejected, not overwritten.
+`input` is mutually exclusive with JSON `content` or multipart `file`. `output` is optional; with it the response contains output metadata and verification, not file bytes. An explicit `output` requires exactly one target; `target.additional` remains available for inline results. `detect` accepts `input` too. A path must name a file: no trailing slash, dot segments or symlinks. Only Linux server filesystem storage is supported; directory handles and no-follow opens prevent path-component symlink swaps. Pre-create parent directories. Existing filesystem and S3 outputs are rejected by default; `ifExists:"replace"` explicitly permits replacement.
 
 Set `STORAGE_FILE_ROOTS` to allowlisted absolute roots (OS path separator, or a JSON array); empty disables file URIs. `STORAGE_FILE_ATOMIC=false` writes directly with exclusive creation, removing its own incomplete file after a failed write. With `true`, stage a sibling temporary file, flush it, then rename without replacing an existing destination. Consumers may see a growing file with direct writes; use atomic writes for scanning directories. Network mounts still need suitable rename semantics.
 
@@ -131,7 +131,7 @@ Inputs and outputs are independent; all enabled schemes can be mixed. S3 require
 
 `S3_ENDPOINT` selects one server-configured compatible endpoint; unset uses the AWS endpoint for `S3_REGION` (default `us-east-1`). Set `S3_FORCE_PATH_STYLE=true` for MinIO. Credentials come from the SDK's default environment/role chain. Custom endpoints are trusted operator configuration and may be internal; never let untrusted callers configure them. No Azure/GCS support or tests.
 
-Outputs use a single object PUT, replacing an existing object at that key; no temporary object, rename, copy or delete. Use a unique output key if replacement is unwanted. The subtitle and `{key}.json` sidecar are two independent writes, not a transaction. S3 and HTTPS use the same attempt timeout/retry count; SDK retries are disabled so attempts do not multiply.
+Outputs use one object PUT with `If-None-Match: *` by default; existing keys yield 409 `output-exists`. Explicit `ifExists:"replace"` omits the condition and permits replacement; no temporary object, rename, copy or delete. Use a unique output key if replacement is unwanted. The subtitle and `{key}.json` sidecar are two independent writes, not a transaction. S3 and HTTPS use the same attempt timeout/retry count; SDK retries are disabled so attempts do not multiply.
 
 ## URI and polling examples
 
@@ -157,3 +157,31 @@ curl localhost:4041/v1/detect -H 'content-type: application/json' \
 The [Postman collection](../postman/subtitleedit-converter-api.postman_collection.json) includes these flows,
 HTTPS GET/PUT and sidecars. Storage requests are skipped until their environment variables are supplied;
 use fresh filesystem output names for repeated runs. ZIP input is rejected: loop over single-file requests.
+
+## Re-reading job files and overwrite policy
+
+```bash
+curl -OJ localhost:4041/v1/jobs/JOB_ID/input
+curl -OJ localhost:4041/v1/jobs/JOB_ID/output
+curl localhost:4041/v1/convert/json -H 'content-type: application/json' \
+  -d '{"input":"s3://subs/in/show.srt","output":"s3://subs/out/show.vtt","target":"vtt","ifExists":"replace","sidecar":true}'
+# Multipart has the same field: -F ifExists=replace
+```
+
+Job file routes read the **current** file from its recorded URI using current allowlists, size limits and
+network checks. They do not run detection/conversion or recover an old copy. Input can be readable while
+conversion runs; output is `job-not-ready` until completion, and a failed conversion has no successful stored
+output. Upload/inline sources and response-only output have no stored location. Query-bearing HTTPS URLs
+are marked non-replayable because the query is never retained. See [job file errors](errors.md#job-file-errors).
+Treat an id as a capability token: any valid API key with it can read metadata and stored files.
+
+`ifExists` accepts **error** (default) or **replace**, for JSON and multipart. There is no archive policy or
+delete API. Filesystem default creation is exclusive; replacement stages a complete sibling file before rename
+even when `STORAGE_FILE_ATOMIC=false`, keeping the old file on staging failure. S3 uses a true conditional PUT
+by default; compatible endpoints must support `If-None-Match: *`. Unsupported conditions fail rather than fall
+back to a racy check/PUT. Replacement omits that condition. The sidecar follows the same policy, independently.
+A conditional retry can find an object written by the prior attempt: inspect a 409 before choosing replacement.
+
+HTTPS PUT follows whatever its signer/receiver allowed. The API does **not** invent an If-None-Match header or
+claim HTTPS has the disk/S3 collision guarantee. Choose a distinct signed destination or a signer-enforced
+condition when required. No second sidecar URL is derived.

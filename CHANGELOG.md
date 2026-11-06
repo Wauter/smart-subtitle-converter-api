@@ -8,6 +8,9 @@ the version of the `main` commit it was built from.
 
 ## 1.3.0 — Unreleased
 
+- Add input/output job-file routes that re-read storage without retaining bytes; any valid key knowing an unguessable id can read job metadata/files. Distinguish not-ready, not-found, unstored, gone and non-replayable locations, with redacted locations where applicable.
+- Add request-level ifExists error | replace for filesystem/S3. S3 default PUT is conditional; explicit filesystem replacement stages before rename. HTTPS PUT retains signer/receiver semantics. Report the documented maximum wait through limits.
+
 - Complete storage/job configuration, usage, mount/UID, policy, error and limits documentation; add a commented `.env.example` and opt-in Postman URI examples.
 - Report effective caller wait, I/O retries/timeouts, enabled schemes and job caps/TTL in `/v1/limits`; retain original request correlation and job id on admitted conversion failures.
 

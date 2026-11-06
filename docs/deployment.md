@@ -102,4 +102,4 @@ into an image, Compose file or request. Public HTTPS links instead use `HTTP_ALL
 remain blocked for those links. See [configuration](configuration.md) and [the sample environment](../.env.example).
 
 Each replica owns its own job metadata. Restart loses it; poll through sticky routing or a single replica.
-There is no persisted history or result-download endpoint. The caller wait does not cancel an admitted job.
+There is no persisted history or cached-result download; job file routes re-read storage. The caller wait does not cancel an admitted job.

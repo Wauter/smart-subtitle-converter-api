@@ -28,6 +28,7 @@ public class LimitsTests
         Assert.Equal(0, (int)j["rateLimitPerMinute"]!);
         Assert.False((bool)j["auth"]!["required"]!);
         Assert.Equal(30, (int)j["requestWaitSeconds"]!);
+        Assert.Equal(60, (int)j["requestMaxWaitSeconds"]!);
         Assert.Equal(10, (int)j["io"]!["timeoutSeconds"]!);
         Assert.Equal(3, (int)j["io"]!["retries"]!);
         Assert.Equal(400, (int)j["jobs"]!["maxEntries"]!);
@@ -37,7 +38,7 @@ public class LimitsTests
         Assert.Empty(j["storage"]!["inputSchemes"]!.AsArray());
         Assert.Empty(j["storage"]!["outputSchemes"]!.AsArray());
         Assert.Equal(2047999, (long)j["binary"]!["ebuStlMaxBytes"]!);
-        Assert.Equal(["maxUploadBytes", "maxRequestBodyBytes", "json", "maxProfileBytes", "maxCues", "maxLineChars", "conversionTimeoutSeconds", "queue", "rateLimitPerMinute", "auth", "binary", "requestWaitSeconds", "io", "jobs", "storage"],
+        Assert.Equal(["maxUploadBytes", "maxRequestBodyBytes", "json", "maxProfileBytes", "maxCues", "maxLineChars", "conversionTimeoutSeconds", "queue", "rateLimitPerMinute", "auth", "binary", "requestWaitSeconds", "requestMaxWaitSeconds", "io", "jobs", "storage"],
             j.Select(kv => kv.Key).ToArray());
     }
 

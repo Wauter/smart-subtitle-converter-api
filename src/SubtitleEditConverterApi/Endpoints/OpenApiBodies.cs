@@ -13,6 +13,10 @@ public static class OpenApiBodies
     private static OpenApiSchema Str(string description, string? format = null) =>
         new() { Type = JsonSchemaType.String, Description = description, Format = format };
 
+    private static OpenApiSchema Part(string key, string description) => key == "ifExists"
+        ? new() { Type = JsonSchemaType.String, Description = description, Enum = ["error", "replace"], Default = System.Text.Json.Nodes.JsonValue.Create("error") }
+        : Str(description);
+
     public static OpenApiMediaType Multipart(Dictionary<string, string> textParts) => new()
     {
         Schema = new OpenApiSchema
@@ -22,7 +26,7 @@ public static class OpenApiBodies
             Properties = new Dictionary<string, IOpenApiSchema>
             {
                 ["file"] = Str("One subtitle file.", "binary"),
-            }.Concat(textParts.Select(p => KeyValuePair.Create(p.Key, (IOpenApiSchema)Str(p.Value)))).ToDictionary(),
+            }.Concat(textParts.Select(p => KeyValuePair.Create(p.Key, (IOpenApiSchema)Part(p.Key, p.Value)))).ToDictionary(),
         },
     };
 
@@ -35,6 +39,7 @@ public static class OpenApiBodies
 
     public static readonly Dictionary<string, string> ConvertParts = new()
     {
+        ["ifExists"] = "error (default) | replace. Filesystem/S3 reject existing outputs by default; HTTPS follows signer/receiver policy.",
         ["input"] = "Storage URI; mutually exclusive with file.",
         ["output"] = "Exact output URI; omit to receive converted bytes.",
         ["sidecar"] = "true | false (default false), write output.json beside output.",
@@ -49,7 +54,7 @@ public static class OpenApiBodies
         {
             Type = JsonSchemaType.Object,
             Required = required.ToHashSet(),
-            Properties = props.ToDictionary(p => p.Key, p => (IOpenApiSchema)Str(p.Value)),
+            Properties = props.ToDictionary(p => p.Key, p => (IOpenApiSchema)Part(p.Key, p.Value)),
         },
     };
 }

@@ -23,7 +23,7 @@ public sealed record LimitsIo(int TimeoutSeconds, int Retries);
 public sealed record LimitsJobs(int MaxEntries, int TtlSeconds, int MaxActive, int MaxMetadataBytes);
 public sealed record LimitsStorage(string[] InputSchemes, string[] OutputSchemes);
 public sealed record LimitsResponse(long MaxUploadBytes, LimitsBodyBytes MaxRequestBodyBytes, LimitsJson Json, int MaxProfileBytes, int MaxCues, int MaxLineChars,
-    int ConversionTimeoutSeconds, LimitsQueue Queue, int RateLimitPerMinute, LimitsAuth Auth, LimitsBinary Binary, int RequestWaitSeconds, LimitsIo Io, LimitsJobs Jobs, LimitsStorage Storage)
+    int ConversionTimeoutSeconds, LimitsQueue Queue, int RateLimitPerMinute, LimitsAuth Auth, LimitsBinary Binary, int RequestWaitSeconds, int RequestMaxWaitSeconds, LimitsIo Io, LimitsJobs Jobs, LimitsStorage Storage)
 {
     /// <summary>libse's EBU IsMine rejects files of 2,048,000 bytes or more.</summary>
     public const long EbuStlMaxBytes = 2_047_999;
@@ -39,7 +39,7 @@ public sealed record LimitsResponse(long MaxUploadBytes, LimitsBodyBytes MaxRequ
             new LimitsJson(o.MaxUploadBytes, "encoded length = 4*ceil(n/3); already included in maxRequestBodyBytes.json"),
             o.ProfileMaxBytes, o.MaxCues, o.MaxLineChars,
             o.ConversionTimeoutSeconds, new LimitsQueue(q.Capacity, q.Depth), o.RateLimitPerMinute, new LimitsAuth(keys.Enabled), new LimitsBinary(EbuStlMaxBytes),
-            o.RequestWaitSeconds, new(o.IoTimeoutSeconds, o.IoRetries),
+            o.RequestWaitSeconds, 60, new(o.IoTimeoutSeconds, o.IoRetries),
             new(o.JobMaxEntries, o.JobTtlSeconds, Math.Min(o.JobMaxEntries, o.QueueCapacity + 1), JobStore.MaxMetadataBytes),
             new(Schemes(o), Schemes(o)));
 }

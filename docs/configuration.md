@@ -53,7 +53,7 @@ explicit `environment` entries. Never commit real credentials.
 | `S3_ALLOWED_PREFIXES` | unset | Comma-separated key prefixes, optional within allowed buckets |
 
 Each scheme is off until its allowlist is nonempty. `input` and `output` are independent.
-Filesystem writes reject existing files; S3 PUT may replace objects; HTTPS follows the receiver's PUT semantics.
+Filesystem writes reject existing files by default; S3 uses conditional create by default (explicit `ifExists:replace` allows replacement); HTTPS follows the receiver's PUT semantics.
 S3 uses the default AWS credential chain (environment/shared configuration/task or instance role), never
 credentials supplied by the request. A trusted S3 endpoint may be internal; HTTPS request URIs may not resolve
 to private addresses. No Azure or GCS adapter is installed.
@@ -80,3 +80,5 @@ Details: [design.md §2.4](design.md#24-conversion-queue-global-state-hazard).
   says whether auth is required, never anything about keys.
 
 The image has no shell or curl, so probe these from the orchestrator.
+
+`ifExists` is per request, not an environment variable: error (default) | replace. Replacement uses sibling staging for filesystem writes. S3 default writes are conditional; HTTPS follows signer/receiver policy. [Job-file downloads](usage.md#re-reading-job-files-and-overwrite-policy) re-use current storage settings.

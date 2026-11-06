@@ -14,7 +14,8 @@ public sealed class JobStore : IDisposable
     {
         public required string Id;
         public required DateTimeOffset Created;
-        public required string Owner;
+        public bool InputReplayable;
+        public bool OutputReplayable;
         public string Status = "running";
         public DateTimeOffset? Finished;
         public JsonObject? Result;
@@ -39,7 +40,7 @@ public sealed class JobStore : IDisposable
         var before = _time.GetUtcNow().AddSeconds(-_opts.JobTtlSeconds);
         foreach (var id in _entries.Values.Where(e => e.Created <= before).Select(e => e.Id).ToList()) _entries.Remove(id);
     }
-    public string Create(string owner = "", string? input = null, string? output = null)
+    public string Create(string? input = null, string? output = null)
     {
         lock (_gate)
         {
@@ -49,7 +50,7 @@ public sealed class JobStore : IDisposable
                 "The active job limit has been reached.", "Poll existing jobs and retry after Retry-After.") { RetryAfterSeconds = 1 };
             if (_entries.Count >= _opts.JobMaxEntries) _entries.Remove(_entries.Values.MinBy(e => e.Created)!.Id);
             var id = Guid.NewGuid().ToString("N");
-            _entries.Add(id, new Entry { Id = id, Created = _time.GetUtcNow(), Owner = owner, Input = Redact(input), Output = Redact(output) });
+            _entries.Add(id, new Entry { Id = id, Created = _time.GetUtcNow(), Input = Redact(input), Output = Redact(output), InputReplayable = Replayable(input), OutputReplayable = Replayable(output) });
             _active++;
             return id;
         }
@@ -76,18 +77,23 @@ public sealed class JobStore : IDisposable
         foreach (var key in new[] { "stats", "code", "status", "title" }) if (value[key] is { } v) summary[key] = v.DeepClone();
         return summary;
     }
-    public JsonObject? Get(string id, string owner = "")
+    public JsonObject? Get(string id)
     {
         lock (_gate)
         {
             Expire();
-            if (!_entries.TryGetValue(id, out var e) || e.Owner != owner) return null;
+            if (!_entries.TryGetValue(id, out var e)) return null;
             return JsonSerializer.SerializeToNode(new { id = e.Id, status = e.Status, createdAt = e.Created, finishedAt = e.Finished,
-                input = e.Input, output = e.Output, result = e.Result, error = e.Error }, Json.Options)!.AsObject();
+                input = e.Input, output = e.Output, inputReplayable = e.InputReplayable, outputReplayable = e.OutputReplayable, result = e.Result, error = e.Error }, Json.Options)!.AsObject();
         }
     }
     public int Count { get { lock (_gate) { Expire(); return _entries.Count; } } }
-    public static string? Redact(string? location) => Uri.TryCreate(location, UriKind.Absolute, out var u) && u.Scheme == "https"
-        ? u.GetLeftPart(UriPartial.Path) : location;
+    private static bool Replayable(string? location) => location != null && !(Uri.TryCreate(location, UriKind.Absolute, out var u) && u.Scheme == "https" && u.Query.Length != 0);
+    public static string? Redact(string? location)
+    {
+        if (location == null || !location.Contains("://") || !Uri.TryCreate(location, UriKind.Absolute, out var u)) return location;
+        if (u.Scheme != "https" && u.Query.Length == 0 && u.UserInfo.Length == 0 && u.Fragment.Length == 0) return location;
+        return new UriBuilder(u) { UserName = "", Password = "", Query = "", Fragment = "" }.Uri.GetLeftPart(UriPartial.Path);
+    }
     public void Dispose() => _timer.Dispose();
 }

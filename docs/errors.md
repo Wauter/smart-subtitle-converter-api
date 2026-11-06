@@ -42,7 +42,18 @@ Extension members:
 | 422 | <a id="storage-location-rejected"></a>`storage-location-rejected` | Invalid URI, disabled scheme, outside an allowlist or a symlink/dot segment. Name a complete file, not a directory. |
 | 404 | <a id="storage-not-found"></a>`storage-not-found` | Storage input or parent directory does not exist. |
 | 502 | <a id="storage-io-failed"></a>`storage-io-failed` | Storage transfer failed; check permissions, availability and the concrete error. |
-| 409 | <a id="output-exists"></a>`output-exists` | Filesystem destination already exists and was not replaced. Choose a new path. |
+| 409 | <a id="output-exists"></a>`output-exists` | Filesystem/S3 destination exists or a concurrent conditional write won. Valid ifExists values: `error` or `replace`; a prior job/attempt may have written or still be writing. |
+
+## Job file errors
+
+| status | code | Behaviour and hint |
+|---|---|---|
+| 404 | <a id="job-not-found"></a>`job-not-found` | Unknown, expired, evicted or restarted history; not a failed conversion. |
+| 409 | <a id="job-not-ready"></a>`job-not-ready` | Output is still being produced. Poll metadata; stored input may already be readable. |
+| 409 | <a id="job-input-not-stored"></a>`job-input-not-stored` | Original upload/inline bytes were not stored. Use the original local input. |
+| 409 | <a id="job-output-not-stored"></a>`job-output-not-stored` | Response-only or failed conversion has no successful stored output. Inspect its original result/error. |
+| 404 | <a id="job-file-gone"></a>`job-file-gone` | Location no longer has the file. Includes redacted `location`; history is not an archive. |
+| 409 | <a id="job-location-not-replayable"></a>`job-location-not-replayable` | HTTPS query was redacted, so the signed location cannot be replayed. Includes redacted `location`; obtain a fresh URL or inspect storage directly. |
 
 ## Warning codes
 
@@ -139,7 +150,7 @@ tested), `suggested` null. Polish → PAC: lossless with the default latin code 
 ## Job and transfer failures
 
 A retained failed job is HTTP 200 with `status: failed` and a problem in `error`; it is not a successful
-conversion. Unknown/expired/evicted/restarted jobs return 404 `not-found`, meaning gone, not failed.
+conversion. Unknown/expired/evicted/restarted jobs return 404 `job-not-found`, meaning gone, not failed.
 An admitted conversion that fails synchronously returns its usual problem status plus `X-Job-Id` and `id`;
 validation/admission failures have no job. Error `requestId` retains the original POST correlation.
 Malformed/duplicate `Prefer: wait` or values outside 0..60 return 400 `invalid-request`.

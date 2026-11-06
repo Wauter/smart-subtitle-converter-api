@@ -12,7 +12,7 @@ namespace SubtitleEditConverterApi.Endpoints;
 
 public sealed record ConvertJsonRequest(
     string? Content, string? ContentEncoding, string? FileName, string? Preset, JsonObject? Profile, string? Target,
-    string? ResponseEncoding, string? Input = null, string? Output = null, bool Sidecar = false);
+    string? ResponseEncoding, string? Input = null, string? Output = null, bool Sidecar = false, string? IfExists = null);
 
 /// <summary>One output. <c>verification</c>: the read-back check, binary targets only .</summary>
 public sealed record OutputDto(string FileName, string Format, string FormatId, string MediaType, string? Content, string ContentEncoding, string Encoding, int Cues,
@@ -27,17 +27,26 @@ public static class ConvertEndpoints
         v1.MapGet("/jobs/{id}", (string id, HttpContext ctx, JobStore jobs) =>
         {
             ctx.Response.Headers.CacheControl = "no-store";
-            var job = jobs.Get(id, ctx.Items["keyName"] as string ?? "");
-            if (job == null) throw new ApiException(404, ErrorCodes.NotFound, "Job is unknown or gone (expired, evicted or server restarted).", "Jobs are in-memory metadata only; a missing record is not a failed conversion.");
+            var job = jobs.Get(id);
+            if (job == null) throw JobNotFound();
             return Results.Json(job, Json.Options);
         }).WithName("getJob").WithTags("jobs").WithSummary("Get retained job metadata, never subtitle content.").Produces<JsonObject>().ProducesProblem(404);
+        foreach (var which in new[] { "input", "output" })
+        {
+            var selected = which;
+            v1.MapGet("/jobs/{id}/" + which, (string id, HttpContext ctx, JobStore jobs, StorageRouter storage, Formats.FormatRegistry formats) => GetJobFile(id, selected, ctx, jobs, storage, formats))
+                .WithName(which == "input" ? "getJobInput" : "getJobOutput").WithTags("jobs")
+                .WithSummary("Re-read the job's stored " + which + " location; never a cached file.")
+                .WithDescription("Any valid API key knowing the id may fetch it. Current allowlists/size limits apply. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared.")
+                .Produces(200, contentType: "application/octet-stream").ProducesProblem(404).ProducesProblem(409).ProducesProblem(413).ProducesProblem(422).ProducesProblem(502);
+        }
         v1.MapPost("/convert", ConvertMultipart)
             .WithName("convert").WithTags("convert")
             .WithSummary("Convert a subtitle file (multipart upload).")
             .WithDescription("Upload `file` with `preset`, `target` and/or `profile` (JSON overrides). Response headers report detected format/encoding, cue counts and warnings.")
             .WithBody(new() { ["multipart/form-data"] = OpenApiBodies.Multipart(OpenApiBodies.ConvertParts) })
             .Produces(200, contentType: "application/octet-stream").Produces(202)
-            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(413).ProducesProblem(415).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504)
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(502).ProducesProblem(413).ProducesProblem(415).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504)
             .DisableAntiforgery();
 
         v1.MapPost("/convert/json", ConvertJson)
@@ -45,12 +54,12 @@ public static class ConvertEndpoints
             .WithSummary("Convert subtitle content sent as JSON (for agents).")
             .WithDescription("Send `content` as text (or base64 with contentEncoding=base64; binary formats such as EBU STL must be base64). Outputs come back as text for Unicode encodings, base64 otherwise; binary targets are always base64.")
             .Produces<ConvertJsonResponse>().Produces(202)
-            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(413).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504);
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(502).ProducesProblem(413).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504);
     }
 
     private static async Task<IResult> ConvertMultipart(HttpContext ctx, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, JobStore jobs, IHostApplicationLifetime lifetime, StorageRouter storage)
     {
-        var (bytes, fileName, preset, profileJson, target, inputRaw, outputRaw, sidecar) = await ReadMultipart(ctx, opts);
+        var (bytes, fileName, preset, profileJson, target, inputRaw, outputRaw, sidecar, ifExists) = await ReadMultipart(ctx, opts);
         var input = inputRaw == null ? null : StorageLocation.Parse(inputRaw);
         var output = outputRaw == null ? null : StorageLocation.Parse(outputRaw);
         fileName ??= input?.FileName;
@@ -58,7 +67,7 @@ public static class ConvertEndpoints
         var (profile, resolved, presetName) = resolver.ResolveForConversion(preset, overrides, target);
         Track(ctx, profile, presetName, fileName);
         if (bytes != null) RejectZip(bytes, fileName);
-        var (r, waitMs, id) = await RunJob(ctx, jobs, (jobId, ct) => ConvertWork(storage, bytes, fileName, input, output, sidecar, queue, engine, profile, resolved, jobId, ct), resolved, opts, lifetime.ApplicationStopping, inputRaw, outputRaw);
+        var (r, waitMs, id) = await RunJob(ctx, jobs, (jobId, ct) => ConvertWork(storage, bytes, fileName, input, output, sidecar, queue, engine, profile, resolved, jobId, ct, ifExists == "replace"), resolved, opts, lifetime.ApplicationStopping, inputRaw, outputRaw);
         if (r == null) return Accepted(ctx, jobs, id);
         ctx.Items["queueWaitMs"] = waitMs;
         ctx.Response.Headers.CacheControl = "no-store";
@@ -75,6 +84,7 @@ public static class ConvertEndpoints
 
     private static async Task<IResult> ConvertJson(HttpContext ctx, ConvertJsonRequest req, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, Formats.FormatRegistry formats, JobStore jobs, IHostApplicationLifetime lifetime, StorageRouter storage)
     {
+        var ifExists = ParseIfExists(req.IfExists);
         if (req.Input != null && req.Content != null) throw new ApiException(422, ErrorCodes.InvalidRequest, "Use input or content, never both.", "Remove one source.");
         var input = req.Input == null ? null : StorageLocation.Parse(req.Input);
         var output = req.Output == null ? null : StorageLocation.Parse(req.Output);
@@ -93,7 +103,7 @@ public static class ConvertEndpoints
         }
 
         if (bytes != null) RejectZip(bytes, req.FileName);
-        var (r, waitMs, id) = await RunJob(ctx, jobs, (jobId, ct) => ConvertWork(storage, bytes, fileName, input, output, req.Sidecar, queue, engine, profile, resolved, jobId, ct), resolved, opts, lifetime.ApplicationStopping, req.Input, req.Output);
+        var (r, waitMs, id) = await RunJob(ctx, jobs, (jobId, ct) => ConvertWork(storage, bytes, fileName, input, output, req.Sidecar, queue, engine, profile, resolved, jobId, ct, ifExists == "replace"), resolved, opts, lifetime.ApplicationStopping, req.Input, req.Output);
         if (r == null) return Accepted(ctx, jobs, id);
         ctx.Items["queueWaitMs"] = waitMs;
         ctx.Response.Headers.CacheControl = "no-store";
@@ -103,6 +113,38 @@ public static class ConvertEndpoints
         return Results.Json(ToJson(r, resolved, waitMs, req.ResponseEncoding, req.Output) with { Id = id }, Json.Options);
     }
 
+    private static ApiException JobNotFound() => new(404, ErrorCodes.JobNotFound, "Job is unknown or gone (expired, evicted or server restarted).", "Job history is in memory only. A missing record is not a failed conversion; inspect the original storage before resubmitting writes.");
+
+    private static async Task<IResult> GetJobFile(string id, string which, HttpContext ctx, JobStore jobs, StorageRouter storage, Formats.FormatRegistry formats)
+    {
+        ctx.Response.Headers.CacheControl = "no-store";
+        var job = jobs.Get(id) ?? throw JobNotFound();
+        if (which == "output" && (string?)job["status"] == "running")
+            throw new ApiException(409, ErrorCodes.JobNotReady, "The conversion is still running; its output is not ready.", "Poll GET /v1/jobs/{id} and retry once succeeded. Stored input may already be readable.");
+        var location = (string?)job[which];
+        var publicLocation = location?.StartsWith('/') == true ? new Uri(location).AbsoluteUri : location;
+        if (location == null || which == "output" && (string?)job["status"] == "failed") throw new ApiException(409, which == "input" ? ErrorCodes.JobInputNotStored : ErrorCodes.JobOutputNotStored,
+            "The job has no stored " + which + " location.", which == "input" ? "The original request used upload/inline content; those bytes are not retained." : "No successful stored output is available (response-only or failed conversion). Inspect the original result/error and destination before retrying; response bytes are not retained.");
+        if ((bool?)job[which + "Replayable"] != true)
+            throw new ApiException(409, ErrorCodes.JobLocationNotReplayable, "This job location cannot be replayed because its HTTPS query was redacted.", "Use a fresh signed URL via input on a new request, or access storage directly. No signed query is retained by the job.") { Extensions = { ["location"] = publicLocation } };
+        var parsed = StorageLocation.Parse(location);
+        byte[] bytes;
+        try { bytes = await storage.ReadAsync(parsed, ctx.RequestAborted); }
+        catch (ApiException ex) when (ex.Code == "storage-not-found")
+        { throw new ApiException(404, ErrorCodes.JobFileGone, "The file is no longer at the job's stored location.", "Job history is not a file archive. Inspect storage or the original result; do not blindly repeat writes.") { Extensions = { ["location"] = publicLocation } }; }
+        var formatId = which == "input" ? (string?)job["result"]?["detected"]?["id"] : (string?)job["result"]?["outputs"]?.AsArray().FirstOrDefault()?["formatId"];
+        var format = formats.Find(formatId ?? Path.GetExtension(parsed.FileName));
+        ctx.Response.Headers["X-Job-Id"] = id;
+        return File(ctx, bytes, format?.MediaType ?? "application/octet-stream", parsed.FileName);
+    }
+
+    private static string ParseIfExists(string? value) => value switch
+    {
+        null or "error" => "error", "replace" => "replace",
+        _ => throw new ApiException(422, ErrorCodes.InvalidRequest, "Unknown ifExists policy.", "Valid ifExists values: error | replace. Archive and delete are not API operations.")
+            { Errors = [new("/ifExists", "error | replace")] },
+    };
+
     private sealed record Completed(ConversionResult? Result, long WaitMs, ApiException? Error = null);
 
     private static async Task<(ConversionResult? Result, long WaitMs, string Id)> RunJob(HttpContext ctx, JobStore jobs,
@@ -110,7 +152,7 @@ public static class ConvertEndpoints
         CancellationToken stopping, string? input = null, string? output = null)
     {
         var waitSeconds = ParseWait(ctx.Request.Headers["Prefer"].ToString(), opts.RequestWaitSeconds);
-        var id = jobs.Create(ctx.Items["keyName"] as string ?? "", input, output);
+        var id = jobs.Create(input, output);
         ctx.Items["jobId"] = id;
         ctx.Response.Headers["X-Job-Id"] = id;
         ctx.Response.Headers.CacheControl = "no-store";
@@ -195,7 +237,7 @@ public static class ConvertEndpoints
             throw new ApiException(422, ErrorCodes.FormatNotSupported, "ZIP input is not supported. Send one subtitle per request.", "Extract the archive and submit a separate conversion for each subtitle.");
     }
 
-    private static async Task<(byte[]? Bytes, string? FileName, string? Preset, string? Profile, string? Target, string? Input, string? Output, bool Sidecar)> ReadMultipart(HttpContext ctx, ApiOptions opts)
+    private static async Task<(byte[]? Bytes, string? FileName, string? Preset, string? Profile, string? Target, string? Input, string? Output, bool Sidecar, string IfExists)> ReadMultipart(HttpContext ctx, ApiOptions opts)
     {
         if (!ctx.Request.HasFormContentType || !(ctx.Request.ContentType ?? "").StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase))
             throw new ApiException(415, ErrorCodes.UnsupportedMediaType, "Use multipart/form-data here.", "Send file or input, or use POST /v1/convert/json.");
@@ -213,12 +255,12 @@ public static class ConvertEndpoints
         var sidecar = false;
         if (form.ContainsKey("sidecar") && !bool.TryParse(form["sidecar"], out sidecar))
             throw new ApiException(400, ErrorCodes.InvalidRequest, "sidecar must be true or false.", "Use sidecar=true to write a JSON companion file.");
-        return (bytes, file?.FileName, NullIfEmpty(form["preset"]), NullIfEmpty(form["profile"]), NullIfEmpty(form["target"]), input, NullIfEmpty(form["output"]), sidecar);
+        return (bytes, file?.FileName, NullIfEmpty(form["preset"]), NullIfEmpty(form["profile"]), NullIfEmpty(form["target"]), input, NullIfEmpty(form["output"]), sidecar, ParseIfExists(form.ContainsKey("ifExists") ? form["ifExists"].ToString() : null));
     }
 
     private static async Task<(ConversionResult Result, long QueueWaitMs)> ConvertWork(StorageRouter storage, byte[]? uploaded, string? fileName,
         StorageLocation? input, StorageLocation? output, bool sidecar, ConversionQueue queue, ConversionEngine engine, Profile profile,
-        JsonObject resolved, string id, CancellationToken ct)
+        JsonObject resolved, string id, CancellationToken ct, bool replace)
     {
         if (output != null && (profile.Target?.Additional?.Count ?? 0) != 0)
             throw new ApiException(422, ErrorCodes.InvalidRequest, "An explicit output names one file, but this profile has additional targets.", "Remove target.additional, or omit output to receive multiple results inline.");
@@ -228,7 +270,7 @@ public static class ConvertEndpoints
         if (output != null)
         {
             var o = r.Outputs.Single();
-            await storage.WriteAsync(output, o.Bytes, o.Format.MediaType, ct);
+            await storage.WriteAsync(output, o.Bytes, o.Format.MediaType, ct, replace);
             if (sidecar)
             {
                 if (output.Scheme == "https") r.Warnings.Add(new("sidecar-skipped", "HTTPS output names one object; no second signed sidecar URL can be derived."));
@@ -237,7 +279,7 @@ public static class ConvertEndpoints
                     try
                     {
                         var metadata = ToJson(r, resolved, wait, null, output.Value) with { Id = id };
-                        await storage.WriteAsync(StorageLocation.Parse(output.Value + ".json"), JsonSerializer.SerializeToUtf8Bytes(metadata, Json.Options), "application/json", ct);
+                        await storage.WriteAsync(StorageLocation.Parse(output.Value + ".json"), JsonSerializer.SerializeToUtf8Bytes(metadata, Json.Options), "application/json", ct, replace);
                     }
                     catch (Exception ex) when (ex is not OutOfMemoryException)
                     {

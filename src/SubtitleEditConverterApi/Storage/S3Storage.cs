@@ -52,20 +52,23 @@ public sealed class S3Storage : IStorage, IDisposable
             return await StorageRouter.ReadCapped(response.ResponseStream, _opts.MaxUploadBytes, token);
         }, ct);
     }
-    public async Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct)
+    public async Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false)
     {
         var (bucket, key) = Checked(location);
         if (bytes.LongLength > _opts.MaxUploadBytes) throw Problems.TooLarge(_opts);
-        await Attempt(async token =>
+        try { await Attempt(async token =>
         {
             using var stream = new MemoryStream(bytes, writable: false);
             await _client.Value.PutObjectAsync(new PutObjectRequest
             {
                 BucketName = bucket, Key = key, InputStream = stream, ContentType = contentType,
-                UseChunkEncoding = false, AutoCloseStream = false,
+                UseChunkEncoding = false, AutoCloseStream = false, IfNoneMatch = replace ? null : "*",
             }, token);
             return true;
-        }, ct); // a single PUT; no staging, multipart upload, copy, delete or pretend rename
+        }, ct); }
+        catch (ApiException ex) when (!replace && ex.Extensions.TryGetValue("upstreamStatus", out var status) && status is int code && code is 412 or 409)
+        { throw StorageLocation.OutputExists(); }
+        // a single PUT; no staging, multipart upload, copy, delete or pretend rename
     }
     public async Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct)
     {
