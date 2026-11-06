@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Net.Http.Headers;
 using SubtitleEditConverterApi.Conversion;
+using SubtitleEditConverterApi.Jobs;
 using SubtitleEditConverterApi.Infrastructure;
 using SubtitleEditConverterApi.Profiles;
 
@@ -13,15 +14,22 @@ public sealed record ConvertJsonRequest(
     string? ResponseEncoding);
 
 /// <summary>One output. <c>verification</c>: the read-back check, binary targets only .</summary>
-public sealed record OutputDto(string FileName, string Format, string FormatId, string MediaType, string Content, string ContentEncoding, string Encoding, int Cues, string? Source = null,
+public sealed record OutputDto(string FileName, string Format, string FormatId, string MediaType, string? Content, string ContentEncoding, string Encoding, int Cues, string? Source = null,
     string Kind = Formats.FormatKinds.Text, Verification? Verification = null);
 public sealed record StatsDto(int ParagraphsIn, int ParagraphsOut, long ElapsedMs, long QueueWaitMs);
-public sealed record ConvertJsonResponse(List<OutputDto> Outputs, DetectedInfo? Detected, StatsDto Stats, List<Warning> Warnings, JsonObject Profile);
+public sealed record ConvertJsonResponse(List<OutputDto> Outputs, DetectedInfo? Detected, StatsDto Stats, List<Warning> Warnings, JsonObject Profile, string? Id = null);
 
 public static class ConvertEndpoints
 {
     public static void Map(RouteGroupBuilder v1)
     {
+        v1.MapGet("/jobs/{id}", (string id, HttpContext ctx, JobStore jobs) =>
+        {
+            ctx.Response.Headers.CacheControl = "no-store";
+            var job = jobs.Get(id, ctx.Items["keyName"] as string ?? "");
+            if (job == null) throw new ApiException(404, ErrorCodes.NotFound, "Job is unknown or gone (expired, evicted or server restarted).", "Jobs are in-memory metadata only; a missing record is not a failed conversion.");
+            return Results.Json(job, Json.Options);
+        }).WithName("getJob").WithTags("jobs").WithSummary("Get retained job metadata, never subtitle content.").Produces<JsonObject>().ProducesProblem(404);
         v1.MapPost("/convert", ConvertMultipart)
             .WithName("convert").WithTags("convert")
             .WithSummary("Convert a subtitle file (multipart upload).")
@@ -39,28 +47,28 @@ public static class ConvertEndpoints
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(413).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504);
     }
 
-    private static async Task<IResult> ConvertMultipart(HttpContext ctx, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts)
+    private static async Task<IResult> ConvertMultipart(HttpContext ctx, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, JobStore jobs)
     {
         var (bytes, fileName, preset, profileJson, target) = await ReadMultipart(ctx, opts);
         var overrides = ParseProfile(profileJson, opts);
         var (profile, resolved, presetName) = resolver.ResolveForConversion(preset, overrides, target);
         Track(ctx, profile, presetName, fileName);
         RejectZip(bytes, fileName);
-        var (r, waitMs) = await queue.RunAsync(() => engine.Convert(bytes, fileName, profile), ctx.RequestAborted);
+        var (r, waitMs, id) = await RunJob(ctx, jobs, queue, () => engine.Convert(bytes, fileName, profile), resolved, opts);
         ctx.Items["queueWaitMs"] = waitMs;
         ctx.Response.Headers.CacheControl = "no-store";
         if (presetName != null) ctx.Response.Headers["X-Profile"] = presetName;
         SetWarnings(ctx, r.Warnings);
         SetDetected(ctx, r);
         ctx.Response.Headers["X-Output-Kind"] = r.Outputs[0].Format.Kind;
-        if (r.Outputs.Count != 1) return Results.Json(ToJson(r, resolved, waitMs, null), Json.Options);
+        if (r.Outputs.Count != 1) return Results.Json(ToJson(r, resolved, waitMs, null) with { Id = id }, Json.Options);
         var o = r.Outputs[0];
         if (o.Verification is { } v) ctx.Response.Headers["X-Verification-Verdict"] = v.Verdict;
         ctx.Items["bytesOut"] = o.Bytes.Length;
         return File(ctx, o.Bytes, ContentType(o), o.FileName);
     }
 
-    private static async Task<IResult> ConvertJson(HttpContext ctx, ConvertJsonRequest req, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, Formats.FormatRegistry formats)
+    private static async Task<IResult> ConvertJson(HttpContext ctx, ConvertJsonRequest req, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, Formats.FormatRegistry formats, JobStore jobs)
     {
         var bytes = DecodeContent(req.Content, req.ContentEncoding);
         if (bytes.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
@@ -76,13 +84,34 @@ public static class ConvertEndpoints
         }
 
         RejectZip(bytes, req.FileName);
-        var (r, waitMs) = await queue.RunAsync(() => engine.Convert(bytes, req.FileName, profile), ctx.RequestAborted);
+        var (r, waitMs, id) = await RunJob(ctx, jobs, queue, () => engine.Convert(bytes, req.FileName, profile), resolved, opts);
         ctx.Items["queueWaitMs"] = waitMs;
         ctx.Response.Headers.CacheControl = "no-store";
         SetDetected(ctx, r);
         ctx.Response.Headers["X-Output-Kind"] = r.Outputs[0].Format.Kind;
         if (presetName != null) ctx.Response.Headers["X-Profile"] = presetName;
-        return Results.Json(ToJson(r, resolved, waitMs, req.ResponseEncoding), Json.Options);
+        return Results.Json(ToJson(r, resolved, waitMs, req.ResponseEncoding) with { Id = id }, Json.Options);
+    }
+
+    private static async Task<(ConversionResult Result, long WaitMs, string Id)> RunJob(HttpContext ctx, JobStore jobs, ConversionQueue queue,
+        Func<ConversionResult> work, JsonObject resolved, ApiOptions opts)
+    {
+        var id = jobs.Create(ctx.Items["keyName"] as string ?? "");
+        ctx.Response.Headers["X-Job-Id"] = id;
+        try
+        {
+            var (r, wait) = await queue.RunAsync(work, ctx.RequestAborted);
+            var metadata = ToJson(r, resolved, wait, null);
+            metadata = metadata with { Outputs = metadata.Outputs.Select(o => o with { Content = null }).ToList(), Id = id };
+            jobs.Finish(id, JsonSerializer.SerializeToNode(metadata, Json.Options)!.AsObject());
+            return (r, wait, id);
+        }
+        catch (Exception ex)
+        {
+            var problem = ex as ApiException ?? new ApiException(500, ErrorCodes.InternalError, "Conversion failed.", "See the server logs.");
+            jobs.Finish(id, error: Problems.ToJson(problem, id, opts.ErrorsVerbose));
+            throw;
+        }
     }
 
     internal static ConvertJsonResponse ToJson(ConversionResult r, JsonObject resolved, long waitMs, string? responseEncoding)

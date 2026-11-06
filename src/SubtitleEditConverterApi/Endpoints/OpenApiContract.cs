@@ -124,6 +124,7 @@ public static class OpenApiContract
 
     private static readonly (string, string)[] ConvertHeaders =
     [
+        ("X-Job-Id", "Job id; GET /v1/jobs/{id} retrieves metadata while retained."),
         ("X-Detected-Format", "Detected (or forced) source format id; single input only."),
         ("X-Detected-Encoding", "Detected text encoding, or `binary` for binary input."),
         ("X-Detected-Code-Page", "Binary input only: EBU GSI code page (e.g. 850) or pac-<name>."),

@@ -2,6 +2,8 @@
 
 ## 1.3.0 — Unreleased
 
+- Every conversion has a job id. Add bounded in-memory metadata retention and GET /v1/jobs/{id}; no subtitle bytes are retained.
+
 - Breaking: remove ZIP batch input/output and failFast. Submit one subtitle per request. Multiple targets from one subtitle return JSON rather than ZIP.
 - Paired with MCP 1.3.0.
 

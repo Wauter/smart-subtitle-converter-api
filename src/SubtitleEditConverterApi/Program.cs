@@ -45,6 +45,8 @@ builder.Services.ConfigureHttpJsonOptions(j =>
 });
 
 builder.Services.AddSingleton(opts);
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<SubtitleEditConverterApi.Jobs.JobStore>();
 builder.Services.AddSingleton<FormatRegistry>();
 builder.Services.AddSingleton<PresetStore>();
 builder.Services.AddSingleton<ProfileResolver>();

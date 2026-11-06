@@ -34,3 +34,7 @@ curl localhost:4041/v1/profiles/netflix-en-vtt  # raw + resolved (extends flatte
 curl localhost:4041/v1/profiles/validate -H 'content-type: application/json' -d @my-profile.json
 curl localhost:4041/v1/schemas/profile.json     # JSON Schema for editors and agents
 
+
+## Job metadata
+
+Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs/{id}` returns status, timestamps and result metadata, without subtitle content. Records live in memory only: restart, expiry or oldest-first eviction returns 404, not a failed status. Defaults: six-hour TTL and 400 records. Running work has a separate cap, so eviction does not allow unlimited work. Metadata is bounded to 128 KiB per result; oversized diagnostics are replaced by a summary. Jobs belong to the authenticated key name.

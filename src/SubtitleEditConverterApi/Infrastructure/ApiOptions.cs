@@ -18,6 +18,8 @@ public sealed class ApiOptions
     public int MaxLineChars { get; init; } = 10_000;
     public string[] CorsOrigins { get; init; } = [];
     public string[] KnownProxies { get; init; } = [];
+    public int JobTtlSeconds { get; init; } = 21600;
+    public int JobMaxEntries { get; init; } = 400;
     public int ProfileMaxBytes { get; init; } = 64 * 1024;
 
     /// <summary>Body cap for multipart uploads: the file plus framing and small form fields.</summary>
@@ -51,6 +53,8 @@ public sealed class ApiOptions
             RateLimitPerMinute = c.GetValue("RATE_LIMIT_PER_MINUTE", 0),
             MaxCues = c.GetValue("MAX_CUES", d.MaxCues),
             MaxLineChars = c.GetValue("MAX_LINE_CHARS", d.MaxLineChars),
+            JobTtlSeconds = Math.Clamp(c.GetValue("JOB_TTL_SECONDS", d.JobTtlSeconds), 1, 86400),
+            JobMaxEntries = Math.Clamp(c.GetValue("JOB_MAX_ENTRIES", d.JobMaxEntries), 1, 10000),
             ProfileMaxBytes = Math.Max(1024, c.GetValue("PROFILE_MAX_BYTES", d.ProfileMaxBytes)),
             CorsOrigins = List(c["CORS_ORIGINS"]),
             KnownProxies = List(c["KNOWN_PROXIES"]),
