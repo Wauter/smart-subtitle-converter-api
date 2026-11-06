@@ -21,7 +21,7 @@ public static class OpenApiBodies
             Required = new HashSet<string> { "file" },
             Properties = new Dictionary<string, IOpenApiSchema>
             {
-                ["file"] = Str("The subtitle file, or a zip of subtitle files.", "binary"),
+                ["file"] = Str("One subtitle file.", "binary"),
             }.Concat(textParts.Select(p => KeyValuePair.Create(p.Key, (IOpenApiSchema)Str(p.Value)))).ToDictionary(),
         },
     };
@@ -38,7 +38,6 @@ public static class OpenApiBodies
         ["preset"] = "Preset name (GET /v1/profiles).",
         ["target"] = "Target format id/alias; shorthand for profile.target.format.",
         ["profile"] = "Profile JSON (full profile or overrides on top of preset). Schema: GET /v1/schemas/profile.json.",
-        ["failFast"] = "Zip input only: 'true' stops at the first failing entry instead of reporting it in manifest.json.",
     };
 
     public static OpenApiMediaType JsonObject(Dictionary<string, string> props, params string[] required) => new()

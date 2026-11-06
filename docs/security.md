@@ -34,8 +34,6 @@ Clients send `Authorization: Bearer <key>`. `/healthz` and `/readyz` stay open; 
 
 - `RATE_LIMIT_PER_MINUTE`: per key name, or per client IP when auth is off (`429 rate-limited`).
 - Size and shape limits: `MAX_UPLOAD_BYTES`, `PROFILE_MAX_BYTES`, `MAX_CUES`, `MAX_LINE_CHARS`.
-- Zip guards: `ZIP_MAX_ENTRIES`, `ZIP_MAX_UNPACKED_BYTES`, `ZIP_MAX_RATIO`; unsafe entry names (`..`, absolute
-  paths, drive letters, backslashes) give `422 unsafe-zip`.
 - XML with DTD or entity declarations is refused (`422 unsafe-xml`).
 
 All values: [configuration.md](configuration.md).

@@ -44,7 +44,7 @@ public static class ProfileSpec
             ["format"] = new StrSpec("Output format id/alias (required after merging; seconv <format>)."),
             ["fps"] = new NumSpec("Target frame rate (seconv --target-fps).", Min: 0, ExclusiveMin: true, Max: 1000),
             ["fileName"] = new StrSpec("Output name template. Tokens: {stem}, {ext}, {format}. Default '{stem}.{ext}'."),
-            ["additional"] = new ArrSpec(new StrSpec(), "Extra output formats; the response becomes a zip.", MaxItems: 10),
+            ["additional"] = new ArrSpec(new StrSpec(), "Extra output formats; the multipart response becomes JSON.", MaxItems: 10),
         }, "What to write."),
         ["encoding"] = new ObjSpec(new()
         {

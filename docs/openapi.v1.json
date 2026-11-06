@@ -3,7 +3,7 @@
   "info": {
     "title": "Subtitle Edit Converter API",
     "description": "Convert subtitles between text and binary broadcast formats (EBU STL, PAC, Cavena 890, ...) with Subtitle Edit\u0027s libse. Errors are RFC 7807 problem\u002Bjson with a stable \u0060code\u0060, a \u0060hint\u0060 and the \u0060requestId\u0060. Send \u0060Authorization: Bearer \u003Ckey\u003E\u0060 when API keys are configured.",
-    "version": "1.2.1"
+    "version": "1.3.0"
   },
   "servers": null,
   "paths": {
@@ -13,7 +13,7 @@
           "convert"
         ],
         "summary": "Convert a subtitle file (multipart upload).",
-        "description": "Upload \u0060file\u0060 with \u0060preset\u0060, \u0060target\u0060 and/or \u0060profile\u0060 (JSON overrides). A zip upload converts every entry and returns a zip with manifest.json. Response headers report detected format/encoding, cue counts and warnings.",
+        "description": "Upload \u0060file\u0060 with \u0060preset\u0060, \u0060target\u0060 and/or \u0060profile\u0060 (JSON overrides). Response headers report detected format/encoding, cue counts and warnings.",
         "operationId": "convert",
         "parameters": [
           {
@@ -37,7 +37,7 @@
                 "properties": {
                   "file": {
                     "type": "string",
-                    "description": "The subtitle file, or a zip of subtitle files.",
+                    "description": "One subtitle file.",
                     "format": "binary"
                   },
                   "preset": {
@@ -51,10 +51,6 @@
                   "profile": {
                     "type": "string",
                     "description": "Profile JSON (full profile or overrides on top of preset). Schema: GET /v1/schemas/profile.json."
-                  },
-                  "failFast": {
-                    "type": "string",
-                    "description": "Zip input only: \u0027true\u0027 stops at the first failing entry instead of reporting it in manifest.json."
                   }
                 }
               }
@@ -115,7 +111,7 @@
                 }
               },
               "X-Warnings": {
-                "description": "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest.",
+                "description": "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body.",
                 "schema": {
                   "type": "string"
                 }
@@ -128,24 +124,6 @@
               },
               "X-Profile": {
                 "description": "Preset name, when one was used.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "X-Entries-Ok": {
-                "description": "Zip input: entries converted.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "X-Entries-Failed": {
-                "description": "Zip input: entries that failed.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "X-Entries-Skipped": {
-                "description": "Zip input: entries skipped (nested zip, macOS metadata).",
                 "schema": {
                   "type": "string"
                 }
@@ -417,7 +395,7 @@
                 }
               },
               "X-Warnings": {
-                "description": "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest.",
+                "description": "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body.",
                 "schema": {
                   "type": "string"
                 }
@@ -430,24 +408,6 @@
               },
               "X-Profile": {
                 "description": "Preset name, when one was used.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "X-Entries-Ok": {
-                "description": "Zip input: entries converted.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "X-Entries-Failed": {
-                "description": "Zip input: entries that failed.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "X-Entries-Skipped": {
-                "description": "Zip input: entries skipped (nested zip, macOS metadata).",
                 "schema": {
                   "type": "string"
                 }
@@ -769,7 +729,7 @@
         "tags": [
           "info"
         ],
-        "summary": "Effective limits of this server (upload, JSON body, zip, queue, timeouts).",
+        "summary": "Effective limits of this server (upload, JSON body, queue, timeouts).",
         "description": "Lets clients pre-check inputs. \u0060queue.depth\u0060 is a live value. \u0060auth.required\u0060 says whether a bearer key is needed; keys are never exposed.",
         "operationId": "getLimits",
         "parameters": [
@@ -883,7 +843,7 @@
                 "properties": {
                   "file": {
                     "type": "string",
-                    "description": "The subtitle file, or a zip of subtitle files.",
+                    "description": "One subtitle file.",
                     "format": "binary"
                   },
                   "encoding": {
@@ -1540,15 +1500,12 @@
               "not-found",
               "preset-not-found",
               "payload-too-large",
-              "zip-limits-exceeded",
-              "unsafe-zip",
               "unsupported-media-type",
               "format-not-detected",
               "format-not-supported",
               "format-not-writable",
               "format-option-invalid",
               "invalid-binary-input",
-              "ambiguous-batch-names",
               "ambiguous-format",
               "encoding-error",
               "unsafe-xml",
@@ -1570,7 +1527,7 @@
           },
           "requestId": {
             "type": "string",
-            "description": "Same as the X-Request-Id header; absent inside manifest entries."
+            "description": "Same as the X-Request-Id header."
           },
           "errors": {
             "type": "array",
@@ -1581,27 +1538,6 @@
           "debug": {
             "type": "object",
             "description": "Diagnostics, only when ERRORS_VERBOSE=true. Never contains file content."
-          },
-          "entry": {
-            "type": "string",
-            "description": "Zip entry name, for per-entry and failFast errors."
-          },
-          "groups": {
-            "type": "array",
-            "items": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "description": "ambiguous-batch-names only: clashing zip entry paths, one array per group."
-          },
-          "outputs": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "ambiguous-batch-names only, for output-path clashes: the colliding output paths."
           },
           "phase": {
             "enum": [
@@ -1619,7 +1555,7 @@
             "description": "ambiguous-format only: the format ids the bytes match; set profile.source.format to one of them."
           }
         },
-        "description": "RFC 7807 problem details with a stable \u0060code\u0060 (docs/errors.md). Extra members may appear: \u0060entry\u0060 (zip entry name), \u0060phase\u0060 (conversion-timeout: queue|running), \u0060groups\u0060/\u0060outputs\u0060 (ambiguous-batch-names), \u0060candidates\u0060 (ambiguous-format)."
+        "description": "RFC 7807 problem details with a stable \u0060code\u0060 (docs/errors.md). Extra members may appear: \u0060phase\u0060 (conversion-timeout: queue|running), \u0060candidates\u0060 (ambiguous-format)."
       },
       "CodePointCount": {
         "required": [
@@ -1689,12 +1625,6 @@
               "null",
               "string"
             ]
-          },
-          "failFast": {
-            "type": [
-              "null",
-              "boolean"
-            ]
           }
         }
       },
@@ -1704,8 +1634,7 @@
           "detected",
           "stats",
           "warnings",
-          "profile",
-          "entries"
+          "profile"
         ],
         "type": "object",
         "properties": {
@@ -1736,15 +1665,6 @@
           },
           "profile": {
             "$ref": "#/components/schemas/JsonObject"
-          },
-          "entries": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ManifestEntry"
-            }
           }
         }
       },
@@ -1870,7 +1790,7 @@
         "properties": {
           "pointer": {
             "type": "string",
-            "description": "JSON pointer, e.g. /target/format or /file/entries/2; for ambiguous-batch-names the zip entry path."
+            "description": "JSON pointer, e.g. /target/format."
           },
           "message": {
             "type": "string"
@@ -1879,7 +1799,7 @@
             "type": "string"
           }
         },
-        "description": "A problem located by a JSON pointer (profile field, zip entry, query parameter, ...)."
+        "description": "A problem located by a JSON pointer (profile field, query parameter, ...)."
       },
       "FormatInfo": {
         "required": [
@@ -2068,7 +1988,6 @@
           "maxProfileBytes",
           "maxCues",
           "maxLineChars",
-          "zip",
           "conversionTimeoutSeconds",
           "queue",
           "rateLimitPerMinute",
@@ -2115,9 +2034,6 @@
             ],
             "format": "int32"
           },
-          "zip": {
-            "$ref": "#/components/schemas/LimitsZip"
-          },
           "conversionTimeoutSeconds": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -2142,139 +2058,6 @@
           },
           "binary": {
             "$ref": "#/components/schemas/LimitsBinary"
-          }
-        }
-      },
-      "LimitsZip": {
-        "required": [
-          "maxEntries",
-          "maxUnpackedBytes",
-          "maxRatio",
-          "maxEntryBytes"
-        ],
-        "type": "object",
-        "properties": {
-          "maxEntries": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxUnpackedBytes": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "maxRatio": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxEntryBytes": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          }
-        }
-      },
-      "ManifestEntry": {
-        "required": [
-          "source",
-          "status",
-          "outputs",
-          "detected",
-          "warnings",
-          "error"
-        ],
-        "type": "object",
-        "properties": {
-          "source": {
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "ok",
-              "error",
-              "skipped"
-            ],
-            "type": "string"
-          },
-          "outputs": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "detected": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/DetectedInfo"
-              }
-            ]
-          },
-          "warnings": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Warning"
-            }
-          },
-          "error": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ApiProblem"
-              }
-            ],
-            "description": "The entry\u0027s problem (ApiProblem without requestId); the request\u0027s X-Request-Id covers all entries."
-          },
-          "kind": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "codePage": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "reason": {
-            "enum": [
-              "nested-zip",
-              "macos-metadata",
-              null
-            ],
-            "type": [
-              "null",
-              "string"
-            ],
-            "description": "Why a skipped entry wasn\u0027t converted."
-          },
-          "verification": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "additionalProperties": {
-              "$ref": "#/components/schemas/Verification"
-            }
           }
         }
       },

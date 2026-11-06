@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 — Unreleased
+
+- Breaking: remove ZIP batch input/output and failFast. Submit one subtitle per request. Multiple targets from one subtitle return JSON rather than ZIP.
+- Paired with MCP 1.3.0.
+
+
 All notable API changes. Versions follow [semver](https://semver.org/); the version is the
 `<Version>` in `src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj` and is what
 `GET /healthz` (`version`) and the OpenAPI `info.version` report. See [CONTRIBUTING.md](CONTRIBUTING.md)

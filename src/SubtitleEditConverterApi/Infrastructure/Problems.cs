@@ -135,7 +135,7 @@ public sealed class ErrorMiddleware(RequestDelegate next, ILogger<ErrorMiddlewar
 {
     private static readonly HashSet<string> SecurityCodes =
     [
-        ErrorCodes.Unauthorized, ErrorCodes.PayloadTooLarge, ErrorCodes.ZipLimitsExceeded, ErrorCodes.UnsafeZip,
+        ErrorCodes.Unauthorized, ErrorCodes.PayloadTooLarge, 
         ErrorCodes.UnsafeXml, ErrorCodes.RateLimited, ErrorCodes.ConversionTimeout, ErrorCodes.InputLimitsExceeded,
     ];
 

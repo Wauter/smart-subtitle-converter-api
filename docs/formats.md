@@ -38,8 +38,7 @@ Cavena 890 last and a plausibility check, so a text file named `.stl`/`.sub` sta
 `profile.source.format`: wrong bytes then give `422 invalid-binary-input`.
 
 **PAC and FPC** share their header. Without a `.pac` / `.fpc` file name, auto-detection rejects such bytes with
-`422 ambiguous-format` (listing both candidates) instead of guessing; set `profile.source.format`. Zip entries are
-checked the same way, by entry name.
+`422 ambiguous-format` (listing both candidates) instead of guessing; set `profile.source.format`.
 
 ## Format options
 

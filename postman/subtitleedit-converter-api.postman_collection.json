@@ -399,41 +399,6 @@
               }
             }
           ]
-        },
-        {
-          "name": "Limits",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/v1/limits",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "limits"
-              ]
-            },
-            "description": "Effective limits: decoded upload size, body caps per endpoint kind (multipart / JSON incl. base64 overhead), zip guards, queue depth, whether auth is required."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
-                  "const j = pm.response.json();",
-                  "pm.test(\"shape\", () => { [\"maxUploadBytes\", \"maxRequestBodyBytes\", \"json\", \"maxProfileBytes\", \"maxCues\", \"maxLineChars\", \"zip\", \"conversionTimeoutSeconds\", \"queue\", \"rateLimitPerMinute\", \"auth\", \"binary\"].forEach(k => pm.expect(j, k).to.have.property(k)); });",
-                  "pm.test(\"json cap = 4*ceil(n/3) + profile + 64 KiB\", () => pm.expect(j.maxRequestBodyBytes.json).to.eql(4 * Math.ceil(j.maxUploadBytes / 3) + j.maxProfileBytes + 65536));",
-                  "pm.test(\"multipart cap = upload + 256 KiB\", () => pm.expect(j.maxRequestBodyBytes.multipart).to.eql(j.maxUploadBytes + 262144));",
-                  "pm.test(\"auth.required matches environment\", () => pm.expect(j.auth.required).to.eql(!!pm.environment.get(\"apiKey\")));",
-                  "pm.test(\"no-store\", () => pm.expect(pm.response.headers.get(\"Cache-Control\")).to.include(\"no-store\"));"
-                ]
-              }
-            }
-          ]
         }
       ]
     },
@@ -868,158 +833,6 @@
           ]
         },
         {
-          "name": "Several outputs -> zip",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/v1/convert",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "convert"
-              ]
-            },
-            "description": "`target.additional` returns a zip with every output plus manifest.json.",
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "file",
-                  "type": "file",
-                  "src": "tests/smoke/sample.srt"
-                },
-                {
-                  "key": "target",
-                  "type": "text",
-                  "value": "vtt"
-                },
-                {
-                  "key": "profile",
-                  "type": "text",
-                  "value": "{\"target\":{\"additional\":[\"ass\",\"ttml\"]}}"
-                }
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Content-Type application/zip\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/zip\"));",
-                  "pm.test(\"file name sample.zip\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.include(\"sample.zip\"));",
-                  "pm.test(\"zip magic\", () => pm.expect(pm.response.stream.slice(0, 2).toString()).to.eql(\"PK\"));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Zip in -> zip out",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/v1/convert",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "convert"
-              ]
-            },
-            "description": "One manifest entry per file; a bad entry does not fail the batch unless failFast=true.",
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "file",
-                  "type": "file",
-                  "src": "postman/fixtures/batch.zip"
-                },
-                {
-                  "key": "target",
-                  "type": "text",
-                  "value": "vtt"
-                }
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Content-Type application/zip\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/zip\"));",
-                  "pm.test(\"file name batch.zip\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.include(\"batch.zip\"));",
-                  "pm.test(\"X-Entries-Ok: 3\", () => pm.expect(pm.response.headers.get(\"X-Entries-Ok\")).to.eql(\"3\"));",
-                  "pm.test(\"X-Entries-Failed: 0\", () => pm.expect(pm.response.headers.get(\"X-Entries-Failed\")).to.eql(\"0\"));",
-                  "pm.test(\"zip magic\", () => pm.expect(pm.response.stream.slice(0, 2).toString()).to.eql(\"PK\"));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Zip in -> zip out (failFast)",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/v1/convert",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "convert"
-              ]
-            },
-            "description": "",
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "file",
-                  "type": "file",
-                  "src": "postman/fixtures/batch.zip"
-                },
-                {
-                  "key": "target",
-                  "type": "text",
-                  "value": "srt"
-                },
-                {
-                  "key": "failFast",
-                  "type": "text",
-                  "value": "true"
-                }
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Content-Type application/zip\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/zip\"));",
-                  "pm.test(\"X-Entries-Ok: 3\", () => pm.expect(pm.response.headers.get(\"X-Entries-Ok\")).to.eql(\"3\"));"
-                ]
-              }
-            }
-          ]
-        },
-        {
           "name": "JSON in / JSON out",
           "request": {
             "method": "POST",
@@ -1320,54 +1133,6 @@
           ]
         },
         {
-          "name": "Mixed zip (text + binary)",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/v1/convert",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "convert"
-              ]
-            },
-            "description": "Text and binary entries in one zip; the manifest has kind and codePage per entry.",
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "file",
-                  "type": "file",
-                  "src": "postman/fixtures/mixed.zip"
-                },
-                {
-                  "key": "target",
-                  "type": "text",
-                  "value": "srt"
-                }
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Content-Type application/zip\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/zip\"));",
-                  "pm.test(\"X-Entries-Ok: 3\", () => pm.expect(pm.response.headers.get(\"X-Entries-Ok\")).to.eql(\"3\"));",
-                  "pm.test(\"X-Entries-Failed: 0\", () => pm.expect(pm.response.headers.get(\"X-Entries-Failed\")).to.eql(\"0\"));",
-                  "pm.test(\"X-Entries-Skipped: 0\", () => pm.expect(pm.response.headers.get(\"X-Entries-Skipped\")).to.eql(\"0\"));"
-                ]
-              }
-            }
-          ]
-        },
-        {
           "name": "JSON: EBU STL (base64) -> SRT",
           "request": {
             "method": "POST",
@@ -1484,7 +1249,7 @@
             "description": "Every binary output is read back (outputs[].verification, since 1.2.0). Greek doesn't fit the default PAC latin code page: verdict lossy, characters-replaced with cue numbers, code points and a hint (formatOptions.pac.codePage=greek or target fpc). Nothing is switched automatically.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"content\": \"1\\n00:00:01,013 --> 00:00:02,500\\nΚαλημέρα κόσμε\\n\\n2\\n00:00:03,000 --> 00:00:05,000\\nΕυχαριστώ πολύ\\n\",\n  \"fileName\": \"greek.srt\",\n  \"target\": \"pac\"\n}",
+              "raw": "{\n  \"content\": \"1\\n00:00:01,013 --> 00:00:02,500\\n\u039a\u03b1\u03bb\u03b7\u03bc\u03ad\u03c1\u03b1 \u03ba\u03cc\u03c3\u03bc\u03b5\\n\\n2\\n00:00:03,000 --> 00:00:05,000\\n\u0395\u03c5\u03c7\u03b1\u03c1\u03b9\u03c3\u03c4\u03ce \u03c0\u03bf\u03bb\u03cd\\n\",\n  \"fileName\": \"greek.srt\",\n  \"target\": \"pac\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2192,62 +1957,6 @@
                   "pm.test(\"code unsupported-media-type\", () => pm.expect(pm.response.json().code).to.eql(\"unsupported-media-type\"));",
                   "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
                   "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Zip with clashing names (ep1.srt + EP1.vtt)",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/v1/convert",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "convert"
-              ]
-            },
-            "description": "Entries sharing a folder and stem (case-insensitive) would produce the same output: 422 ambiguous-batch-names before any conversion, even with failFast=false. Nothing is ever renamed.",
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "file",
-                  "type": "file",
-                  "src": "postman/fixtures/clash.zip"
-                },
-                {
-                  "key": "target",
-                  "type": "text",
-                  "value": "srt"
-                },
-                {
-                  "key": "failFast",
-                  "type": "text",
-                  "value": "false"
-                }
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status 422\", () => pm.response.to.have.status(422));",
-                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
-                  "pm.test(\"code ambiguous-batch-names\", () => pm.expect(pm.response.json().code).to.eql(\"ambiguous-batch-names\"));",
-                  "pm.test(\"requestId matches X-Request-Id\", () => pm.expect(pm.response.json().requestId).to.eql(pm.response.headers.get(\"X-Request-Id\")));",
-                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);",
-                  "const j = pm.response.json();",
-                  "pm.test(\"one error per clashing entry\", () => pm.expect(j.errors.map(e => e.pointer)).to.eql([\"ep1.srt\", \"EP1.vtt\"]));",
-                  "pm.test(\"groups\", () => pm.expect(j.groups).to.eql([[\"ep1.srt\", \"EP1.vtt\"]]));"
                 ]
               }
             }

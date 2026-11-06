@@ -181,32 +181,6 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     // ---------------- zip ----------------
 
     [Fact]
-    public async Task Mixed_zip_detects_each_entry_and_reports_kind()
-    {
-        var stl = await (await ToBinary(_c, "ebustl")).Content.ReadAsByteArrayAsync();
-        var truncated = stl[..1100];
-        var zip = Samples.Zip(("a/one.srt", Encoding.UTF8.GetBytes(Samples.Srt)), ("b/two.stl", stl), ("c/broken.stl", truncated));
-        var j = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = Convert.ToBase64String(zip), contentEncoding = "base64", target = "vtt" })).Json();
-        var entries = j["entries"]!.AsArray();
-        Assert.Equal(3, entries.Count);
-        Assert.Equal("text", (string)entries[0]!["kind"]!);
-        Assert.Null(entries[0]!["codePage"]);
-        Assert.Equal("binary", (string)entries[1]!["kind"]!);
-        Assert.Equal("850", (string)entries[1]!["codePage"]!);
-        Assert.Equal("ebustl", (string)entries[1]!["detected"]!["id"]!);
-        Assert.Equal("error", (string)entries[2]!["status"]!);
-        Assert.Equal(2, j["outputs"]!.AsArray().Count);
-
-        // zip of text -> binary target: outputs go straight into the zip
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(Samples.Zip(("x.srt", Encoding.UTF8.GetBytes(Samples.Srt)), ("y.srt", Encoding.UTF8.GetBytes(Samples.Srt))), "in.zip", ("target", "ebustl")));
-        using var outZip = new System.IO.Compression.ZipArchive(await r.Content.ReadAsStreamAsync());
-        Assert.Contains(outZip.Entries, e => e.FullName == "x.stl");
-        Assert.Contains(outZip.Entries, e => e.FullName == "y.stl");
-    }
-
-    // ---------------- errors ----------------
-
-    [Fact]
     public async Task Truncated_binary_with_source_format_is_invalid_binary_input()
     {
         var stl = await (await ToBinary(_c, "ebustl")).Content.ReadAsByteArrayAsync();

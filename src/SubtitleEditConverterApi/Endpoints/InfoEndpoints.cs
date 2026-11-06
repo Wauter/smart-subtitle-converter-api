@@ -14,12 +14,11 @@ public sealed record ValidateResponse(bool Valid, List<FieldError> Errors, List<
 
 public sealed record LimitsBodyBytes(long Multipart, long Json);
 public sealed record LimitsJson(long MaxDecodedContentBytes, string Base64);
-public sealed record LimitsZip(int MaxEntries, long MaxUnpackedBytes, double MaxRatio, long MaxEntryBytes);
 public sealed record LimitsQueue(int Capacity, int Depth);
 public sealed record LimitsAuth(bool Required);
 public sealed record LimitsBinary(long EbuStlMaxBytes);
 public sealed record LimitsResponse(long MaxUploadBytes, LimitsBodyBytes MaxRequestBodyBytes, LimitsJson Json, int MaxProfileBytes, int MaxCues, int MaxLineChars,
-    LimitsZip Zip, int ConversionTimeoutSeconds, LimitsQueue Queue, int RateLimitPerMinute, LimitsAuth Auth, LimitsBinary Binary)
+    int ConversionTimeoutSeconds, LimitsQueue Queue, int RateLimitPerMinute, LimitsAuth Auth, LimitsBinary Binary)
 {
     /// <summary>libse's EBU IsMine rejects files of 2,048,000 bytes or more.</summary>
     public const long EbuStlMaxBytes = 2_047_999;
@@ -27,7 +26,7 @@ public sealed record LimitsResponse(long MaxUploadBytes, LimitsBodyBytes MaxRequ
     public static LimitsResponse From(ApiOptions o, ConversionQueue q, ApiKeyStore keys) =>
         new(o.MaxUploadBytes, new LimitsBodyBytes(o.MaxMultipartBodyBytes, o.MaxJsonBodyBytes),
             new LimitsJson(o.MaxUploadBytes, "encoded length = 4*ceil(n/3); already included in maxRequestBodyBytes.json"),
-            o.ProfileMaxBytes, o.MaxCues, o.MaxLineChars, new LimitsZip(o.ZipMaxEntries, o.ZipMaxUnpackedBytes, o.ZipMaxRatio, o.MaxUploadBytes),
+            o.ProfileMaxBytes, o.MaxCues, o.MaxLineChars,
             o.ConversionTimeoutSeconds, new LimitsQueue(q.Capacity, q.Depth), o.RateLimitPerMinute, new LimitsAuth(keys.Enabled), new LimitsBinary(EbuStlMaxBytes));
 }
 
@@ -64,7 +63,7 @@ public static class InfoEndpoints
             ctx.Response.Headers.CacheControl = "no-store";
             return Results.Json(LimitsResponse.From(opts, queue, keys), Json.Options);
         }).WithName("getLimits").WithTags("info")
-          .WithSummary("Effective limits of this server (upload, JSON body, zip, queue, timeouts).")
+          .WithSummary("Effective limits of this server (upload, JSON body, queue, timeouts).")
           .WithDescription("Lets clients pre-check inputs. `queue.depth` is a live value. `auth.required` says whether a bearer key is needed; keys are never exposed.")
           .Produces<LimitsResponse>();
 
@@ -165,8 +164,7 @@ public static class InfoEndpoints
             throw new ApiException(415, ErrorCodes.UnsupportedMediaType, $"Content-Type '{ctx.Request.ContentType}' is not supported.", "Use multipart/form-data with a 'file' part, or application/json.");
         }
         if (bytes.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
-        if (ZipIO.IsZip(bytes))
-            throw new ApiException(422, ErrorCodes.FormatNotSupported, "Detect takes a single subtitle, not a zip.", "Unzip first, or use POST /v1/convert which reports detection per entry in manifest.json.");
+        ConvertEndpoints.RejectZip(bytes, fileName);
         var (info, wait) = await queue.RunAsync(() => engine.Detect(bytes, fileName, encoding), ctx.RequestAborted);
         ctx.Items["queueWaitMs"] = wait;
         ctx.Items["format"] = info.Id;

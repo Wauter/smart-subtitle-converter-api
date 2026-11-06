@@ -10,22 +10,13 @@ namespace SubtitleEditConverterApi.Endpoints;
 
 public sealed record ConvertJsonRequest(
     string Content, string? ContentEncoding, string? FileName, string? Preset, JsonObject? Profile, string? Target,
-    string? ResponseEncoding, bool? FailFast);
+    string? ResponseEncoding);
 
-/// <summary>One output. <c>verification</c>: the read-back check, binary targets only (1.2.0).</summary>
+/// <summary>One output. <c>verification</c>: the read-back check, binary targets only .</summary>
 public sealed record OutputDto(string FileName, string Format, string FormatId, string MediaType, string Content, string ContentEncoding, string Encoding, int Cues, string? Source = null,
     string Kind = Formats.FormatKinds.Text, Verification? Verification = null);
 public sealed record StatsDto(int ParagraphsIn, int ParagraphsOut, long ElapsedMs, long QueueWaitMs);
-/// <summary>One zip entry. <c>verification</c>: read-back checks of its binary outputs, keyed by output path (1.2.0).</summary>
-public sealed record ManifestEntry(string Source, string Status, string[] Outputs, DetectedInfo? Detected, List<Warning> Warnings, JsonObject? Error,
-    string? Kind = null, string? CodePage = null, string? Reason = null, Dictionary<string, Verification>? Verification = null);
-public sealed record ConvertJsonResponse(List<OutputDto> Outputs, DetectedInfo? Detected, StatsDto Stats, List<Warning> Warnings, JsonObject Profile, List<ManifestEntry>? Entries);
-
-public sealed record ConvertForm(IFormFile File, string? Preset, string? Profile, string? Target, bool? FailFast);
-
-/// <summary>A batch: one or many inputs (zip) converted with one profile, in one queue job.</summary>
-internal sealed record BatchItem(string Name, ConversionResult? Result, ApiException? Error, string? SkipReason = null);
-internal sealed record Batch(bool IsZip, List<BatchItem> Items, List<Warning> Warnings);
+public sealed record ConvertJsonResponse(List<OutputDto> Outputs, DetectedInfo? Detected, StatsDto Stats, List<Warning> Warnings, JsonObject Profile);
 
 public static class ConvertEndpoints
 {
@@ -34,7 +25,7 @@ public static class ConvertEndpoints
         v1.MapPost("/convert", ConvertMultipart)
             .WithName("convert").WithTags("convert")
             .WithSummary("Convert a subtitle file (multipart upload).")
-            .WithDescription("Upload `file` with `preset`, `target` and/or `profile` (JSON overrides). A zip upload converts every entry and returns a zip with manifest.json. Response headers report detected format/encoding, cue counts and warnings.")
+            .WithDescription("Upload `file` with `preset`, `target` and/or `profile` (JSON overrides). Response headers report detected format/encoding, cue counts and warnings.")
             .WithBody(new() { ["multipart/form-data"] = OpenApiBodies.Multipart(OpenApiBodies.ConvertParts) })
             .Produces(200, contentType: "application/octet-stream")
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(413).ProducesProblem(415).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504)
@@ -50,48 +41,23 @@ public static class ConvertEndpoints
 
     private static async Task<IResult> ConvertMultipart(HttpContext ctx, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts)
     {
-        var (bytes, fileName, preset, profileJson, target, failFast) = await ReadMultipart(ctx, opts);
+        var (bytes, fileName, preset, profileJson, target) = await ReadMultipart(ctx, opts);
         var overrides = ParseProfile(profileJson, opts);
         var (profile, resolved, presetName) = resolver.ResolveForConversion(preset, overrides, target);
         Track(ctx, profile, presetName, fileName);
-
-        var (batch, waitMs) = await queue.RunAsync(() => RunBatch(engine, opts, bytes, fileName, profile, failFast), ctx.RequestAborted);
+        RejectZip(bytes, fileName);
+        var (r, waitMs) = await queue.RunAsync(() => engine.Convert(bytes, fileName, profile), ctx.RequestAborted);
         ctx.Items["queueWaitMs"] = waitMs;
-
-        var h = ctx.Response.Headers;
-        h.CacheControl = "no-store";
-        if (presetName != null) h["X-Profile"] = presetName;
-        var allWarnings = batch.Warnings.Concat(batch.Items.SelectMany(i => i.Result?.Warnings ?? [])).ToList();
-        SetWarnings(ctx, allWarnings);
-
-        if (!batch.IsZip)
-        {
-            var r = batch.Items[0].Result!;
-            SetDetected(ctx, r);
-            h["X-Output-Kind"] = r.Outputs[0].Format.Kind == Formats.FormatKinds.Binary ? "binary" : "text";
-            if (r.Outputs.Count == 1)
-            {
-                var o = r.Outputs[0];
-                h["X-Cue-Count"] = o.Cues.ToString();
-                if (o.Verification is { } v) h["X-Verification-Verdict"] = v.Verdict;
-                ctx.Items["bytesOut"] = o.Bytes.Length;
-                return File(ctx, o.Bytes, ContentType(o), o.FileName);
-            }
-            h["X-Cue-Count"] = r.Outputs[0].Cues.ToString();
-            var manifest = new { outputs = r.Outputs.Select(o => new { o.FileName, format = o.Format.Id, kind = o.Format.Kind, o.EncodingName, o.Cues, o.Verification }), detected = r.Detected, warnings = r.Warnings, profile = resolved };
-            BatchNames.CheckOutputs(r.Outputs.Select(o => (o.FileName, fileName ?? "subtitle")));
-            var zip = ZipIO.Write(r.Outputs.Select(o => (o.FileName, o.Bytes)), manifest);
-            return File(ctx, zip, "application/zip", ConversionEngine.SafeStem(fileName) + ".zip");
-        }
-
-        var entries = Manifest(batch, opts);
-        h["X-Entries-Ok"] = entries.Count(e => e.Status == "ok").ToString();
-        h["X-Entries-Failed"] = entries.Count(e => e.Status == "error").ToString();
-        h["X-Entries-Skipped"] = entries.Count(e => e.Status == "skipped").ToString();
-        var files = batch.Items.Where(i => i.Result != null)
-            .SelectMany(i => i.Result!.Outputs.Select(o => (o.FileName, o.Bytes)));
-        var zipOut = ZipIO.Write(files, new { entries, warnings = batch.Warnings, profile = resolved });
-        return File(ctx, zipOut, "application/zip", ConversionEngine.SafeStem(fileName) + ".zip");
+        ctx.Response.Headers.CacheControl = "no-store";
+        if (presetName != null) ctx.Response.Headers["X-Profile"] = presetName;
+        SetWarnings(ctx, r.Warnings);
+        SetDetected(ctx, r);
+        ctx.Response.Headers["X-Output-Kind"] = r.Outputs[0].Format.Kind;
+        if (r.Outputs.Count != 1) return Results.Json(ToJson(r, resolved, waitMs, null), Json.Options);
+        var o = r.Outputs[0];
+        if (o.Verification is { } v) ctx.Response.Headers["X-Verification-Verdict"] = v.Verdict;
+        ctx.Items["bytesOut"] = o.Bytes.Length;
+        return File(ctx, o.Bytes, ContentType(o), o.FileName);
     }
 
     private static async Task<IResult> ConvertJson(HttpContext ctx, ConvertJsonRequest req, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, Formats.FormatRegistry formats)
@@ -109,107 +75,41 @@ public static class ConvertEndpoints
             { Errors = [new("/contentEncoding", "Must be 'base64' for a binary source format.")] };
         }
 
-        var (batch, waitMs) = await queue.RunAsync(() => RunBatch(engine, opts, bytes, req.FileName, profile, req.FailFast ?? false, "/content"), ctx.RequestAborted);
+        RejectZip(bytes, req.FileName);
+        var (r, waitMs) = await queue.RunAsync(() => engine.Convert(bytes, req.FileName, profile), ctx.RequestAborted);
         ctx.Items["queueWaitMs"] = waitMs;
         ctx.Response.Headers.CacheControl = "no-store";
-        var forceBase64 = string.Equals(req.ResponseEncoding, "base64", StringComparison.OrdinalIgnoreCase);
-
-        var forceText = string.Equals(req.ResponseEncoding, "text", StringComparison.OrdinalIgnoreCase);
-        var extra = new List<Warning>();
-        var outputs = new List<OutputDto>();
-        foreach (var (name, result, _, _) in batch.Items.Where(i => i.Result != null))
-        {
-            foreach (var o in result!.Outputs)
-            {
-                var binary = o.Format.Kind == Formats.FormatKinds.Binary;
-                var asText = !binary && o.Unicode && !forceBase64;
-                if (binary && forceText && extra.Count == 0)
-                    extra.Add(new("encoding-ignored", "responseEncoding=text is ignored for binary targets; their content is always base64."));
-                outputs.Add(new OutputDto(o.FileName, o.Format.Name, o.Format.Id, o.Format.MediaType,
-                    asText ? DecodeUnicode(o.Bytes) : Convert.ToBase64String(o.Bytes), asText ? "text" : "base64", o.EncodingName, o.Cues,
-                    batch.IsZip ? name : null, o.Format.Kind, o.Verification));
-            }
-        }
-        var single = batch.IsZip ? null : batch.Items[0].Result;
-        if (single != null) SetDetected(ctx, single);
-        var warnings = batch.Warnings.Concat(batch.Items.SelectMany(i => i.Result?.Warnings ?? [])).Concat(extra).ToList();
-        if (single != null) ctx.Response.Headers["X-Output-Kind"] = single.Outputs[0].Format.Kind == Formats.FormatKinds.Binary ? "binary" : "text";
-        var stats = new StatsDto(batch.Items.Sum(i => i.Result?.ParagraphsIn ?? 0), batch.Items.Sum(i => i.Result?.Outputs.FirstOrDefault()?.Cues ?? 0),
-            batch.Items.Sum(i => i.Result?.ElapsedMs ?? 0), waitMs);
+        SetDetected(ctx, r);
+        ctx.Response.Headers["X-Output-Kind"] = r.Outputs[0].Format.Kind;
         if (presetName != null) ctx.Response.Headers["X-Profile"] = presetName;
-        return Results.Json(new ConvertJsonResponse(outputs, single?.Detected, stats, warnings, resolved, batch.IsZip ? Manifest(batch, opts) : null), Json.Options);
+        return Results.Json(ToJson(r, resolved, waitMs, req.ResponseEncoding), Json.Options);
     }
 
-    // ---------------- shared helpers ----------------
-
-    internal static Batch RunBatch(ConversionEngine engine, ApiOptions opts, byte[] bytes, string? fileName, Profile profile, bool failFast, string pointerBase = "/file")
+    internal static ConvertJsonResponse ToJson(ConversionResult r, JsonObject resolved, long waitMs, string? responseEncoding)
     {
-        var warnings = new List<Warning>();
-        if (!ZipIO.IsZip(bytes))
+        var warnings = r.Warnings.ToList();
+        var outputs = new List<OutputDto>();
+        foreach (var o in r.Outputs)
         {
-            return new Batch(false, [new BatchItem(fileName ?? "subtitle", engine.Convert(bytes, fileName, profile), null)], warnings);
+            var binary = o.Format.Kind == Formats.FormatKinds.Binary;
+            var asText = !binary && o.Unicode && !string.Equals(responseEncoding, "base64", StringComparison.OrdinalIgnoreCase);
+            if (binary && string.Equals(responseEncoding, "text", StringComparison.OrdinalIgnoreCase) && !warnings.Any(w => w.Code == "encoding-ignored"))
+                warnings.Add(new("encoding-ignored", "responseEncoding=text is ignored for binary targets; their content is always base64."));
+            outputs.Add(new(o.FileName, o.Format.Name, o.Format.Id, o.Format.MediaType,
+                asText ? DecodeUnicode(o.Bytes) : Convert.ToBase64String(o.Bytes), asText ? "text" : "base64", o.EncodingName, o.Cues,
+                Kind: o.Format.Kind, Verification: o.Verification));
         }
-        var entries = ZipIO.Read(bytes, opts, warnings, pointerBase);
-        BatchNames.CheckEntries(entries.Where(e => e.SkipReason == null).Select(e => e.Name)); // before any conversion, whatever failFast says
-        var items = new List<BatchItem>();
-        var processed = 0; // <i> in pointers counts processed (non-skipped) entries
-        foreach (var e in entries)
-        {
-            if (e.SkipReason != null)
-            {
-                items.Add(new BatchItem(e.Name, null, null, e.SkipReason));
-                continue;
-            }
-            var i = processed++;
-            try
-            {
-                items.Add(new BatchItem(e.Name, engine.Convert(e.Bytes, e.Name, profile), null));
-            }
-            catch (ApiException ex) when (ex.Code is not (ErrorCodes.InvalidProfile or ErrorCodes.InvalidRequest))
-            {
-                if (failFast)
-                {
-                    var stop = new ApiException(ex.Status, ex.Code, $"Zip entry {i} ('{e.Name}') failed: {ex.Message}", ex.Hint + " (failFast=true stops at the first failing entry.)", ex.InnerException)
-                    { Errors = [new FieldError($"{pointerBase}/entries/{i}", ex.Message, ex.Hint)] };
-                    foreach (var (k, v) in ex.Extensions) stop.Extensions[k] = v; // e.g. candidates (ambiguous-format)
-                    stop.Extensions["entry"] = e.Name;
-                    foreach (var (k, v) in ex.Debug) stop.Debug[k] = v;
-                    throw stop;
-                }
-                ex.Extensions["entry"] = e.Name;
-                items.Add(new BatchItem(e.Name, null, ex));
-            }
-        }
-        return new Batch(true, FinalNames(items), warnings);
+        return new(outputs, r.Detected, new(r.ParagraphsIn, r.Outputs[0].Cues, r.ElapsedMs, waitMs), warnings, resolved);
     }
 
-    /// <summary>
-    /// Final output paths for a zip batch (entry folder + output file name), decided once so the
-    /// manifest, JSON outputs[] and the zip agree. Collisions fail the request; nothing is renamed.
-    /// </summary>
-    private static List<BatchItem> FinalNames(List<BatchItem> items)
+    internal static void RejectZip(byte[] bytes, string? fileName)
     {
-        var named = items.Select(item => item.Result == null ? item
-            : item with { Result = item.Result with { Outputs = item.Result.Outputs.Select(o => o with { FileName = EntryOutputName(item.Name, o.FileName) }).ToList() } }).ToList();
-        BatchNames.CheckOutputs(named.Where(i => i.Result != null).SelectMany(i => i.Result!.Outputs.Select(o => (o.FileName, i.Name))));
-        return named;
+        if ((bytes.Length >= 4 && bytes[0] == 'P' && bytes[1] == 'K' && bytes[2] is 3 or 5 or 7 && bytes[3] is 4 or 6 or 8)
+            || string.Equals(Path.GetExtension(fileName), ".zip", StringComparison.OrdinalIgnoreCase))
+            throw new ApiException(422, ErrorCodes.FormatNotSupported, "ZIP input is not supported. Send one subtitle per request.", "Extract the archive and submit a separate conversion for each subtitle.");
     }
 
-    private static List<ManifestEntry> Manifest(Batch batch, ApiOptions opts) =>
-        batch.Items.Select(i => new ManifestEntry(i.Name, i.SkipReason != null ? "skipped" : i.Error == null ? "ok" : "error",
-            i.Result?.Outputs.Select(o => o.FileName).ToArray() ?? [],
-            i.Result?.Detected, i.Result?.Warnings ?? [],
-            i.Error == null ? null : Problems.ToJson(i.Error, "", opts.ErrorsVerbose).Also(j => j.Remove("requestId")),
-            i.Result?.Detected.Kind, i.Result?.Detected.CodePage, i.SkipReason,
-            i.Result?.Outputs.Where(o => o.Verification != null).ToDictionary(o => o.FileName, o => o.Verification!) is { Count: > 0 } v ? v : null)).ToList();
-
-    private static string EntryOutputName(string entryName, string outputName)
-    {
-        var dir = Path.GetDirectoryName(entryName)?.Replace('\\', '/');
-        return string.IsNullOrEmpty(dir) ? outputName : $"{dir}/{outputName}";
-    }
-
-    private static async Task<(byte[] Bytes, string? FileName, string? Preset, string? Profile, string? Target, bool FailFast)> ReadMultipart(HttpContext ctx, ApiOptions opts)
+    private static async Task<(byte[] Bytes, string? FileName, string? Preset, string? Profile, string? Target)> ReadMultipart(HttpContext ctx, ApiOptions opts)
     {
         if (!ctx.Request.HasFormContentType || !(ctx.Request.ContentType ?? "").StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase))
         {
@@ -227,9 +127,7 @@ public static class ConvertEndpoints
         if (file.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
         var ms = new MemoryStream((int)file.Length);
         await file.CopyToAsync(ms, ctx.RequestAborted);
-        var failFastRaw = form["failFast"].ToString();
-        return (ms.ToArray(), file.FileName, NullIfEmpty(form["preset"]), NullIfEmpty(form["profile"]), NullIfEmpty(form["target"]),
-            failFastRaw.Equals("true", StringComparison.OrdinalIgnoreCase) || failFastRaw == "1");
+        return (ms.ToArray(), file.FileName, NullIfEmpty(form["preset"]), NullIfEmpty(form["profile"]), NullIfEmpty(form["target"]));
     }
 
     internal static ApiException ProfileTooLarge(ApiOptions opts) =>

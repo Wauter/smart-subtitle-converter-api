@@ -29,7 +29,7 @@ of ambiguous input instead of a guess.
   presets in a mounted folder (picked up without a restart), and Subtitle Edit operations such as Fix Common Errors.
 - **One job at a time:** libse uses global settings, so one worker runs one job at a time from a bounded queue;
   settings are reset after every job, and a full queue answers `503` with `Retry-After`.
-- **Batch and detection:** zip in, zip out with a `manifest.json`; `/v1/detect` names format, encoding and code page.
+- **Detection:** `/v1/detect` names format, encoding and code page.
 - **Container defaults:** amd64/arm64, chiseled ASP.NET Core base with no shell, a non-root user, and a
   reference Compose that adds a read-only root filesystem, dropped capabilities and a `127.0.0.1`-only port.
   API keys and rate limits are optional.
@@ -65,9 +65,6 @@ curl -F file=@movie.srt -F preset=netflix-en-vtt \
 # SRT -> EBU STL at 25 fps
 curl -F file=@movie.srt -F target=ebustl \
      -F 'profile={"formatOptions":{"ebuStl":{"frameRate":25}}}' localhost:4041/v1/convert -OJ
-
-# a whole season: zip in, zip out
-curl -F file=@season1.zip -F target=vtt localhost:4041/v1/convert -OJ
 
 # what is this file?
 curl -F file=@mystery.txt localhost:4041/v1/detect

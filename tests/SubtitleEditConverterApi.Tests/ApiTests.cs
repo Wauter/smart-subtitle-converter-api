@@ -10,6 +10,25 @@ public class ApiTests : IClassFixture<ApiFactory>
     private readonly HttpClient _c;
     public ApiTests(ApiFactory f) => _c = f.CreateClient();
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Zip_is_rejected_as_single_file(bool json)
+    {
+        var bytes = Samples.Zip(("a.srt", Encoding.UTF8.GetBytes(Samples.Srt)));
+        var r = json ? await _c.PostAsJsonAsync("/v1/convert/json", new { content = Convert.ToBase64String(bytes), contentEncoding = "base64", target = "srt" })
+            : await _c.PostAsync("/v1/convert", Samples.Form(bytes, "a.zip", ("target", "srt")));
+        Assert.Equal(422, (int)r.StatusCode);
+        Assert.Contains("ZIP input is not supported", (string)(await r.Json())["detail"]!);
+    }
+
+    [Fact]
+    public async Task Additional_targets_return_json_not_zip()
+    {
+        var r = await _c.PostAsync("/v1/convert", Samples.Form(Samples.Srt, "m.srt", ("target", "vtt"), ("profile", """{"target":{"additional":["ass","ttml"]}}""")));
+        Assert.Equal(3, (await r.Json())["outputs"]!.AsArray().Count);
+    }
+
     [Fact]
     public async Task Srt_to_vtt_returns_file_with_headers()
     {
@@ -49,43 +68,6 @@ public class ApiTests : IClassFixture<ApiFactory>
         var bad = new HttpRequestMessage(HttpMethod.Get, "/v1/formats");
         bad.Headers.Add("X-Request-Id", "bad id with spaces");
         Assert.Equal(26, (await _c.SendAsync(bad)).Header("X-Request-Id").Length); // ULID
-    }
-
-    [Fact]
-    public async Task Zip_in_zip_out_with_manifest_and_per_entry_failure()
-    {
-        var zip = Samples.Zip(("a.srt", Encoding.UTF8.GetBytes(Samples.Srt)), ("dir/b.ttml", Encoding.UTF8.GetBytes(Samples.Ttml)), ("bad.srt", [0, 1, 2, 3, 0, 0, 9]));
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(zip, "batch.zip", ("target", "srt")));
-        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
-        Assert.Equal("application/zip", r.Content.Headers.ContentType!.MediaType);
-        Assert.Equal("2", r.Header("X-Entries-Ok"));
-        Assert.Equal("1", r.Header("X-Entries-Failed"));
-        using var z = new ZipArchive(await r.Content.ReadAsStreamAsync());
-        Assert.Equal(["a.srt", "dir/b.srt", "manifest.json"], z.Entries.Select(e => e.FullName).Order().ToArray());
-        using var m = new StreamReader(z.GetEntry("manifest.json")!.Open());
-        var manifest = System.Text.Json.Nodes.JsonNode.Parse(m.ReadToEnd())!;
-        var bad = manifest["entries"]!.AsArray().Single(e => (string)e!["source"]! == "bad.srt")!;
-        Assert.Equal("error", (string)bad["status"]!);
-        Assert.Equal("format-not-detected", (string)bad["error"]!["code"]!);
-    }
-
-    [Fact]
-    public async Task Zip_failFast_stops_with_error()
-    {
-        var zip = Samples.Zip(("a.srt", Encoding.UTF8.GetBytes(Samples.Srt)), ("bad.srt", [0, 1, 2]));
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(zip, "batch.zip", ("target", "srt"), ("failFast", "true")));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, r.StatusCode);
-        var j = await r.Json();
-        Assert.Equal("/file/entries/1", (string)j["errors"]![0]!["pointer"]!);
-    }
-
-    [Fact]
-    public async Task Additional_targets_return_zip()
-    {
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(Samples.Srt, "m.srt", ("target", "vtt"), ("profile", """{"target":{"additional":["ass","ttml"]}}""")));
-        Assert.Equal("application/zip", r.Content.Headers.ContentType!.MediaType);
-        using var z = new ZipArchive(await r.Content.ReadAsStreamAsync());
-        Assert.Equal(["m.ass", "m.vtt", "m.xml", "manifest.json"], z.Entries.Select(e => e.FullName).Order().ToArray());
     }
 
     [Fact]

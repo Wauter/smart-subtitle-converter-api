@@ -16,9 +16,6 @@ public sealed class ApiOptions
     public int RateLimitPerMinute { get; init; }
     public int MaxCues { get; init; } = 200_000;
     public int MaxLineChars { get; init; } = 10_000;
-    public int ZipMaxEntries { get; init; } = 100;
-    public long ZipMaxUnpackedBytes { get; init; } = 50 * 1024 * 1024;
-    public double ZipMaxRatio { get; init; } = 100;
     public string[] CorsOrigins { get; init; } = [];
     public string[] KnownProxies { get; init; } = [];
     public int ProfileMaxBytes { get; init; } = 64 * 1024;
@@ -54,9 +51,6 @@ public sealed class ApiOptions
             RateLimitPerMinute = c.GetValue("RATE_LIMIT_PER_MINUTE", 0),
             MaxCues = c.GetValue("MAX_CUES", d.MaxCues),
             MaxLineChars = c.GetValue("MAX_LINE_CHARS", d.MaxLineChars),
-            ZipMaxEntries = c.GetValue("ZIP_MAX_ENTRIES", d.ZipMaxEntries),
-            ZipMaxUnpackedBytes = c.GetValue("ZIP_MAX_UNPACKED_BYTES", d.ZipMaxUnpackedBytes),
-            ZipMaxRatio = c.GetValue("ZIP_MAX_RATIO", d.ZipMaxRatio),
             ProfileMaxBytes = Math.Max(1024, c.GetValue("PROFILE_MAX_BYTES", d.ProfileMaxBytes)),
             CorsOrigins = List(c["CORS_ORIGINS"]),
             KnownProxies = List(c["KNOWN_PROXIES"]),

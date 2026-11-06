@@ -23,7 +23,6 @@ port, change only the left-hand number (`127.0.0.1:5050:8080`). To reach it from
 | `PROFILE_MAX_BYTES` | `65536` | Max inline profile size (min 1024) |
 | `QUEUE_CAPACITY` | `32` | Waiting conversions before `503 queue-full` |
 | `CONVERSION_TIMEOUT_SECONDS` | `30` | Queue-wait budget and run budget (each) |
-| `ZIP_MAX_ENTRIES` / `ZIP_MAX_UNPACKED_BYTES` / `ZIP_MAX_RATIO` | `100` / `52428800` / `100` | Zip guards |
 | `MAX_CUES` / `MAX_LINE_CHARS` | `200000` / `10000` | Input limits |
 | `RATE_LIMIT_PER_MINUTE` | off | Per key name, or per client IP when auth is off |
 | `CORS_ORIGINS` | off | Comma-separated allow-list |
