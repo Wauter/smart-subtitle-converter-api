@@ -246,5 +246,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           LIBSE=$(grep -oP '(?<=<LibseVersion>)[^<]+' src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj)
-          gh release create "${GITHUB_REF_NAME}" --generate-notes \
-            --notes "Image: \`${IMAGE}:${GITHUB_REF_NAME#v}\` (linux/amd64, linux/arm64). Built on libse ${LIBSE}."
+          NOTES="Image: \`${IMAGE}:${GITHUB_REF_NAME#v}\` (linux/amd64, linux/arm64). Built on libse ${LIBSE}."
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" --notes "$NOTES"
+          else
+            gh release create "${GITHUB_REF_NAME}" --generate-notes --notes "$NOTES"
+          fi
