@@ -234,7 +234,7 @@ public class FollowUpTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Frame_based_source_without_a_rate_warns_frame_rate_assumed()
     {
-        var pac = await BinaryFormatTests.ToBinary(_c, "pac").Result.Content.ReadAsByteArrayAsync();
+        var pac = await (await BinaryFormatTests.ToBinary(_c, "pac")).Content.ReadAsByteArrayAsync();
         var j = await Read(pac, "show.pac", "vtt");
         Assert.Equal("assumed", (string)Details(j)["frameRateSource"]!);
         Assert.Contains("frame-rate-assumed", Codes(j));

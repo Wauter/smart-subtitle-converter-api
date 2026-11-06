@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Runtime.Versioning;
 using SubtitleEditConverterApi.Storage;
 namespace SubtitleEditConverterApi.Tests;
 public sealed class FileStorageTests : IDisposable
@@ -74,6 +75,7 @@ public sealed class FileStorageTests : IDisposable
         Assert.Contains("sidecar-delete-failed", (await res.Json())["warnings"]!.ToJsonString());
         Assert.True(Directory.Exists(output + ".json"));
     }
+    [SupportedOSPlatform("linux")]
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Outputs_are_created_0644_subject_to_umask(bool atomic)
     {
