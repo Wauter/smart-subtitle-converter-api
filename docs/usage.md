@@ -87,7 +87,7 @@ the logs:
   "errors": [ { "pointer": "/target/format", "message": "Unknown format 'vtt2'.", "hint": "Did you mean 'webvtt'?" } ] }
 ```
 
-Every error and warning code: [errors.md](errors.md).
+Every error and warning code, with what happened, why, and what to do: [errors.md](errors.md).
 
 ## Job metadata
 

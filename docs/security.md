@@ -58,12 +58,16 @@ For internal MinIO use `s3://` with a server-configured endpoint, not an HTTPS U
 Empty root/bucket/host allowlists disable the matching URI scheme. Filesystem paths must remain inside
 configured roots and name regular files; dot segments, symlinks and directory destinations are rejected.
 Linux directory handles and no-follow opens are used for each path component. Existing output files are
-not replaced. With atomic writes off, readers may see a growing file; failed writes remove their own partial
+not replaced unless the request sends `ifExists:"replace"`. Outputs are created with mode `0644` (narrowed by the
+umask), readable by other accounts on the mount. The only file the API deletes is a stale `{output}.json` sidecar
+next to an output written without `sidecar` (filesystem and S3). With atomic writes off, readers may see a growing file; failed writes remove their own partial
 file while the process is alive. A crash can leave a partial file. Enable atomic writes when consumers scan
 folders, and verify the mount's rename semantics. No filesystem operation crosses into another protocol.
 
 S3 bucket/key-prefix checks precede SDK requests. A custom endpoint is trusted operator configuration,
-not an untrusted request target; scope the role's permissions as well as the API allowlists. S3 defaults to a conditional PUT (`If-None-Match: *`); explicit `ifExists:"replace"` permits replacement. Sidecar and subtitle writes are independent, with warnings on sidecar failure.
+not an untrusted request target; scope the role's permissions as well as the API allowlists. S3 defaults to a conditional PUT (`If-None-Match: *`); explicit `ifExists:"replace"` permits replacement. Sidecar and subtitle writes are independent, with warnings on sidecar failure. Removing a stale sidecar
+needs delete permission on the output prefix; without it the subtitle is still written and `sidecar-delete-failed`
+is reported.
 
 Jobs are in-memory metadata. Any valid API key knowing an unguessable id may read metadata and re-read stored files; there is no owner check or admin key. An unauthenticated server grants the same id-based access. Restart clears history; TTL/cap eviction may remove running records without
 cancelling work. Run one instance or use sticky routing if polling through a load balancer; there is no shared

@@ -176,7 +176,7 @@ The body is a profile JSON. Response `200 { "valid": bool, "errors": [...], "war
 - These endpoints are never behind auth and are excluded from rate limiting.
 
 ### 4.8 Error codes
-Error body format: §7.1. The codes below are stable. New codes may be added, and existing ones are never renamed.
+Error body format: §7.1. The codes below are stable. New codes may be added, and existing ones are never renamed. This is the original draft; the current catalogue, with what each code means and what to do, is [errors.md](errors.md).
 
 | Status | code | Hint example |
 |---|---|---|
@@ -415,7 +415,7 @@ Errors are surfaced as `isError: true` with the ProblemDetails `code`, `hint` an
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | **Text API** | §4 endpoints, option A adapter, queue, optional API keys, safeguards, built-in presets, multi-arch image | All CI gates green; smoke corpus passes with the real sample files |
-| **Presets and runtime controls** | Mounted-preset hot reload, settings-hash fast path (no lock), `MultipleReplace` import of SE `.template`/`.csv`, OpenTelemetry traces, more smoke samples, the upstream PRs (format registration, explicit settings, `libseconv`) | p95 under 50 ms for 1 k cues |
+| **Presets and runtime controls** | Settings-hash fast path (no lock), `MultipleReplace` import of SE `.template`/`.csv`, OpenTelemetry traces, more smoke samples, the upstream PRs (format registration, explicit settings, `libseconv`) | p95 under 50 ms for 1 k cues |
 | **MCP server** | `subtitleedit-converter-mcp`, first release (§10) | Works in Claude Desktop, Cursor and an HTTP client; contract tests green |
 | **MCP follow-ups** | In `subtitleedit-converter-mcp` (no separate roadmap there yet): a full `analyze_subtitle` tool (report-only diagnostics using the profile's own thresholds, with Fix Common Errors in preview mode; needs an API endpoint first); hosted hardening (`--hosted`, which refuses to start today) | Each item ships with tests and is documented in the MCP's `docs/tools.md` |
 | **Agent guidance (AGENTS.md)** | A short `AGENTS.md` in both repos for coding agents: build, test and lint commands; the version-bump and CHANGELOG rule (the MCP's major.minor follows the API); keeping error codes in sync (ErrorCodes, docs/errors.md, OpenAPI, Postman); contract tests against the pinned API image; no cue text, file content or tokens in logs and warnings; no tags, releases or publishing without the owner's go-ahead | A coding agent can build, test and open a correct PR in either repo from AGENTS.md alone |

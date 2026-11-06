@@ -25,5 +25,6 @@ Bumping the version is not a release: tags (`vX.Y.Z`) and GitHub Releases are cu
 - `dotnet test` covers our layer only (libse itself is trusted upstream).
 - After an intended API change, `UPDATE_OPENAPI=1 dotnet test` refreshes `docs/openapi.v1.json`.
 - New error codes go in `ErrorCodes`, `docs/errors.md` and the OpenAPI enum (a test keeps them in sync);
-  new warning codes go in `docs/errors.md` (Warning codes).
+  new warning codes go in `docs/errors.md` too. Each code gets an index row and a section with plain-language
+  **What** / **Why** / **What to do**, followed by the technical details for integrators.
 - Keep the Postman collection (`postman/`) in step; CI runs it with newman against the container.

@@ -53,7 +53,7 @@ explicit `environment` entries. Never commit real credentials.
 | `S3_ALLOWED_PREFIXES` | unset | Comma-separated key prefixes, optional within allowed buckets |
 
 Each scheme is off until its allowlist is nonempty. `input` and `output` are independent.
-Filesystem writes reject existing files by default; S3 uses conditional create by default (explicit `ifExists:replace` allows replacement); HTTPS follows the receiver's PUT semantics.
+Filesystem writes reject existing files by default and create files with mode `0644` (narrowed by the umask; not configurable); S3 uses conditional create by default (explicit `ifExists:replace` allows replacement); HTTPS follows the receiver's PUT semantics.
 S3 uses the default AWS credential chain (environment/shared configuration/task or instance role), never
 credentials supplied by the request. A trusted S3 endpoint may be internal; HTTPS request URIs may not resolve
 to private addresses. No Azure or GCS adapter is installed.

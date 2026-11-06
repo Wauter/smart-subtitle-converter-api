@@ -18,6 +18,7 @@ Broadcast-tester follow-ups:
 - New `format-defaults-applied` warning lists EBU STL / Cavena 890 identity fields filled in although the request didn't set them (libse's `No Title`, `USA`, fallback language, Cavena file-name title).
 - Writing an output without `sidecar` deletes a stale `{output}.json` (filesystem, S3); failure keeps the subtitle and adds `sidecar-delete-failed`.
 - Filesystem outputs are created `0644` (was `0600`).
+- Docs: every error and warning code in `docs/errors.md` now explains what happened, why, and what to do, with the technical details for integrators after it; the README covers storage, jobs and the new checks in the main flow.
 
 - Add input/output job-file routes that re-read storage without retaining bytes; any valid key knowing an unguessable id can read job metadata/files. Distinguish not-ready, not-found, unstored, gone and non-replayable locations, with redacted locations where applicable.
 - Add request-level ifExists error | replace for filesystem/S3. S3 default PUT is conditional; explicit filesystem replacement stages before rename. HTTPS PUT retains signer/receiver semantics. Report the documented maximum wait through limits.

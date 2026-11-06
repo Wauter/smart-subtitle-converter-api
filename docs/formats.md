@@ -48,7 +48,10 @@ Czech → `cs`/`sk`, Cyrillic → `ru`/`uk`/`bg`/…, Latin → Western language
 count: Greek PAC read with the Czech page still looks like Latin letters. One answer is used and reported as
 `formatDetails.codePageConfidence: "probed"` (with `probedLanguage`); none or several with different text give
 `422 ambiguous-encoding` with the remaining `candidates`. An explicit `inputCodePage` is used as is (`"forced"`).
-Very short files without a single common word need `inputCodePage`.
+Bytes that don't give plausible text in any code page are `422 invalid-binary-input`. Very short files without a
+single common word need `inputCodePage`. The latin and czech code pages store some letters (such as ž, š and é)
+identically, so Czech text that uses only those reports `pac-latin` with the same, correct text; text with ř, č or ě
+reports `pac-czech`.
 
 **Text encodings.** BOM, then valid UTF-8, then `encoding.inputFallback` if set. Otherwise the same word test runs
 over windows-1252/1250/1251/1253/1254/1255/1256/1257/874, ISO-8859-1/2/7/9, GB18030, Big5, Shift_JIS and EUC-KR.
@@ -62,10 +65,12 @@ heuristic (`"heuristic"`) plus an `encoding-guessed` warning.
 `target.fps` is the rate the output is written at. Times are rescaled from one rate to the other only from a known
 source rate: `source.fps`, or a rate the file states or implies (the EBU STL header; SCC drop-frame `;` timecodes or
 frame numbers of 25 and above, which mean 29.97). Time-based sources (SRT, WebVTT, TTML, ASS, …) keep their
-wall-clock times: a one-hour WebVTT written as SCC with `target.fps: 29.97` still ends at one hour. Frame-based
+wall-clock times when only `target.fps` is set: a one-hour WebVTT written as SCC with `target.fps: 29.97` still ends
+at one hour. Set `source.fps` as well to rescale on purpose (for example `25` → `23.976`). An EBU STL source written
+with a different `target.fps` is rescaled from its header rate. Frame-based
 sources that state no rate (PAC, Cavena 890, Cheetah, CapMaker, MicroDVD, SCC with only low frame numbers) are read
-at libse's default 23.976 with a `frame-rate-assumed` warning, unless written back to the same kind of file at the
-same rate. `detected.formatDetails.frameRate` / `frameRateSource` (`profile`, `header`, `inferred`, `assumed`) say
+at libse's default 23.976 with a `frame-rate-assumed` warning, unless the output is also a frame-based file
+(other than EBU STL) and no `target.fps` is set, so frame numbers carry over unchanged. `detected.formatDetails.frameRate` / `frameRateSource` (`profile`, `header`, `inferred`, `assumed`) say
 which rate was used.
 
 **EBU STL programme start.** A non-zero Time Code Start of Programme (often `10:00:00:00`) is reported as

@@ -87,7 +87,6 @@ services:
 
 Parent directories must exist. Match the container UID/GID to permissions on the mount; check NFS root-squash and SMB ownership mapping. Files are created with mode 0644, narrowed by the process umask: other accounts on the mount (MAM, playout) can read deliveries; write access stays with the API user. The app speaks filesystem operations, not NFS/SMB/Aspera/Signiant protocols. Atomic mode uses a sibling temporary file and a no-replace rename, never a cross-device copy.
 
-
 Set `user` to a UID/GID that can access the mount; avoid running the API as root to paper over permissions.
 For a read-only input tree and a separate writable output tree, mount each separately and allowlist both
 container roots (a JSON array avoids path-separator confusion). Container read-only-root settings still permit
@@ -97,7 +96,8 @@ an explicitly writable storage mount. Direct writes are the default; atomic mode
 
 For an internal MinIO service, set `S3_ENDPOINT=http://minio:9000`, `S3_REGION=us-east-1`,
 `S3_FORCE_PATH_STYLE=true` and a narrow `S3_ALLOWED_BUCKETS` / `S3_ALLOWED_PREFIXES` list. Provision buckets
-outside this API. Inject credentials using your runtime's environment or role configuration; do not bake them
+outside this API. The credentials need read and write access to the allowed prefixes, plus delete if stale
+`{output}.json` sidecars should be removed when an output is rewritten without a sidecar. Inject credentials using your runtime's environment or role configuration; do not bake them
 into an image, Compose file or request. Public HTTPS links instead use `HTTP_ALLOWED_HOSTS`; private IPs
 remain blocked for those links. See [configuration](configuration.md) and [the sample environment](../.env.example).
 
