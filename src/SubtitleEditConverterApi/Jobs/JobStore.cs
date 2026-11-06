@@ -45,7 +45,7 @@ public sealed class JobStore : IDisposable
         {
             Expire();
             // Evicting running records must never allow an unbounded number of background transfers.
-            if (_active >= _opts.JobMaxEntries) throw new ApiException(503, ErrorCodes.QueueFull,
+            if (_active >= Math.Min(_opts.JobMaxEntries, _opts.QueueCapacity + 1)) throw new ApiException(503, ErrorCodes.QueueFull,
                 "The active job limit has been reached.", "Poll existing jobs and retry after Retry-After.") { RetryAfterSeconds = 1 };
             if (_entries.Count >= _opts.JobMaxEntries) _entries.Remove(_entries.Values.MinBy(e => e.Created)!.Id);
             var id = Guid.NewGuid().ToString("N");

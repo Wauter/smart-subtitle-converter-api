@@ -70,9 +70,9 @@ builder.Services.AddOpenApi("v1", o =>
 if (opts.CorsOrigins.Length > 0)
 {
     builder.Services.AddCors(c => c.AddDefaultPolicy(p => p.WithOrigins(opts.CorsOrigins).AllowAnyMethod()
-        .WithHeaders("Authorization", "Content-Type", "X-Request-Id")
+        .WithHeaders("Authorization", "Content-Type", "X-Request-Id", "Prefer")
         .WithExposedHeaders("X-Request-Id", "X-Detected-Format", "X-Detected-Encoding", "X-Detected-Code-Page", "X-Output-Kind", "X-Cue-Count", "X-Cue-Count-In",
-            "X-Warnings-Count", "X-Warnings", "X-Libse-Version", "X-Profile", "Content-Disposition", "Retry-After")));
+            "X-Warnings-Count", "X-Warnings", "X-Libse-Version", "X-Profile", "Content-Disposition", "Retry-After", "X-Job-Id", "Location", "Preference-Applied")));
 }
 
 if (opts.RateLimitPerMinute > 0)

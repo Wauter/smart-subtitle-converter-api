@@ -38,3 +38,9 @@ curl localhost:4041/v1/schemas/profile.json     # JSON Schema for editors and ag
 ## Job metadata
 
 Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs/{id}` returns status, timestamps and result metadata, without subtitle content. Records live in memory only: restart, expiry or oldest-first eviction returns 404, not a failed status. Defaults: six-hour TTL and 400 records. Running work has a separate cap, so eviction does not allow unlimited work. Metadata is bounded to 128 KiB per result; oversized diagnostics are replaced by a summary. Jobs belong to the authenticated key name.
+
+## Waiting and polling
+
+`Prefer: wait=N` selects a wait from 0 to 60 seconds (default 30, set by `REQUEST_WAIT_SECONDS`). A fast conversion returns its normal 200; unfinished work returns 202 with `Location: /v1/jobs/{id}`, `X-Job-Id` and `Retry-After: 1`. Poll that URL until status is `succeeded` or `failed`; the polling HTTP status is 200 even for a failed job, whose `error` contains problem details. Destination never selects synchronous versus asynchronous mode. Disconnecting does not cancel accepted work; server shutdown does.
+
+**No replay of file bytes:** jobs retain metadata only. With upload/download and no `output`, only the original synchronous 200 carries content. If it becomes asynchronous, GET cannot recover that content: use an explicit output location for work that may exceed the wait. Do not blindly resubmit writes after a lost response; there is no idempotency-key deduplication.

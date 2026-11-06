@@ -112,6 +112,13 @@ public static class OpenApiContract
                 }
                 if (method == HttpMethod.Get && op.Parameters.Any(p => p.In is ParameterLocation.Query or ParameterLocation.Path))
                     op.Responses.TryAdd("400", Problem(doc, "invalid-request: a parameter has an invalid value.", 400));
+                if (ConvertOperations.Contains(id))
+                {
+                    op.Parameters.Add(new OpenApiParameter { Name = "Prefer", In = ParameterLocation.Header, Description = "wait=N, from 0 to 60 seconds; default configured wait is 30. wait=0 returns 202 immediately.", Schema = Str() });
+                    op.Responses["202"] = new OpenApiResponse { Description = "Still running; poll Location. Jobs retain metadata, not subtitle bytes.",
+                        Content = new Dictionary<string, OpenApiMediaType> { ["application/json"] = new() { Schema = new OpenApiSchema { Type = JsonSchemaType.Object } } },
+                        Headers = new Dictionary<string, IOpenApiHeader> { ["X-Job-Id"] = Header("Job id."), ["Location"] = Header("Relative job URL."), ["Retry-After"] = Header("Seconds before polling.") } };
+                }
                 if (ConvertOperations.Contains(id) && op.Responses.TryGetValue("200", out var ok) && ok is OpenApiResponse okr)
                 {
                     okr.Headers ??= new Dictionary<string, IOpenApiHeader>();

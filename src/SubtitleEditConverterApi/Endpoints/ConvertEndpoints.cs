@@ -35,7 +35,7 @@ public static class ConvertEndpoints
             .WithSummary("Convert a subtitle file (multipart upload).")
             .WithDescription("Upload `file` with `preset`, `target` and/or `profile` (JSON overrides). Response headers report detected format/encoding, cue counts and warnings.")
             .WithBody(new() { ["multipart/form-data"] = OpenApiBodies.Multipart(OpenApiBodies.ConvertParts) })
-            .Produces(200, contentType: "application/octet-stream")
+            .Produces(200, contentType: "application/octet-stream").Produces(202)
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(413).ProducesProblem(415).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504)
             .DisableAntiforgery();
 
@@ -43,18 +43,19 @@ public static class ConvertEndpoints
             .WithName("convertJson").WithTags("convert")
             .WithSummary("Convert subtitle content sent as JSON (for agents).")
             .WithDescription("Send `content` as text (or base64 with contentEncoding=base64; binary formats such as EBU STL must be base64). Outputs come back as text for Unicode encodings, base64 otherwise; binary targets are always base64.")
-            .Produces<ConvertJsonResponse>()
+            .Produces<ConvertJsonResponse>().Produces(202)
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(413).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504);
     }
 
-    private static async Task<IResult> ConvertMultipart(HttpContext ctx, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, JobStore jobs)
+    private static async Task<IResult> ConvertMultipart(HttpContext ctx, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, JobStore jobs, IHostApplicationLifetime lifetime)
     {
         var (bytes, fileName, preset, profileJson, target) = await ReadMultipart(ctx, opts);
         var overrides = ParseProfile(profileJson, opts);
         var (profile, resolved, presetName) = resolver.ResolveForConversion(preset, overrides, target);
         Track(ctx, profile, presetName, fileName);
         RejectZip(bytes, fileName);
-        var (r, waitMs, id) = await RunJob(ctx, jobs, queue, () => engine.Convert(bytes, fileName, profile), resolved, opts);
+        var (r, waitMs, id) = await RunJob(ctx, jobs, ct => queue.RunAsync(() => engine.Convert(bytes, fileName, profile), ct), resolved, opts, lifetime.ApplicationStopping);
+        if (r == null) return Accepted(ctx, jobs, id);
         ctx.Items["queueWaitMs"] = waitMs;
         ctx.Response.Headers.CacheControl = "no-store";
         if (presetName != null) ctx.Response.Headers["X-Profile"] = presetName;
@@ -68,7 +69,7 @@ public static class ConvertEndpoints
         return File(ctx, o.Bytes, ContentType(o), o.FileName);
     }
 
-    private static async Task<IResult> ConvertJson(HttpContext ctx, ConvertJsonRequest req, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, Formats.FormatRegistry formats, JobStore jobs)
+    private static async Task<IResult> ConvertJson(HttpContext ctx, ConvertJsonRequest req, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, Formats.FormatRegistry formats, JobStore jobs, IHostApplicationLifetime lifetime)
     {
         var bytes = DecodeContent(req.Content, req.ContentEncoding);
         if (bytes.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
@@ -84,7 +85,8 @@ public static class ConvertEndpoints
         }
 
         RejectZip(bytes, req.FileName);
-        var (r, waitMs, id) = await RunJob(ctx, jobs, queue, () => engine.Convert(bytes, req.FileName, profile), resolved, opts);
+        var (r, waitMs, id) = await RunJob(ctx, jobs, ct => queue.RunAsync(() => engine.Convert(bytes, req.FileName, profile), ct), resolved, opts, lifetime.ApplicationStopping);
+        if (r == null) return Accepted(ctx, jobs, id);
         ctx.Items["queueWaitMs"] = waitMs;
         ctx.Response.Headers.CacheControl = "no-store";
         SetDetected(ctx, r);
@@ -93,25 +95,63 @@ public static class ConvertEndpoints
         return Results.Json(ToJson(r, resolved, waitMs, req.ResponseEncoding) with { Id = id }, Json.Options);
     }
 
-    private static async Task<(ConversionResult Result, long WaitMs, string Id)> RunJob(HttpContext ctx, JobStore jobs, ConversionQueue queue,
-        Func<ConversionResult> work, JsonObject resolved, ApiOptions opts)
+    private sealed record Completed(ConversionResult? Result, long WaitMs, ApiException? Error = null);
+
+    private static async Task<(ConversionResult? Result, long WaitMs, string Id)> RunJob(HttpContext ctx, JobStore jobs,
+        Func<CancellationToken, Task<(ConversionResult Result, long QueueWaitMs)>> work, JsonObject resolved, ApiOptions opts,
+        CancellationToken stopping, string? input = null, string? output = null)
     {
-        var id = jobs.Create(ctx.Items["keyName"] as string ?? "");
+        var waitSeconds = ParseWait(ctx.Request.Headers["Prefer"].ToString(), opts.RequestWaitSeconds);
+        var id = jobs.Create(ctx.Items["keyName"] as string ?? "", input, output);
         ctx.Response.Headers["X-Job-Id"] = id;
+        ctx.Response.Headers.CacheControl = "no-store";
+        if (ctx.Request.Headers.ContainsKey("Prefer")) ctx.Response.Headers["Preference-Applied"] = $"wait={waitSeconds}";
+        // No HttpContext, request stream or request cancellation token is captured by the job.
+        var task = CompleteJob(jobs, id, work, resolved, opts, stopping);
+        if (waitSeconds == 0) return (null, 0, id);
+        Completed done;
+        try { done = await task.WaitAsync(TimeSpan.FromSeconds(waitSeconds), ctx.RequestAborted); }
+        catch (TimeoutException) { return (null, 0, id); }
+        if (done.Error != null) throw done.Error;
+        return (done.Result, done.WaitMs, id);
+    }
+
+    private static async Task<Completed> CompleteJob(JobStore jobs, string id,
+        Func<CancellationToken, Task<(ConversionResult Result, long QueueWaitMs)>> work,
+        JsonObject resolved, ApiOptions opts, CancellationToken stopping)
+    {
         try
         {
-            var (r, wait) = await queue.RunAsync(work, ctx.RequestAborted);
+            var (r, wait) = await work(stopping);
             var metadata = ToJson(r, resolved, wait, null);
             metadata = metadata with { Outputs = metadata.Outputs.Select(o => o with { Content = null }).ToList(), Id = id };
             jobs.Finish(id, JsonSerializer.SerializeToNode(metadata, Json.Options)!.AsObject());
-            return (r, wait, id);
+            return new(r, wait);
         }
         catch (Exception ex)
         {
-            var problem = ex as ApiException ?? new ApiException(500, ErrorCodes.InternalError, "Conversion failed.", "See the server logs.");
+            var problem = ex as ApiException ?? new ApiException(500, ErrorCodes.InternalError, "Conversion failed or was interrupted by server shutdown.", "See the server logs.");
             jobs.Finish(id, error: Problems.ToJson(problem, id, opts.ErrorsVerbose));
-            throw;
+            return new(null, 0, problem); // observed even when the original HTTP request already returned 202
         }
+    }
+
+    internal static int ParseWait(string prefer, int defaultWait)
+    {
+        var values = prefer.Split(',').Select(p => p.Trim()).Where(p => p.StartsWith("wait", StringComparison.OrdinalIgnoreCase) && (p.Length == 4 || p[4] is '=' or ' ')).ToList();
+        if (values.Count == 0) return defaultWait;
+        var parts = values[0].Split('=', 2, StringSplitOptions.TrimEntries);
+        if (values.Count != 1 || parts.Length != 2 || !int.TryParse(parts[1], System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var wait) || wait is < 0 or > 60)
+            throw new ApiException(400, ErrorCodes.InvalidRequest, "Prefer: wait must be one integer from 0 to 60 seconds.", "Use Prefer: wait=30, or wait=0 for an immediate job id.");
+        return wait;
+    }
+
+    private static IResult Accepted(HttpContext ctx, JobStore jobs, string id)
+    {
+        ctx.Response.Headers.Location = $"/v1/jobs/{id}";
+        ctx.Response.Headers.RetryAfter = "1";
+        return Results.Json(new { id, status = "running", location = $"/v1/jobs/{id}" }, Json.Options, statusCode: 202);
     }
 
     internal static ConvertJsonResponse ToJson(ConversionResult r, JsonObject resolved, long waitMs, string? responseEncoding)

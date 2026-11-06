@@ -156,6 +156,14 @@
               "pattern": "^[A-Za-z0-9._-]{1,64}$",
               "type": "string"
             }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "description": "wait=N, from 0 to 60 seconds; default configured wait is 30. wait=0 returns 202 immediately.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -264,6 +272,36 @@
                 "description": "Preset name, when one was used.",
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Still running; poll Location. Jobs retain metadata, not subtitle bytes.",
+            "headers": {
+              "X-Job-Id": {
+                "description": "Job id.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "Relative job URL.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds before polling.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -468,6 +506,14 @@
               "pattern": "^[A-Za-z0-9._-]{1,64}$",
               "type": "string"
             }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "description": "wait=N, from 0 to 60 seconds; default configured wait is 30. wait=0 returns 202 immediately.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -561,6 +607,36 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ConvertJsonResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Still running; poll Location. Jobs retain metadata, not subtitle bytes.",
+            "headers": {
+              "X-Job-Id": {
+                "description": "Job id.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "Relative job URL.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds before polling.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
