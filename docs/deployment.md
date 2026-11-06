@@ -3,19 +3,19 @@
 ## Docker
 
 ```bash
-docker run -d --name subtitleedit-converter -p 127.0.0.1:4041:8080 ghcr.io/wauter/subtitleedit-converter-api:latest
+docker run -d --name subtitleedit-converter -p 127.0.0.1:8080:8080 ghcr.io/wauter/subtitleedit-converter-api:latest
 ```
 
 To use your own presets, mount a folder at `/profiles`:
 
 ```bash
-docker run -d --name subtitleedit-converter -p 127.0.0.1:4041:8080 \
+docker run -d --name subtitleedit-converter -p 127.0.0.1:8080:8080 \
   -v "$PWD/profiles:/profiles:ro" ghcr.io/wauter/subtitleedit-converter-api:latest
 ```
 
 ## Docker Compose
 
-The repo's [`docker-compose.yml`](../docker-compose.yml) is the reference setup: host port 4041 on `127.0.0.1`,
+The repo's [`docker-compose.yml`](../docker-compose.yml) is the reference setup: host port 8080 on `127.0.0.1`,
 read-only rootfs, `tmpfs` `/tmp`, `./profiles` mounted, all capabilities dropped (see [security.md](security.md)).
 
 ```bash
@@ -57,7 +57,7 @@ Sizes are measured on every CI run (job summary). `--build-arg RUNTIME_BASE=base
 
 ```bash
 docker build -t subtitleedit-converter-api .
-docker run --rm -p 127.0.0.1:4041:8080 -v "$PWD/profiles:/profiles:ro" subtitleedit-converter-api
+docker run --rm -p 127.0.0.1:8080:8080 -v "$PWD/profiles:/profiles:ro" subtitleedit-converter-api
 ```
 
 The image has no shell or curl; probe `/healthz` and `/readyz` from the orchestrator

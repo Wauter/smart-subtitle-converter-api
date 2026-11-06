@@ -21,13 +21,13 @@ a set of binary broadcast formats. `GET /v1/formats` always has the current list
 # SRT -> EBU STL (25 fps, CPN 850, language auto-detected), with GSI fields
 curl -F file=@movie.srt -F target=ebustl \
      -F 'profile={"formatOptions":{"ebuStl":{"frameRate":25,"originalProgrammeTitle":"My Film","language":"en"}}}' \
-     localhost:4041/v1/convert -OJ
+     localhost:8080/v1/convert -OJ
 # EBU STL -> SRT (detected by content; X-Detected-Code-Page: 850)
-curl -F file=@movie.stl -F target=srt localhost:4041/v1/convert -OJ
+curl -F file=@movie.stl -F target=srt localhost:8080/v1/convert -OJ
 # PAC with an explicit code page (auto-detection rejects files it can't decide with 422 ambiguous-encoding)
-curl -F file=@movie.pac -F target=srt -F 'profile={"source":{"format":"pac"},"formatOptions":{"pac":{"inputCodePage":"greek"}}}' localhost:4041/v1/convert -OJ
+curl -F file=@movie.pac -F target=srt -F 'profile={"source":{"format":"pac"},"formatOptions":{"pac":{"inputCodePage":"greek"}}}' localhost:8080/v1/convert -OJ
 # JSON: binary content must be base64; binary outputs always come back base64
-curl localhost:4041/v1/convert/json -H 'content-type: application/json' \
+curl localhost:8080/v1/convert/json -H 'content-type: application/json' \
      -d "{\"content\":\"$(base64 -w0 movie.stl)\",\"contentEncoding\":\"base64\",\"target\":\"srt\"}"
 ```
 

@@ -48,17 +48,17 @@ of ambiguous input instead of a guess.
 With Docker:
 
 ```bash
-docker run -d --name subtitleedit-converter -p 127.0.0.1:4041:8080 ghcr.io/wauter/subtitleedit-converter-api:latest
-curl localhost:4041/healthz   # {"status":"ok","version":"…","libse":"…"}
+docker run -d --name subtitleedit-converter -p 127.0.0.1:8080:8080 ghcr.io/wauter/subtitleedit-converter-api:latest
+curl localhost:8080/healthz   # {"status":"ok","version":"…","libse":"…"}
 ```
 
 Then convert something:
 
 ```bash
-curl -F file=@movie.srt -F target=webvtt localhost:4041/v1/convert -OJ   # saves movie.vtt
+curl -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ   # saves movie.vtt
 ```
 
-Open <http://localhost:4041/docs> for the interactive API reference. Other ways to run it (Docker Compose,
+Open <http://localhost:8080/docs> for the interactive API reference. Other ways to run it (Docker Compose,
 building from source, image tags): [docs/deployment.md](docs/deployment.md).
 
 ## A few more examples
@@ -66,14 +66,14 @@ building from source, image tags): [docs/deployment.md](docs/deployment.md).
 ```bash
 # a built-in preset, with overrides
 curl -F file=@movie.srt -F preset=netflix-en-vtt \
-     -F 'profile={"rules":{"maxLineLength":37}}' localhost:4041/v1/convert -OJ
+     -F 'profile={"rules":{"maxLineLength":37}}' localhost:8080/v1/convert -OJ
 
 # SRT -> EBU STL at 25 fps
 curl -F file=@movie.srt -F target=ebustl \
-     -F 'profile={"formatOptions":{"ebuStl":{"frameRate":25}}}' localhost:4041/v1/convert -OJ
+     -F 'profile={"formatOptions":{"ebuStl":{"frameRate":25}}}' localhost:8080/v1/convert -OJ
 
 # what is this file?
-curl -F file=@mystery.txt localhost:4041/v1/detect
+curl -F file=@mystery.txt localhost:8080/v1/detect
 ```
 
 Errors are `application/problem+json` with a stable `code` and a `hint`:

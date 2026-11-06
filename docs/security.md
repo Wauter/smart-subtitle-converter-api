@@ -15,8 +15,8 @@ machine; exposing it is a deliberate configuration change.
 
 Enable API keys first (below). Then change the port mapping:
 
-- Compose: `"4041:8080"` (all interfaces) or `"192.168.1.10:4041:8080"` (one interface) in `docker-compose.yml`.
-- `docker run`: `-p 4041:8080`.
+- Compose: `"8080:8080"` (all interfaces) or `"192.168.1.10:8080:8080"` (one interface) in `docker-compose.yml`.
+- `docker run`: `-p 8080:8080`.
 
 Behind a reverse proxy, set `KNOWN_PROXIES` so `X-Forwarded-*` headers are trusted only from it. For browser
 clients, set `CORS_ORIGINS` to an allow-list.

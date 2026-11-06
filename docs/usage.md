@@ -1,28 +1,28 @@
 # Usage
 
-Every endpoint with copy-paste `curl` examples. The examples assume the API on `localhost:4041` (see
-[deployment.md](deployment.md)). The interactive reference is at <http://localhost:4041/docs>, the OpenAPI
+Every endpoint with copy-paste `curl` examples. The examples assume the API on `localhost:8080` (see
+[deployment.md](deployment.md)). The interactive reference is at <http://localhost:8080/docs>, the OpenAPI
 document at `/openapi/v1.json` (committed as [openapi.v1.json](openapi.v1.json)).
 
 ## Converting
 
 ```bash
 # SRT -> WebVTT; -OJ saves using the server's file name (movie.vtt)
-curl -F file=@movie.srt -F target=webvtt localhost:4041/v1/convert -OJ
+curl -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ
 
 # a built-in preset
-curl -F file=@movie.srt -F preset=netflix-en-vtt localhost:4041/v1/convert -OJ
+curl -F file=@movie.srt -F preset=netflix-en-vtt localhost:8080/v1/convert -OJ
 
 # preset + overrides (objects merge, arrays replace, null clears)
 curl -F file=@movie.srt -F preset=netflix-en-vtt \
-     -F 'profile={"rules":{"maxLineLength":37},"timing":{"offsetMs":-1500}}' localhost:4041/v1/convert -OJ
+     -F 'profile={"rules":{"maxLineLength":37},"timing":{"offsetMs":-1500}}' localhost:8080/v1/convert -OJ
 
 # TTML -> SRT, and SRT -> ASS
-curl -F file=@movie.ttml -F target=srt localhost:4041/v1/convert -OJ
-curl -F file=@movie.srt  -F preset=srt-to-ass localhost:4041/v1/convert -OJ
+curl -F file=@movie.ttml -F target=srt localhost:8080/v1/convert -OJ
+curl -F file=@movie.srt  -F preset=srt-to-ass localhost:8080/v1/convert -OJ
 
 # several targets for ONE input -> JSON outputs (not an archive)
-curl -F file=@movie.srt -F target=vtt -F 'profile={"target":{"additional":["ass","ttml"]}}' localhost:4041/v1/convert -OJ
+curl -F file=@movie.srt -F target=vtt -F 'profile={"target":{"additional":["ass","ttml"]}}' localhost:8080/v1/convert -OJ
 ```
 
 Presets, profiles and operations: [profiles.md](profiles.md). Binary formats (EBU STL, PAC, …):
@@ -31,7 +31,7 @@ Presets, profiles and operations: [profiles.md](profiles.md). Binary formats (EB
 ## JSON in/out (for agents and scripts)
 
 ```bash
-curl localhost:4041/v1/convert/json -H 'content-type: application/json' \
+curl localhost:8080/v1/convert/json -H 'content-type: application/json' \
      -d '{"content":"1\n00:00:01,000 --> 00:00:02,000\nHello\n","fileName":"a.srt","target":"vtt"}'
 ```
 
@@ -42,26 +42,26 @@ Binary content must be base64 (`"contentEncoding":"base64"`); binary outputs alw
 
 ```bash
 # what is this file? (text or binary; binary adds codePage/formatDetails and up to 5 candidates)
-curl -F file=@mystery.txt localhost:4041/v1/detect
+curl -F file=@mystery.txt localhost:8080/v1/detect
 ```
 
 ## Formats, presets, schema and limits
 
 ```bash
-curl 'localhost:4041/v1/formats?q=vtt'
-curl localhost:4041/v1/profiles                 # built-in + mounted, invalid ones listed with errors
-curl localhost:4041/v1/profiles/netflix-en-vtt  # raw + resolved (extends flattened)
-curl localhost:4041/v1/profiles/validate -H 'content-type: application/json' -d @my-profile.json
-curl localhost:4041/v1/schemas/profile.json     # JSON Schema for editors and agents
+curl 'localhost:8080/v1/formats?q=vtt'
+curl localhost:8080/v1/profiles                 # built-in + mounted, invalid ones listed with errors
+curl localhost:8080/v1/profiles/netflix-en-vtt  # raw + resolved (extends flattened)
+curl localhost:8080/v1/profiles/validate -H 'content-type: application/json' -d @my-profile.json
+curl localhost:8080/v1/schemas/profile.json     # JSON Schema for editors and agents
 
 # server limits (body caps, wait, I/O, jobs, storage schemes, queue depth, auth required?) before you upload
-curl localhost:4041/v1/limits
+curl localhost:8080/v1/limits
 ```
 
 ## With API keys enabled
 
 ```bash
-curl -H "Authorization: Bearer $KEY" -F file=@movie.srt -F target=vtt localhost:4041/v1/convert -OJ
+curl -H "Authorization: Bearer $KEY" -F file=@movie.srt -F target=vtt localhost:8080/v1/convert -OJ
 ```
 
 How to enable keys: [security.md](security.md#api-keys).
@@ -141,18 +141,18 @@ After configuring the matching allowlists (see [configuration](configuration.md)
 
 ```bash
 # API container paths, not the caller's paths. Parent folders must already exist.
-curl localhost:4041/v1/convert/json -H 'content-type: application/json' \
+curl localhost:8080/v1/convert/json -H 'content-type: application/json' \
   -H 'Prefer: wait=30' \
   -d '{"input":"file:///data/in/show.srt","output":"/data/out/show.vtt","target":"vtt","sidecar":true}'
 
 # Hybrid input/output; response is a job immediately.
-curl -i localhost:4041/v1/convert/json -H 'content-type: application/json' \
+curl -i localhost:8080/v1/convert/json -H 'content-type: application/json' \
   -H 'Prefer: wait=0' \
   -d '{"input":"s3://subs/in/show.stl","output":"/data/out/show.pac","target":"pac","sidecar":true}'
-curl localhost:4041/v1/jobs/JOB_ID  # replace JOB_ID with the returned id
+curl localhost:8080/v1/jobs/JOB_ID  # replace JOB_ID with the returned id
 
 # Detection from storage does not create a conversion job.
-curl localhost:4041/v1/detect -H 'content-type: application/json' \
+curl localhost:8080/v1/detect -H 'content-type: application/json' \
   -d '{"input":"s3://subs/in/show.stl"}'
 ```
 
@@ -163,9 +163,9 @@ use fresh filesystem output names for repeated runs. ZIP input is rejected: loop
 ## Re-reading job files and overwrite policy
 
 ```bash
-curl -OJ localhost:4041/v1/jobs/JOB_ID/input
-curl -OJ localhost:4041/v1/jobs/JOB_ID/output
-curl localhost:4041/v1/convert/json -H 'content-type: application/json' \
+curl -OJ localhost:8080/v1/jobs/JOB_ID/input
+curl -OJ localhost:8080/v1/jobs/JOB_ID/output
+curl localhost:8080/v1/convert/json -H 'content-type: application/json' \
   -d '{"input":"s3://subs/in/show.srt","output":"s3://subs/out/show.vtt","target":"vtt","ifExists":"replace","sidecar":true}'
 # Multipart has the same field: -F ifExists=replace
 ```

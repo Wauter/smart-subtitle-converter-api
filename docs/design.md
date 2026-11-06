@@ -129,8 +129,8 @@ At least one of `preset`, `profile.target.format` or `target` is required.
 **200**: the converted file, with `Content-Type` from the target format (`application/x-subrip`, `text/vtt`, `text/x-ssa`, `application/ttml+xml`, …, falling back to `text/plain; charset=…`) and `Content-Disposition: attachment; filename="<stem>.<ext>"` (RFC 6266 `filename*` for non-ASCII). Multiple targets (`target.additional`) return JSON. ZIP inputs are rejected. Response headers are listed in §7.3.
 
 ```bash
-curl -F file=@movie.srt -F preset=netflix-en-vtt localhost:4041/v1/convert -OJ
-curl -F file=@movie.srt -F target=webvtt -F 'profile={"timing":{"offsetMs":-1500}}' localhost:4041/v1/convert -OJ
+curl -F file=@movie.srt -F preset=netflix-en-vtt localhost:8080/v1/convert -OJ
+curl -F file=@movie.srt -F target=webvtt -F 'profile={"timing":{"offsetMs":-1500}}' localhost:8080/v1/convert -OJ
 ```
 
 ### 4.2 `POST /v1/convert/json` (for agents)
