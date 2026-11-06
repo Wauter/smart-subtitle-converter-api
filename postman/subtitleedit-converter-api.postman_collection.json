@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "48b0adfa-e493-5b61-a071-2cf7c7caee01",
     "name": "subtitleedit-converter-api",
-    "description": "Every subtitleedit-converter-api endpoint with the README examples, plus negative cases.\n\nSet `baseUrl` (default http://localhost:4041) and `apiKey` (leave empty for an open server) in the environment. File parts use paths relative to the repository root: in Postman set Settings -> General -> Working directory to your checkout; with newman pass `--working-dir <checkout>`.\n\nEvery request sends `Authorization: Bearer {{apiKey}}` when apiKey is set, except those tagged [no auth].\n\nStorage/job examples: URI transfers are opt-in. Fill fileInput/fileOutput, s3Input/s3Output, or httpsInput/httpsOutput only for storage you have configured. fileOutput is a complete-file template; each write inserts a GUID to avoid replacing files. Leave unused values empty to skip. Never commit signed URLs or credentials.\n\nJob file routes re-read stored input/output, not cached bytes; ids are capability tokens for any valid API key. ifExists is error (default) | replace. Disk/S3 default to collision errors; presigned HTTPS PUT follows signer/receiver policy. S3 output values are complete-key templates with a fresh GUID per example.",
+    "description": "Every subtitleedit-converter-api endpoint with the README examples, plus negative cases.\n\nSet `baseUrl` (default http://localhost:8080) and `apiKey` (leave empty for an open server) in the environment. File parts use paths relative to the repository root: in Postman set Settings -> General -> Working directory to your checkout; with newman pass `--working-dir <checkout>`.\n\nEvery request sends `Authorization: Bearer {{apiKey}}` when apiKey is set, except those tagged [no auth].\n\nStorage/job examples: URI transfers are opt-in. Fill fileInput/fileOutput, s3Input/s3Output, or httpsInput/httpsOutput only for storage you have configured. fileOutput is a complete-file template; each write inserts a GUID to avoid replacing files. Leave unused values empty to skip. Never commit signed URLs or credentials.\n\nJob file routes re-read stored input/output, not cached bytes; ids are capability tokens for any valid API key. ifExists is error (default) | replace. Disk/S3 default to collision errors; presigned HTTPS PUT follows signer/receiver policy. S3 output values are complete-key templates with a fresh GUID per example.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "event": [
@@ -31,7 +31,7 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:4041"
+      "value": "http://localhost:8080"
     }
   ],
   "item": [

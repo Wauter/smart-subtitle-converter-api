@@ -28,14 +28,14 @@ for status codes, response headers and problem+json `code`.
 
 - Import `postman/subtitleedit-converter-api.postman_collection.json` and
   `postman/subtitleedit-converter-api.postman_environment.json`.
-- Environment: `baseUrl` (default `http://localhost:4041`), `apiKey` (leave empty for an open server; the
+- Environment: `baseUrl` (default `http://localhost:8080`), `apiKey` (leave empty for an open server; the
   auth-failure tests are then skipped).
 - File parts point at repo files (`tests/smoke/*`, `postman/fixtures/*`) by relative path: in Postman set
   *Settings → General → Working directory* to your checkout.
 
 ```bash
 npx newman run postman/subtitleedit-converter-api.postman_collection.json -e postman/subtitleedit-converter-api.postman_environment.json \
-    --working-dir . --env-var baseUrl=http://localhost:4041 --env-var apiKey=$KEY
+    --working-dir . --env-var baseUrl=http://localhost:8080 --env-var apiKey=$KEY
 ```
 
 CI runs it against the built container on amd64 and arm64.

@@ -24,7 +24,7 @@ Send `preset` and `profile` together to adjust a preset per request: objects mer
 
 ```bash
 curl -F file=@movie.srt -F preset=netflix-en-vtt \
-     -F 'profile={"rules":{"maxLineLength":37},"timing":{"offsetMs":-1500}}' localhost:4041/v1/convert -OJ
+     -F 'profile={"rules":{"maxLineLength":37},"timing":{"offsetMs":-1500}}' localhost:8080/v1/convert -OJ
 ```
 
 ## Operations

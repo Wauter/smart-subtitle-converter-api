@@ -6,15 +6,15 @@ The API is configured with environment variables. Security-related settings are 
 ## Ports
 
 The container listens on `8080` internally. The examples and the reference Compose publish it on host port
-**4041** (8080 is often taken), bound to `127.0.0.1`, so only your own machine can reach it. To use a different host
-port, change only the left-hand number (`127.0.0.1:5050:8080`). To reach it from other machines, see
-[security.md](security.md#exposing-it-beyond-localhost).
+**8080** as well (`127.0.0.1:8080:8080`), bound to `127.0.0.1`, so only your own machine can reach it. If host
+8080 is already taken, change only the left-hand number (for example `127.0.0.1:5050:8080`). To reach it from
+other machines, see [security.md](security.md#exposing-it-beyond-localhost).
 
 ## Environment variables
 
 | Env | Default | |
 |---|---|---|
-| `ASPNETCORE_HTTP_PORTS` | `8080` (image) | Listen port inside the container (published on host port 4041 by the examples) |
+| `ASPNETCORE_HTTP_PORTS` | `8080` (image) | Listen port inside the container (published on host port 8080 by the examples) |
 | `PROFILES_DIR` | `/profiles` | Mounted presets folder ([profiles.md](profiles.md)) |
 | `API_KEYS` | unset | Comma-separated bearer keys (`name:key` allowed) |
 | `API_KEYS_FILE` | unset | One key per line, `#` comments, `name:key`; reloaded on change |
