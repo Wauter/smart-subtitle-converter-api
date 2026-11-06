@@ -72,6 +72,8 @@ Setting names are profile fields, written as a path: `source.format` means
 | [`programme-start-not-applied`](#programme-start-not-applied) | EBU STL programme start was not subtracted |
 | [`source-replacement-chars`](#source-replacement-chars) | The source text was already damaged |
 | [`encoding-guessed`](#encoding-guessed) | The text's character set was guessed |
+| [`encoding-forced`](#encoding-forced) | The input encoding was forced by the request |
+| [`language-applied`](#language-applied) | encoding.language selected the text encoding |
 | [`encoding-ignored`](#encoding-ignored) | An encoding setting doesn't apply to binary files |
 | [`format-option-ignored`](#format-option-ignored) | A format option block doesn't apply to this conversion |
 | [`fce-rule-failed`](#fce-rule-failed) | A Fix Common Errors rule failed and was skipped |
@@ -353,26 +355,32 @@ guess.
 
 **Why:** The same bytes mean different letters in different character sets. The API decodes the file with each
 candidate and keeps a candidate only when the result contains common words of a language that character set
-serves. When exactly one reading makes sense it is used. This error means either no reading produced
-recognisable words, or several did and they give different text. The `probe` field says which check failed:
+serves. A distinctive-script reading (Arabic, Hebrew, Thai, Greek, Cyrillic, CJK) with dictionary hits drops
+Latin code-page rivals (windows-1250/1252/1254/1257 and their ISO siblings) first — those rivals can look like
+Czech/Slovak words from mojibake. When exactly one reading remains it is used. This error means either no
+reading produced recognisable words, or several genuine readings remain and they give different text. The
+`probe` field says which check failed:
 
 - **`probe: "pac-code-page"`, a PAC file.** All 13 PAC code pages are tried when
   `formatOptions.pac.inputCodePage` is unset or `auto`. Very short PAC files without a single common word often
   end up here.
-- **`probe: "text-encoding"`, a text file** that has no BOM and isn't valid UTF-8, and reads as words in more than
-  one encoding (for example Arabic in windows-1256 and something else in windows-1252).
+- **`probe: "text-encoding"`, a text file** that has no BOM and isn't valid UTF-8, and still reads as words in
+  more than one encoding after the script-priority filter (a genuine clash).
 
 
 **What to do:**
 
 - PAC: set `formatOptions.pac.inputCodePage` to the code page the file was written with (for example `greek`),
   picked from `candidates` or from the file's language.
-- Text: set `encoding.input` to the file's encoding (for `/v1/detect`: `encoding`), or save the file as UTF-8,
-  which avoids the question entirely.
+- Text: set `encoding.input` to one of the candidate encodings (for `/v1/detect`: `encoding`), or set
+  `encoding.language` to the file's language (ISO code such as `ar`, `he`, `th`) so the probe keeps only
+  encodings that serve it, or save the file as UTF-8. Agents: show the per-candidate `sample` values, pick
+  **only** from the candidate list, tell the user what you chose, then retry.
 
-_For integrators:_ 422. `probe`; `candidates` (PAC: `pac-<name>`; text: encoding names such as `windows-1256`; can
-be empty); `errors[0].pointer`: `/formatOptions/pac/inputCodePage` or `/encoding/input`; `debug.scores` has the
-word counts per candidate. How the probes work: [formats.md](formats.md#detection).
+_For integrators:_ 422. `probe`; `candidates` (PAC: code page name strings, may be empty; text: objects
+`{encoding, language, hits, sample}` with a short decode sample that is always present, not verbose-only);
+`errors` pointers `/formatOptions/pac/inputCodePage` or `/encoding/input` and `/encoding/language`;
+`debug.scores` (verbose only) has the word counts per candidate. How the probes work: [formats.md](formats.md#detection).
 
 ### <a id="conversion-failed"></a>`conversion-failed`
 
@@ -661,6 +669,29 @@ such files are plain Western text.
 save the source as UTF-8.
 
 _For integrators:_ `detected.encodingConfidence` is `heuristic`.
+
+### <a id="encoding-forced"></a>`encoding-forced`
+
+**What:** The request forced the input text encoding.
+
+**Why:** `encoding.input` (or `encoding` on `/v1/detect`) was set, so auto-detection was skipped. A wrong page
+still returns 200 with mojibake — forcing always wins.
+
+**What to do:** Confirm the converted text. If letters look wrong, set `encoding.input` to the correct page (or
+`encoding.language` on a retry without `encoding.input`).
+
+_For integrators:_ `detected.encodingConfidence` is `forced`.
+
+### <a id="language-applied"></a>`language-applied`
+
+**What:** `encoding.language` selected which text encoding to use.
+
+**Why:** The file wasn't UTF-8; the language filter kept only encodings that serve that language and the probe
+then uniquely chose one.
+
+**What to do:** Confirm the converted text. If it is wrong, set `encoding.input` to the exact encoding instead.
+
+_For integrators:_ `detected.encodingConfidence` is `language`.
 
 ### <a id="encoding-ignored"></a>`encoding-ignored`
 

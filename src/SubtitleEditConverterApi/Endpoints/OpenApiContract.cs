@@ -56,8 +56,9 @@ public static class OpenApiContract
                 ["phase"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["queue", "running"], Description = "conversion-timeout only: queue is retryable like 503." },
                 ["candidates"] = new OpenApiSchema
                 {
-                    Type = JsonSchemaType.Array, Description = "ambiguous-format: the format ids the bytes match; set profile.source.format to one of them. ambiguous-encoding: the PAC code pages or text encodings that remain possible (may be empty); set formatOptions.pac.inputCodePage or encoding.input.",
-                    Items = new OpenApiSchema { Type = JsonSchemaType.String },
+                    Type = JsonSchemaType.Array,
+                    Description = "ambiguous-format: format ids (strings). ambiguous-encoding pac-code-page: code page names (strings). ambiguous-encoding text-encoding: objects {encoding, language, hits, sample}; set encoding.input or encoding.language, picking only from this list.",
+                    Items = new OpenApiSchema { Description = "string (format id / PAC code page) or {encoding, language, hits, sample} for text-encoding." },
                 },
                 ["probe"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["pac-code-page", "text-encoding"], Description = "ambiguous-encoding only: which probe could not decide." },
             },

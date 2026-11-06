@@ -25,6 +25,8 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         "1\r\n00:00:01,000 --> 00:00:02,500\r\nזה לא מה שאני רוצה\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nאבל יש לי את כל הזמן\r\n\r\n3\r\n00:00:06,000 --> 00:00:08,000\r\nגם היא לא כאן\r\n";
     private const string Arabic =
         "1\r\n00:00:01,000 --> 00:00:02,500\r\nهل أنت هنا؟ لا أعرف ما هذا\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nأنا في البيت مع كل الناس\r\n\r\n3\r\n00:00:06,000 --> 00:00:08,000\r\nلقد كان هذا من أجلك\r\n";
+    private const string Thai =
+        "1\r\n00:00:01,000 --> 00:00:02,500\r\nคุณเป็นอะไร ไม่ได้ครับ\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nฉันและเรามีที่นี้\r\n\r\n3\r\n00:00:06,000 --> 00:00:08,000\r\nผมจะได้ค่ะ\r\n";
 
     private async Task<JsonObject> Json(object body, HttpStatusCode expected = HttpStatusCode.OK)
     {
@@ -110,14 +112,19 @@ public class FollowUpTests : IClassFixture<ApiFactory>
 
     // 5. Text encoding probe
 
-    [Fact]
-    public async Task Cp1256_arabic_is_probed()
+    [Theory]
+    [InlineData(1256, Arabic, "windows-1256", "أنا في البيت")]
+    [InlineData(1255, Hebrew, "windows-1255", "אבל יש לי")]
+    [InlineData(874, Thai, "windows-874", "คุณเป็นอะไร")]
+    public async Task Distinctive_script_legacy_srt_is_probed_uniquely(int codePage, string srt, string encoding, string word)
     {
-        var bytes = Encoding.GetEncoding(1256).GetBytes(Arabic);
+        var bytes = Encoding.GetEncoding(codePage).GetBytes(srt);
         var j = await Read(bytes, "show.srt", "vtt");
-        Assert.Equal("windows-1256", (string)j["detected"]!["encoding"]!);
+        Assert.Equal(encoding, (string)j["detected"]!["encoding"]!);
         Assert.Equal("probed", (string)j["detected"]!["encodingConfidence"]!);
-        Assert.Contains("أنا في البيت", Text(j));
+        Assert.Contains(word, Text(j));
+        Assert.DoesNotContain("encoding-guessed", Codes(j));
+        Assert.DoesNotContain("encoding-forced", Codes(j));
     }
 
     [Fact]
@@ -133,14 +140,64 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         var arabic = Encoding.GetEncoding(1256).GetBytes(Arabic);
         var forced = await Read(arabic, "show.srt", "vtt", new { encoding = new { input = "windows-1252" } });
         Assert.Equal("windows-1252", (string)forced["detected"]!["encoding"]!);
+        Assert.Equal("forced", (string)forced["detected"]!["encodingConfidence"]!);
+        Assert.Contains("encoding-forced", Codes(forced));
         Assert.DoesNotContain("أنا", Text(forced));
     }
 
     [Fact]
-    public async Task Smoke_cp1252_sample_still_converts()
+    public async Task Encoding_language_retry_selects_arabic_with_language_applied()
+    {
+        var bytes = Encoding.GetEncoding(1256).GetBytes(Arabic);
+        var j = await Read(bytes, "show.srt", "vtt", new { encoding = new { language = "ar" } });
+        Assert.Equal("windows-1256", (string)j["detected"]!["encoding"]!);
+        Assert.Equal("language", (string)j["detected"]!["encodingConfidence"]!);
+        Assert.Contains("language-applied", Codes(j));
+        Assert.Contains("أنا في البيت", Text(j));
+    }
+
+    [Fact]
+    public async Task Unknown_encoding_language_is_422()
+    {
+        // Must not be valid UTF-8, or Decode never reaches the language filter.
+        var bytes = Encoding.GetEncoding(1256).GetBytes(Arabic);
+        var p = await Read(bytes, "show.srt", profile: new { encoding = new { language = "xx-not-a-lang" } }, expected: HttpStatusCode.UnprocessableEntity);
+        Assert.Equal("invalid-profile", (string)p["code"]!);
+        Assert.Contains("/encoding/language", p.ToJsonString());
+    }
+
+    [Fact]
+    public async Task Genuine_encoding_clash_returns_candidates_with_samples()
+    {
+        // Concatenate Greek-1253 and Arabic-1256 SRTs so both distinctive scripts score with different text.
+        var greek = Encoding.GetEncoding(1253).GetBytes(Greek);
+        var arabic = Encoding.GetEncoding(1256).GetBytes(Arabic);
+        var mixed = new byte[greek.Length + arabic.Length];
+        Buffer.BlockCopy(greek, 0, mixed, 0, greek.Length);
+        Buffer.BlockCopy(arabic, 0, mixed, greek.Length, arabic.Length);
+        var p = await Read(mixed, "show.srt", expected: HttpStatusCode.UnprocessableEntity);
+        Assert.Equal("ambiguous-encoding", (string)p["code"]!);
+        Assert.Equal("text-encoding", (string)p["probe"]!);
+        var candidates = p["candidates"]!.AsArray();
+        Assert.True(candidates.Count >= 2, p.ToJsonString());
+        foreach (var c in candidates)
+        {
+            Assert.False(c is System.Text.Json.Nodes.JsonValue, p.ToJsonString());
+            Assert.NotNull(c!["encoding"]);
+            Assert.NotNull(c["sample"]);
+            Assert.True(((string)c["sample"]!).Length > 0);
+        }
+        Assert.Contains("/encoding/input", p.ToJsonString());
+        Assert.Contains("/encoding/language", p.ToJsonString());
+    }
+
+    [Fact]
+    public async Task Smoke_cp1252_and_utf16_samples_still_convert()
     {
         var j = await Read(File.ReadAllBytes(SmokeFile("sample-cp1252.srt")), "sample-cp1252.srt", "vtt");
         Assert.DoesNotContain("\uFFFD", Text(j));
+        var u = await Read(File.ReadAllBytes(SmokeFile("sample-utf16.srt")), "sample-utf16.srt", "vtt");
+        Assert.StartsWith("utf-16", ((string)u["detected"]!["encoding"]!).ToLowerInvariant());
     }
 
     // 6. target.fps semantics

@@ -29,7 +29,7 @@ public static class Encodings
         }
     }
 
-    public static DecodedText Decode(byte[] bytes, string? forced, string? fallback)
+    public static DecodedText Decode(byte[] bytes, string? forced, string? fallback, string? language = null)
     {
         if (!string.IsNullOrWhiteSpace(forced))
         {
@@ -65,7 +65,7 @@ public static class Encodings
             return new DecodedText(enc.GetString(bytes), enc, enc.WebName, "fallback", false);
         }
         // 4. Probe ANSI/DBCS encodings by the words they produce (TextProbe); a conflict is rejected, never guessed.
-        if (ProbeAnsi(bytes) is { } probed) return probed;
+        if (ProbeAnsi(bytes, language) is { } probed) return probed;
 
         // 5. Nothing formed words: libse's ANSI heuristic, reported as "heuristic" (SourceChecks warns encoding-guessed).
         Encoding ansi;
@@ -95,24 +95,68 @@ public static class Encodings
         (54936, ["zh"]), (950, ["zh"]), (932, ["ja"]), (51949, ["ko"]),
     ];
 
+    /// <summary>ISO language codes served by <see cref="ProbeSet"/> (for profile.encoding.language).</summary>
+    public static readonly HashSet<string> KnownLanguages = new(
+        ProbeSet.SelectMany(p => p.Languages), StringComparer.OrdinalIgnoreCase);
+
+    public static bool IsKnownLanguage(string language) => KnownLanguages.Contains(language.Trim());
+
     /// <summary>ISO-8859 page -> its Windows sibling: when both match, the Windows code page is kept.</summary>
     private static readonly Dictionary<int, int> WindowsSibling = new() { [28591] = 1252, [28592] = 1250, [28597] = 1253, [28599] = 1254 };
+
+    /// <summary>Latin Windows / ISO pages dropped when a distinctive-script candidate also matched.</summary>
+    private static readonly HashSet<int> LatinCodePages = [1250, 1252, 1254, 1257, 28591, 28592, 28599];
 
     /// <summary>
     /// Decode with every encoding of <see cref="ProbeSet"/> and let <see cref="TextProbe"/> decide. Decodes with
     /// U+FFFD, C1 controls or private-use characters are dropped when a clean one exists. Same text from several
     /// encodings is one choice (windows-1252 first). Null when no encoding forms words; 422 ambiguous-encoding when
-    /// different texts remain.
+    /// different texts remain. Optional <paramref name="language"/> keeps only encodings that serve that language.
     /// </summary>
-    internal static DecodedText? ProbeAnsi(byte[] bytes)
+    internal static DecodedText? ProbeAnsi(byte[] bytes, string? language = null)
     {
+        string? langFilter = null;
+        if (!string.IsNullOrWhiteSpace(language))
+        {
+            langFilter = language.Trim().ToLowerInvariant();
+            if (!IsKnownLanguage(langFilter))
+            {
+                throw new ApiException(422, ErrorCodes.InvalidProfile,
+                    $"Unknown encoding.language '{language}'.",
+                    $"Use an ISO code served by a probed encoding: {string.Join(", ", KnownLanguages.OrderBy(x => x))}.")
+                {
+                    Errors = [new FieldError("/encoding/language", $"Unknown language '{language}'.", "Pick a language from the probe set (e.g. ar, he, th, cs, el).")],
+                };
+            }
+        }
+
         var decoded = new List<(Encoding Enc, string Text, string[] Langs, int Order, bool Clean)>();
         for (var i = 0; i < ProbeSet.Length; i++)
         {
+            if (langFilter != null && !ProbeSet[i].Languages.Any(l => l.Equals(langFilter, StringComparison.OrdinalIgnoreCase)))
+                continue;
             Encoding enc;
             try { enc = Encoding.GetEncoding(ProbeSet[i].CodePage); } catch (Exception ex) when (ex is ArgumentException or NotSupportedException) { continue; }
             var text = enc.GetString(bytes);
             decoded.Add((enc, text, ProbeSet[i].Languages, i, Clean(text)));
+        }
+        if (decoded.Count == 0)
+        {
+            if (langFilter != null)
+            {
+                throw new ApiException(422, ErrorCodes.AmbiguousEncoding,
+                    $"No probed encoding serves language '{langFilter}' for this file (or none could decode it).",
+                    "Set profile.encoding.input to the file's encoding, or save the file as UTF-8.")
+                {
+                    Errors =
+                    [
+                        new FieldError("/encoding/input", "Auto-detection could not decide the text encoding.", "Set it to the encoding the file was written in."),
+                        new FieldError("/encoding/language", $"Language '{langFilter}' left no encoding candidates.", "Use a language from the candidate list, or set encoding.input."),
+                    ],
+                    Extensions = { ["candidates"] = Array.Empty<object>(), ["probe"] = "text-encoding" },
+                };
+            }
+            return null;
         }
         if (decoded.Any(d => d.Clean)) decoded.RemoveAll(d => !d.Clean);
         if (decoded.Count == 0) return null;
@@ -121,23 +165,39 @@ public static class Encodings
         var outcome = TextProbe.Decide(scores, TextProbe.MinHits(units), strong =>
         {
             var cps = strong.Select(s => ProbeSet[s.Candidate.Order].CodePage).ToHashSet();
-            return strong.Where(s => !(WindowsSibling.TryGetValue(ProbeSet[s.Candidate.Order].CodePage, out var win) && cps.Contains(win))).ToList();
+            var afterSibling = strong.Where(s => !(WindowsSibling.TryGetValue(ProbeSet[s.Candidate.Order].CodePage, out var win) && cps.Contains(win))).ToList();
+            // Script priority: a distinctive-script decode with dictionary hits drops Latin rivals.
+            if (!afterSibling.Any(s => TextProbe.HasDistinctiveScript(s.Candidate.Text, s.Language)))
+                return afterSibling;
+            return afterSibling.Where(s => !LatinCodePages.Contains(ProbeSet[s.Candidate.Order].CodePage)).ToList();
         });
         switch (outcome.Verdict)
         {
             case ProbeVerdict.Unique:
                 var w = decoded.First(d => d.Order == outcome.Winner!.Candidate.Order);
-                return new DecodedText(w.Text, w.Enc, w.Enc.WebName, "probed", false);
+                var confidence = langFilter != null ? "language" : "probed";
+                return new DecodedText(w.Text, w.Enc, w.Enc.WebName, confidence, false);
             case ProbeVerdict.Conflict:
+                var details = outcome.Matches.Select(m => new Dictionary<string, object?>
+                {
+                    ["encoding"] = m.Name,
+                    ["language"] = m.Language,
+                    ["hits"] = m.Hits,
+                    ["sample"] = TextProbe.CueSample(m.Candidate.Text),
+                }).ToList();
                 var names = outcome.Matches.Select(m => m.Name).Distinct().ToArray();
                 var ex = new ApiException(422, ErrorCodes.AmbiguousEncoding,
                     "The text is not UTF-8, and it reads as words in more than one encoding (" +
                     string.Join(", ", outcome.Matches.Select(m => $"{m.Name}: {m.Language}, {m.Hits} word(s)")) + "), which decode to different text. The encoding is not guessed.",
-                    $"Set profile.encoding.input to the file's encoding (candidates: {string.Join(", ", names)}); for /v1/detect send encoding. Saving the file as UTF-8 avoids the question.")
+                    $"Set profile.encoding.input to one of the candidate encodings ({string.Join(", ", names)}), or set profile.encoding.language to the file's language; for /v1/detect send encoding. Saving the file as UTF-8 avoids the question. Agents: pick only from the candidate list using the samples.")
                 {
-                    Errors = [new FieldError("/encoding/input", "Auto-detection could not decide the text encoding.", "Set it to the encoding the file was written in.")],
+                    Errors =
+                    [
+                        new FieldError("/encoding/input", "Auto-detection could not decide the text encoding.", "Set it to one of the candidate encodings."),
+                        new FieldError("/encoding/language", "Or name the language of the file to keep only encodings that serve it.", "Use an ISO code from the candidate list (e.g. ar, he, th)."),
+                    ],
                 };
-                ex.Extensions["candidates"] = names;
+                ex.Extensions["candidates"] = details;
                 ex.Extensions["probe"] = "text-encoding";
                 ex.Debug["scores"] = scores.Select(s => new { encoding = s.Name, language = s.Language, hits = s.Hits }).ToList();
                 throw ex;

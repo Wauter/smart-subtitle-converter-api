@@ -2269,9 +2269,9 @@
           "candidates": {
             "type": "array",
             "items": {
-              "type": "string"
+              "description": "string (format id / PAC code page) or {encoding, language, hits, sample} for text-encoding."
             },
-            "description": "ambiguous-format: the format ids the bytes match; set profile.source.format to one of them. ambiguous-encoding: the PAC code pages or text encodings that remain possible (may be empty); set formatOptions.pac.inputCodePage or encoding.input."
+            "description": "ambiguous-format: format ids (strings). ambiguous-encoding pac-code-page: code page names (strings). ambiguous-encoding text-encoding: objects {encoding, language, hits, sample}; set encoding.input or encoding.language, picking only from this list."
           },
           "probe": {
             "enum": [

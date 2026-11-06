@@ -21,7 +21,7 @@ public sealed record Profile
 
 public sealed record SourceOptions(string? Format, double? Fps);
 public sealed record TargetOptions(string? Format, double? Fps, string? FileName, List<string>? Additional);
-public sealed record EncodingOptions(string? Input, string? InputFallback, string? Output);
+public sealed record EncodingOptions(string? Input, string? InputFallback, string? Output, string? Language = null);
 public sealed record TimingOptions(double? OffsetMs, double? ChangeSpeedPercent, double? AdjustDurationMs, int? BridgeGapsMs, int? MinGapMs, int? RenumberFrom);
 public sealed record MergeShortLinesOptions(int? MaxGapMs, bool? OnlyContinuous);
 public sealed record RuleOptions

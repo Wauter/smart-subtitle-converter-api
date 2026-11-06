@@ -378,6 +378,8 @@ public static class SourceChecks
     public const string OverlappingCues = "overlapping-cues";
     public const string LongCue = "long-cue";
     public const string EncodingGuessed = "encoding-guessed";
+    public const string EncodingForced = "encoding-forced";
+    public const string LanguageApplied = "language-applied";
 
     /// <summary>A cue longer than this (ms) is reported as long-cue: far beyond any reading time, usually a broken or merged cue.</summary>
     public const double LongCueMs = 30_000;
@@ -432,6 +434,20 @@ public static class SourceChecks
                 $"The input is not UTF-8 and no probed encoding turned it into recognisable words, so it was read as {decoded.EncodingName} by libse's heuristic.",
                 null,
                 "Check the text; if it looks wrong, set profile.encoding.input (or encoding in /v1/detect) to the file's encoding, or save the file as UTF-8."));
+        }
+        if (!binary && decoded.Confidence == "forced")
+        {
+            warnings.Add(new(EncodingForced,
+                $"The input was decoded as {decoded.EncodingName} because encoding.input (or encoding in /v1/detect) forced that page; auto-detection was skipped.",
+                null,
+                "Confirm the text looks right. A wrong forced page yields mojibake with no further error."));
+        }
+        if (!binary && decoded.Confidence == "language")
+        {
+            warnings.Add(new(LanguageApplied,
+                $"The input was decoded as {decoded.EncodingName} because encoding.language narrowed the probe to encodings that serve that language.",
+                null,
+                "Confirm the text looks right. If it is wrong, set encoding.input to the exact page instead."));
         }
         if (zero.Count > 0)
         {

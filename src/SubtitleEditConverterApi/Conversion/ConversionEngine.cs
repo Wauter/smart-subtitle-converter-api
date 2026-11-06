@@ -202,7 +202,7 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         }
 
         // 2. Text: decode, then the text-only guards (they used to run first and rejected binary files).
-        var decoded = Encodings.Decode(bytes, enc?.Input, enc?.InputFallback);
+        var decoded = Encodings.Decode(bytes, enc?.Input, enc?.InputFallback, enc?.Language);
         var text = decoded.Text;
         var lines = text.SplitToLines();
         var longest = lines.Count == 0 ? 0 : lines.Max(l => l.Length);

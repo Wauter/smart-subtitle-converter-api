@@ -28,6 +28,8 @@ internal sealed record ProbeOutcome(ProbeVerdict Verdict, ProbeScore? Winner, Li
 /// Rules: a candidate needs at least <c>minHits</c> hits, and at least a third of the best candidate's hits
 /// (weaker hits are noise from mojibake). Candidates that decode to the same text are one choice. One
 /// choice left: it wins. Several: conflict, never a guess. None: no match.
+/// Distinctive-script candidates (Arabic, Hebrew, Thai, Greek, Cyrillic, CJK) drop Latin code-page rivals
+/// when they have dictionary hits — you cannot get a page of those letters by decoding as windows-1250.
 /// </summary>
 internal static class TextProbe
 {
@@ -118,4 +120,89 @@ internal static class TextProbe
     }
 
     private static string Normalise(string text) => text.Replace("\r\n", "\n").Trim();
+
+    /// <summary>Unicode scripts that cannot arise from a Latin Windows/ISO decode of the same bytes as real letters.</summary>
+    private enum ScriptKind { None, Arabic, Hebrew, Thai, Greek, Cyrillic, Cjk }
+
+    private static readonly HashSet<string> DistinctiveLanguages = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ar", "fa", "ur", "he", "th", "el", "ru", "uk", "bg", "mk", "sr-cy", "zh", "ja", "ko",
+    };
+
+    private static ScriptKind ScriptFor(string? language) => language?.ToLowerInvariant() switch
+    {
+        "ar" or "fa" or "ur" => ScriptKind.Arabic,
+        "he" => ScriptKind.Hebrew,
+        "th" => ScriptKind.Thai,
+        "el" => ScriptKind.Greek,
+        "ru" or "uk" or "bg" or "mk" or "sr-cy" => ScriptKind.Cyrillic,
+        "zh" or "ja" or "ko" => ScriptKind.Cjk,
+        _ => ScriptKind.None,
+    };
+
+    private static bool IsScriptLetter(char c, ScriptKind script) => script switch
+    {
+        ScriptKind.Arabic => c is (>= '\u0600' and <= '\u06FF') or (>= '\u0750' and <= '\u077F') or (>= '\u08A0' and <= '\u08FF') or (>= '\uFB50' and <= '\uFDFF') or (>= '\uFE70' and <= '\uFEFF'),
+        ScriptKind.Hebrew => c is >= '\u0590' and <= '\u05FF',
+        ScriptKind.Thai => c is >= '\u0E00' and <= '\u0E7F',
+        ScriptKind.Greek => c is (>= '\u0370' and <= '\u03FF') or (>= '\u1F00' and <= '\u1FFF'),
+        ScriptKind.Cyrillic => c is (>= '\u0400' and <= '\u04FF') or (>= '\u0500' and <= '\u052F'),
+        ScriptKind.Cjk => c is (>= '\u3040' and <= '\u30FF')
+            or (>= '\u3400' and <= '\u4DBF') or (>= '\u4E00' and <= '\u9FFF')
+            or (>= '\uAC00' and <= '\uD7AF')
+            or (>= '\u1100' and <= '\u11FF') or (>= '\u3130' and <= '\u318F'),
+        _ => false,
+    };
+
+    /// <summary>
+    /// True when a substantial share of letter characters in <paramref name="text"/> belong to the distinctive
+    /// script of <paramref name="language"/> (Arabic, Hebrew, Thai, Greek, Cyrillic or CJK). A handful of
+    /// accidental characters does not count.
+    /// </summary>
+    public static bool HasDistinctiveScript(string text, string? language)
+    {
+        var script = ScriptFor(language);
+        if (script == ScriptKind.None || language is null || !DistinctiveLanguages.Contains(language)) return false;
+        var sample = Sample(text);
+        var letters = 0;
+        var inScript = 0;
+        foreach (var c in sample)
+        {
+            if (!char.IsLetter(c)) continue;
+            letters++;
+            if (IsScriptLetter(c, script)) inScript++;
+        }
+        // Need enough distinctive letters, and they must be a real share of all letters (not one glyph in Latin mojibake).
+        return inScript >= 8 && inScript * 5 >= letters * 2; // >= 40%
+    }
+
+    /// <summary>A few cue bodies (skipping indices and arrows), character-capped, for ambiguous-encoding samples.</summary>
+    public static string CueSample(string text, int maxCues = 3, int maxChars = 400)
+    {
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var cues = new List<string>();
+        var buf = new List<string>();
+        void Flush()
+        {
+            if (buf.Count == 0 || cues.Count >= maxCues) { buf.Clear(); return; }
+            cues.Add(string.Join("\n", buf));
+            buf.Clear();
+        }
+        foreach (var raw in lines)
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) { Flush(); continue; }
+            if (Regex.IsMatch(line, @"^\d+$")) continue;
+            if (line.Contains("-->", StringComparison.Ordinal)) continue;
+            buf.Add(line);
+        }
+        Flush();
+        if (cues.Count == 0)
+        {
+            var trimmed = text.Trim();
+            return trimmed.Length <= maxChars ? trimmed : trimmed[..maxChars] + "\u2026";
+        }
+        var sample = string.Join("\n\n", cues);
+        return sample.Length <= maxChars ? sample : sample[..maxChars] + "\u2026";
+    }
 }
