@@ -1,4 +1,4 @@
-# Subtitle Edit Converter API
+# Smart Subtitle Converter API
 
 **Subtitle Edit's conversion engine as an HTTP service, with checks that catch what a plain conversion would let
 slip.**
@@ -8,7 +8,7 @@ slip.**
 > community wrapper, **not an official Subtitle Edit project**.
 >
 > **Status: alpha.** It works and is tested, but hasn't been through real-world use yet. Expect changes, and
-> please [report issues](https://github.com/Wauter/subtitleedit-converter-api/issues).
+> please [report issues](https://github.com/Wauter/smart-subtitle-converter-api/issues).
 
 `libse` is the mature, widely used engine behind Subtitle Edit and reads and writes a long list of subtitle formats.
 This API runs it in a container and adds what a server needs: a single-worker queue (libse's settings are global),
@@ -40,7 +40,7 @@ of ambiguous input instead of a guess.
   reference Compose that adds a read-only root filesystem, dropped capabilities and a `127.0.0.1`-only port.
   API keys and rate limits are optional.
 - **Agent-friendly:** a JSON endpoint, an OpenAPI contract, a JSON Schema for profiles, and stable error codes with
-  hints. The companion [MCP server](https://github.com/Wauter/subtitleedit-converter-mcp) lets Claude and other AI
+  hints. The companion [MCP server](https://github.com/Wauter/smart-subtitle-converter-mcp) lets Claude and other AI
   agents use it directly.
 
 ## Quick start
@@ -48,7 +48,7 @@ of ambiguous input instead of a guess.
 With Docker:
 
 ```bash
-docker run -d --name subtitleedit-converter -p 127.0.0.1:8080:8080 ghcr.io/wauter/subtitleedit-converter-api:latest
+docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 ghcr.io/wauter/smart-subtitle-converter-api:latest
 curl localhost:8080/healthz   # {"status":"ok","version":"…","libse":"…"}
 ```
 
@@ -120,7 +120,7 @@ Start with [usage](docs/usage.md#job-metadata), [configuration](docs/configurati
 | [docs/openapi.v1.json](docs/openapi.v1.json) | Generate a client (also served live at `/openapi/v1.json`) |
 
 Using it from an AI agent? Install the
-[Subtitle Edit Converter MCP](https://github.com/Wauter/subtitleedit-converter-mcp) release whose major.minor
+[Smart Subtitle Converter MCP](https://github.com/Wauter/smart-subtitle-converter-mcp) release whose major.minor
 version matches this API's.
 
 ## Credits and license

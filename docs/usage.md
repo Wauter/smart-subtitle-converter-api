@@ -156,7 +156,7 @@ curl localhost:8080/v1/detect -H 'content-type: application/json' \
   -d '{"input":"s3://subs/in/show.stl"}'
 ```
 
-The [Postman collection](../postman/subtitleedit-converter-api.postman_collection.json) includes these flows,
+The [Postman collection](../postman/smart-subtitle-converter-api.postman_collection.json) includes these flows,
 HTTPS GET/PUT and sidecars. Storage requests are skipped until their environment variables are supplied;
 use fresh filesystem output names for repeated runs. ZIP input is rejected: loop over single-file requests.
 

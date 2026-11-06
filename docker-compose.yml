@@ -1,9 +1,9 @@
 # Example: docker compose up -d (pulls :edge; needs `docker login ghcr.io`) or docker compose up --build -d (local build), then   curl -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ
 services:
-  subtitleedit-converter-api:
+  smart-subtitle-converter-api:
     # :edge is pushed by CI on every green push to main (private package: docker login ghcr.io with a read:packages token).
     # Switch to a version tag (e.g. :1.2.0) once releases exist.
-    image: ghcr.io/wauter/subtitleedit-converter-api:edge
+    image: ghcr.io/wauter/smart-subtitle-converter-api:edge
     build: .                                   # `docker compose up --build` builds locally instead of pulling
     ports:
       - "127.0.0.1:8080:8080"                # host 8080 on localhost only -> container 8080; change the left-hand port if 8080 is taken; use "8080:8080" to expose on all interfaces (README)

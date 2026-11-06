@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/subtitleedit-converter-api
+  IMAGE: ghcr.io/${{ github.repository }}
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
   DOTNET_NOLOGO: "1"
 
@@ -35,7 +35,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          csproj=src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj
+          csproj=src/SmartSubtitleConverterApi/SmartSubtitleConverterApi.csproj
           base=$(git merge-base "$BASE_SHA" HEAD)
           if git diff --quiet "$base" HEAD -- src/; then echo "no src/ changes"; exit 0; fi
           ver() { sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' | head -1; }
@@ -110,21 +110,21 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           load: true
-          tags: subtitleedit-converter-api:smoke
+          tags: smart-subtitle-converter-api:smoke
           build-args: |
             VERSION=${{ github.ref_name }}
             REVISION=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
       - name: Smoke test (boot, readyz incl. globalization, convert, auth, size budget)
-        run: scripts/smoke.sh subtitleedit-converter-api:smoke ${{ matrix.platform }} ${{ matrix.max_uncompressed_mb }}
+        run: scripts/smoke.sh smart-subtitle-converter-api:smoke ${{ matrix.platform }} ${{ matrix.max_uncompressed_mb }}
       - name: Postman collection (newman) against the container
         run: |
           docker run -d --name se-newman --platform ${{ matrix.platform }} -p 18081:8080 --read-only --tmpfs /tmp --cap-drop ALL \
-            -e API_KEYS=newman-key subtitleedit-converter-api:smoke
+            -e API_KEYS=newman-key smart-subtitle-converter-api:smoke
           for _ in $(seq 1 120); do curl -sf localhost:18081/readyz >/dev/null && break; sleep 1; done
-          npx -y newman@6 run postman/subtitleedit-converter-api.postman_collection.json \
-            -e postman/subtitleedit-converter-api.postman_environment.json \
+          npx -y newman@6 run postman/smart-subtitle-converter-api.postman_collection.json \
+            -e postman/smart-subtitle-converter-api.postman_environment.json \
             --env-var baseUrl=http://localhost:18081 --env-var apiKey=newman-key --working-dir . \
             --reporters cli,junit --reporter-junit-export newman/results.xml --color off \
             || { docker logs se-newman | tail -40; exit 1; }
@@ -171,7 +171,7 @@ jobs:
           scripts/image-size.py /tmp/extra.oci.tar chiseled-extra ${{ matrix.platform }} > sizes/extra.json
           scripts/image-size.py /tmp/slim.oci.tar chiseled+icu-slim ${{ matrix.platform }} \
             --max-compressed-mb ${{ matrix.max_compressed_mb }} --max-uncompressed-mb ${{ matrix.max_uncompressed_mb }} > sizes/slim.json
-          echo "uncompressed per docker image inspect (loaded): $(docker image inspect subtitleedit-converter-api:smoke --format '{{.Size}}') B" >> "$GITHUB_STEP_SUMMARY"
+          echo "uncompressed per docker image inspect (loaded): $(docker image inspect smart-subtitle-converter-api:smoke --format '{{.Size}}') B" >> "$GITHUB_STEP_SUMMARY"
           cat sizes/*.json
       - uses: actions/upload-artifact@v4
         with:
@@ -181,7 +181,7 @@ jobs:
         if: matrix.platform == 'linux/amd64'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: subtitleedit-converter-api:smoke
+          image-ref: smart-subtitle-converter-api:smoke
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
@@ -239,13 +239,13 @@ jobs:
       - name: Pushed tags
         run: echo "${{ steps.meta.outputs.tags }}" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
       # Packages REST API cannot change visibility (404). One-time UI flip if still private:
-      # https://github.com/users/Wauter/packages/container/subtitleedit-converter-api/settings
+      # https://github.com/users/Wauter/packages/container/smart-subtitle-converter-api/settings
       - name: GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          LIBSE=$(grep -oP '(?<=<LibseVersion>)[^<]+' src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj)
+          LIBSE=$(grep -oP '(?<=<LibseVersion>)[^<]+' src/SmartSubtitleConverterApi/SmartSubtitleConverterApi.csproj)
           NOTES="Image: \`${IMAGE}:${GITHUB_REF_NAME#v}\` (linux/amd64, linux/arm64). Built on libse ${LIBSE}."
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release edit "${GITHUB_REF_NAME}" --notes "$NOTES"

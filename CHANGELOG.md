@@ -1,12 +1,14 @@
 # Changelog
 
 All notable API changes. Versions follow [semver](https://semver.org/); the version is the
-`<Version>` in `src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj` and is what
+`<Version>` in `src/SmartSubtitleConverterApi/SmartSubtitleConverterApi.csproj` and is what
 `GET /healthz` (`version`) and the OpenAPI `info.version` report. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for the bump rule. Tagged releases publish multi-arch images to GHCR
-(`ghcr.io/wauter/subtitleedit-converter-api`); every green push to `main` also publishes `:edge`.
+(`ghcr.io/wauter/smart-subtitle-converter-api`); every green push to `main` also publishes `:edge`.
 
 ## 1.3.1 — Unreleased
+
+- Rename the product to **Smart Subtitle Converter** and update repository, container image, assembly and project identifiers. Versions and existing release tags are unchanged.
 
 - Add a GitHub security policy (`SECURITY.md`) pointing at [docs/security.md](docs/security.md).
 - Document that GHCR package visibility is a one-time UI setting (Packages REST API cannot change it).

@@ -3,7 +3,7 @@
 ## Versioning
 
 Every API change that ships bumps `<Version>` in
-`src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj` (semver), in the same PR:
+`src/SmartSubtitleConverterApi/SmartSubtitleConverterApi.csproj` (semver), in the same PR:
 
 - **minor** (`x.y.z` → `x.(y+1).0`) for additive changes: new endpoints, fields, formats, options, warning codes;
 - **patch** (`x.y.z` → `x.y.(z+1)`) for fixes that don't change the contract;

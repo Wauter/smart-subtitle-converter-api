@@ -3,14 +3,14 @@
 ## Docker
 
 ```bash
-docker run -d --name subtitleedit-converter -p 127.0.0.1:8080:8080 ghcr.io/wauter/subtitleedit-converter-api:latest
+docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 ghcr.io/wauter/smart-subtitle-converter-api:latest
 ```
 
 To use your own presets, mount a folder at `/profiles`:
 
 ```bash
-docker run -d --name subtitleedit-converter -p 127.0.0.1:8080:8080 \
-  -v "$PWD/profiles:/profiles:ro" ghcr.io/wauter/subtitleedit-converter-api:latest
+docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 \
+  -v "$PWD/profiles:/profiles:ro" ghcr.io/wauter/smart-subtitle-converter-api:latest
 ```
 
 ## Docker Compose
@@ -56,8 +56,8 @@ Sizes are measured on every CI run (job summary). `--build-arg RUNTIME_BASE=base
 `-chiseled-extra` base instead.
 
 ```bash
-docker build -t subtitleedit-converter-api .
-docker run --rm -p 127.0.0.1:8080:8080 -v "$PWD/profiles:/profiles:ro" subtitleedit-converter-api
+docker build -t smart-subtitle-converter-api .
+docker run --rm -p 127.0.0.1:8080:8080 -v "$PWD/profiles:/profiles:ro" smart-subtitle-converter-api
 ```
 
 The image has no shell or curl; probe `/healthz` and `/readyz` from the orchestrator
@@ -65,10 +65,10 @@ The image has no shell or curl; probe `/healthz` and `/readyz` from the orchestr
 
 ## From source
 
-Needs the .NET SDK matching `TargetFramework` in `src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj`.
+Needs the .NET SDK matching `TargetFramework` in `src/SmartSubtitleConverterApi/SmartSubtitleConverterApi.csproj`.
 
 ```bash
-dotnet run --project src/SubtitleEditConverterApi   # listens on http://localhost:5000 (ASPNETCORE_HTTP_PORTS to change)
+dotnet run --project src/SmartSubtitleConverterApi   # listens on http://localhost:5000 (ASPNETCORE_HTTP_PORTS to change)
 ```
 
 ## Mounted subtitle storage
