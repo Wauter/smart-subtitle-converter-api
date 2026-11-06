@@ -3,11 +3,13 @@
 All notable API changes. Versions follow [semver](https://semver.org/); the version is the
 `<Version>` in `src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj` and is what
 `GET /healthz` (`version`) and the OpenAPI `info.version` report. See [CONTRIBUTING.md](CONTRIBUTING.md)
-for the bump rule. Nothing here has been tagged or released yet; the private `:edge` image carries
-the version of the `main` commit it was built from.
+for the bump rule. Tagged releases publish multi-arch images to GHCR
+(`ghcr.io/wauter/subtitleedit-converter-api`); every green push to `main` also publishes `:edge`.
 
 ## 1.3.1 — Unreleased
 
+- Add a GitHub security policy (`SECURITY.md`) pointing at [docs/security.md](docs/security.md).
+- Publish job marks the GHCR package public after each push (packages created while the repo was private stay private until then).
 - Default published host port is **8080** again (`127.0.0.1:8080:8080` in Compose and the docs). The container still
   listens on 8080; change only the host side if 8080 is taken. Keep the `127.0.0.1` bind by default. No API contract
   change.

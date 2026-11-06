@@ -189,7 +189,7 @@ jobs:
 
   # Version tags (v*.*.*): semver, major.minor, sha-<short>, latest + GitHub Release.
   # Pushes to main: edge + sha-<short> only (latest never moves). Never on PRs.
-  # Gated on every other job; the package's visibility (private) is never touched here.
+  # After push, the GHCR package is set public (packages created while the repo was private stay private until then).
   publish:
     if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
     needs: [build-test, docker-smoke]
@@ -238,6 +238,13 @@ jobs:
             type=gha,scope=linux/arm64
       - name: Pushed tags
         run: echo "${{ steps.meta.outputs.tags }}" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+      - name: Make package public
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Packages created while the repo was private stay private until visibility is changed.
+          name="subtitleedit-converter-api"
+          gh api --method PATCH "/user/packages/container/${name}" -f visibility=public             || gh api --method PATCH "/users/${{ github.repository_owner }}/packages/container/${name}" -f visibility=public
       - name: GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         env:

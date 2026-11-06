@@ -1,0 +1,21 @@
+name: package-visibility
+
+# One-shot / durable helper: mark the GHCR package public. Packages created while the repo was
+# private stay private until this (or the publish job) changes visibility.
+on:
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  public:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Make package public
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name="subtitleedit-converter-api"
+          gh api --method PATCH "/user/packages/container/${name}" -f visibility=public \
+            || gh api --method PATCH "/users/${{ github.repository_owner }}/packages/container/${name}" -f visibility=public
