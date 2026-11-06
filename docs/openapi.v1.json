@@ -3,19 +3,26 @@
   "info": {
     "title": "Subtitle Edit Converter API",
     "description": "Convert subtitles between text and binary broadcast formats (EBU STL, PAC, Cavena 890, ...) with Subtitle Edit\u0027s libse. Errors are RFC 7807 problem\u002Bjson with a stable \u0060code\u0060, a \u0060hint\u0060 and the \u0060requestId\u0060. Send \u0060Authorization: Bearer \u003Ckey\u003E\u0060 when API keys are configured.",
-    "version": "1.2.1"
+    "version": "1.3.0"
   },
   "servers": null,
   "paths": {
-    "/v1/convert": {
-      "post": {
+    "/v1/jobs/{id}": {
+      "get": {
         "tags": [
-          "convert"
+          "jobs"
         ],
-        "summary": "Convert a subtitle file (multipart upload).",
-        "description": "Upload \u0060file\u0060 with \u0060preset\u0060, \u0060target\u0060 and/or \u0060profile\u0060 (JSON overrides). A zip upload converts every entry and returns a zip with manifest.json. Response headers report detected format/encoding, cue counts and warnings.",
-        "operationId": "convert",
+        "summary": "Get retained job metadata, never subtitle content.",
+        "operationId": "getJob",
         "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "X-Request-Id",
             "in": "header",
@@ -26,19 +33,566 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid-request: a parameter has an invalid value.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/jobs/{id}/input": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Re-read the job\u0027s stored input location; never a cached file.",
+        "description": "Any valid API key knowing the id may fetch it. Current allowlists/size limits apply. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared.",
+        "operationId": "getJobInput",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid-request: a parameter has an invalid value.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/jobs/{id}/output": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Re-read the job\u0027s stored output location; never a cached file.",
+        "description": "Any valid API key knowing the id may fetch it. Current allowlists/size limits apply. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared.",
+        "operationId": "getJobOutput",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid-request: a parameter has an invalid value.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/convert": {
+      "post": {
+        "tags": [
+          "convert"
+        ],
+        "summary": "Convert a subtitle file (multipart upload).",
+        "description": "Upload \u0060file\u0060 with \u0060preset\u0060, \u0060target\u0060 and/or \u0060profile\u0060 (JSON overrides). Response headers report detected format/encoding, cue counts and warnings.",
+        "operationId": "convert",
+        "parameters": [
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "description": "wait=N, from 0 to 60 seconds; default configured wait is 30. wait=0 returns 202 immediately.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
-                "required": [
-                  "file"
-                ],
                 "type": "object",
                 "properties": {
                   "file": {
                     "type": "string",
-                    "description": "The subtitle file, or a zip of subtitle files.",
+                    "description": "One subtitle file.",
                     "format": "binary"
+                  },
+                  "ifExists": {
+                    "enum": [
+                      "error",
+                      "replace"
+                    ],
+                    "type": "string",
+                    "description": "error (default) | replace. Filesystem/S3 reject existing outputs by default; HTTPS follows signer/receiver policy.",
+                    "default": "error"
+                  },
+                  "input": {
+                    "type": "string",
+                    "description": "Storage URI; mutually exclusive with file."
+                  },
+                  "output": {
+                    "type": "string",
+                    "description": "Exact output URI; omit to receive converted bytes."
+                  },
+                  "sidecar": {
+                    "type": "string",
+                    "description": "true | false (default false), write output.json beside output."
                   },
                   "preset": {
                     "type": "string",
@@ -51,10 +605,6 @@
                   "profile": {
                     "type": "string",
                     "description": "Profile JSON (full profile or overrides on top of preset). Schema: GET /v1/schemas/profile.json."
-                  },
-                  "failFast": {
-                    "type": "string",
-                    "description": "Zip input only: \u0027true\u0027 stops at the first failing entry instead of reporting it in manifest.json."
                   }
                 }
               }
@@ -68,6 +618,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Job-Id": {
+                "description": "Job id; GET /v1/jobs/{id} retrieves metadata while retained.",
                 "schema": {
                   "type": "string"
                 }
@@ -115,7 +671,7 @@
                 }
               },
               "X-Warnings": {
-                "description": "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest.",
+                "description": "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body.",
                 "schema": {
                   "type": "string"
                 }
@@ -131,23 +687,35 @@
                 "schema": {
                   "type": "string"
                 }
-              },
-              "X-Entries-Ok": {
-                "description": "Zip input: entries converted.",
+              }
+            }
+          },
+          "202": {
+            "description": "Still running; poll Location. Jobs retain metadata, not subtitle bytes.",
+            "headers": {
+              "X-Job-Id": {
+                "description": "Job id.",
                 "schema": {
                   "type": "string"
                 }
               },
-              "X-Entries-Failed": {
-                "description": "Zip input: entries that failed.",
+              "Location": {
+                "description": "Relative job URL.",
                 "schema": {
                   "type": "string"
                 }
               },
-              "X-Entries-Skipped": {
-                "description": "Zip input: entries skipped (nested zip, macOS metadata).",
+              "Retry-After": {
+                "description": "Seconds before polling.",
                 "schema": {
                   "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -172,6 +740,42 @@
           },
           "404": {
             "description": "Not Found",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
             "headers": {
               "X-Request-Id": {
                 "description": "Request id (also in problem.requestId and the logs).",
@@ -352,6 +956,14 @@
               "pattern": "^[A-Za-z0-9._-]{1,64}$",
               "type": "string"
             }
+          },
+          {
+            "name": "Prefer",
+            "in": "header",
+            "description": "wait=N, from 0 to 60 seconds; default configured wait is 30. wait=0 returns 202 immediately.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -370,6 +982,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Job-Id": {
+                "description": "Job id; GET /v1/jobs/{id} retrieves metadata while retained.",
                 "schema": {
                   "type": "string"
                 }
@@ -417,7 +1035,7 @@
                 }
               },
               "X-Warnings": {
-                "description": "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest.",
+                "description": "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body.",
                 "schema": {
                   "type": "string"
                 }
@@ -433,21 +1051,33 @@
                 "schema": {
                   "type": "string"
                 }
-              },
-              "X-Entries-Ok": {
-                "description": "Zip input: entries converted.",
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConvertJsonResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Still running; poll Location. Jobs retain metadata, not subtitle bytes.",
+            "headers": {
+              "X-Job-Id": {
+                "description": "Job id.",
                 "schema": {
                   "type": "string"
                 }
               },
-              "X-Entries-Failed": {
-                "description": "Zip input: entries that failed.",
+              "Location": {
+                "description": "Relative job URL.",
                 "schema": {
                   "type": "string"
                 }
               },
-              "X-Entries-Skipped": {
-                "description": "Zip input: entries skipped (nested zip, macOS metadata).",
+              "Retry-After": {
+                "description": "Seconds before polling.",
                 "schema": {
                   "type": "string"
                 }
@@ -456,7 +1086,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConvertJsonResponse"
+                  "type": "object"
                 }
               }
             }
@@ -481,6 +1111,42 @@
           },
           "404": {
             "description": "Not Found",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
             "headers": {
               "X-Request-Id": {
                 "description": "Request id (also in problem.requestId and the logs).",
@@ -769,7 +1435,7 @@
         "tags": [
           "info"
         ],
-        "summary": "Effective limits of this server (upload, JSON body, zip, queue, timeouts).",
+        "summary": "Effective upload, queue, wait, I/O, job and storage-scheme limits.",
         "description": "Lets clients pre-check inputs. \u0060queue.depth\u0060 is a live value. \u0060auth.required\u0060 says whether a bearer key is needed; keys are never exposed.",
         "operationId": "getLimits",
         "parameters": [
@@ -859,7 +1525,7 @@
           "formats"
         ],
         "summary": "Detect the format and encoding of a subtitle.",
-        "description": "Send multipart \u0060file\u0060, or JSON {content, contentEncoding, fileName} (binary files as base64). Returns \u0060kind\u0060, \u0060codePage\u0060 for binary input and up to 5 \u0060candidates\u0060. 422 format-not-detected when nothing matches.",
+        "description": "Send multipart \u0060file\u0060, or JSON {content, contentEncoding, fileName} (binary files as base64). Or send \u0060input\u0060 (file, S3 or HTTPS URI) instead of inline content/file. Returns \u0060kind\u0060, \u0060codePage\u0060 for binary input and up to 5 \u0060candidates\u0060. 422 format-not-detected when nothing matches.",
         "operationId": "detect",
         "parameters": [
           {
@@ -876,15 +1542,16 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "required": [
-                  "file"
-                ],
                 "type": "object",
                 "properties": {
                   "file": {
                     "type": "string",
-                    "description": "The subtitle file, or a zip of subtitle files.",
+                    "description": "One subtitle file.",
                     "format": "binary"
+                  },
+                  "input": {
+                    "type": "string",
+                    "description": "Storage URI, mutually exclusive with file."
                   },
                   "encoding": {
                     "type": "string",
@@ -895,11 +1562,12 @@
             },
             "application/json": {
               "schema": {
-                "required": [
-                  "content"
-                ],
                 "type": "object",
                 "properties": {
+                  "input": {
+                    "type": "string",
+                    "description": "Storage URI, mutually exclusive with content."
+                  },
                   "content": {
                     "type": "string",
                     "description": "Subtitle content (text, or base64)."
@@ -1533,6 +2201,16 @@
           },
           "code": {
             "enum": [
+              "job-not-found",
+              "job-input-not-stored",
+              "job-output-not-stored",
+              "job-not-ready",
+              "job-file-gone",
+              "job-location-not-replayable",
+              "storage-location-rejected",
+              "storage-not-found",
+              "storage-io-failed",
+              "output-exists",
               "invalid-request",
               "invalid-profile",
               "empty-input",
@@ -1540,16 +2218,14 @@
               "not-found",
               "preset-not-found",
               "payload-too-large",
-              "zip-limits-exceeded",
-              "unsafe-zip",
               "unsupported-media-type",
               "format-not-detected",
               "format-not-supported",
               "format-not-writable",
               "format-option-invalid",
               "invalid-binary-input",
-              "ambiguous-batch-names",
               "ambiguous-format",
+              "ambiguous-encoding",
               "encoding-error",
               "unsafe-xml",
               "input-limits-exceeded",
@@ -1570,7 +2246,7 @@
           },
           "requestId": {
             "type": "string",
-            "description": "Same as the X-Request-Id header; absent inside manifest entries."
+            "description": "Same as the X-Request-Id header."
           },
           "errors": {
             "type": "array",
@@ -1581,27 +2257,6 @@
           "debug": {
             "type": "object",
             "description": "Diagnostics, only when ERRORS_VERBOSE=true. Never contains file content."
-          },
-          "entry": {
-            "type": "string",
-            "description": "Zip entry name, for per-entry and failFast errors."
-          },
-          "groups": {
-            "type": "array",
-            "items": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "description": "ambiguous-batch-names only: clashing zip entry paths, one array per group."
-          },
-          "outputs": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "ambiguous-batch-names only, for output-path clashes: the colliding output paths."
           },
           "phase": {
             "enum": [
@@ -1614,12 +2269,20 @@
           "candidates": {
             "type": "array",
             "items": {
-              "type": "string"
+              "description": "string (format id / PAC code page) or {encoding, language, hits, sample} for text-encoding."
             },
-            "description": "ambiguous-format only: the format ids the bytes match; set profile.source.format to one of them."
+            "description": "ambiguous-format: format ids (strings). ambiguous-encoding pac-code-page: code page names (strings). ambiguous-encoding text-encoding: objects {encoding, language, hits, sample}; set encoding.input or encoding.language, picking only from this list."
+          },
+          "probe": {
+            "enum": [
+              "pac-code-page",
+              "text-encoding"
+            ],
+            "type": "string",
+            "description": "ambiguous-encoding only: which probe could not decide."
           }
         },
-        "description": "RFC 7807 problem details with a stable \u0060code\u0060 (docs/errors.md). Extra members may appear: \u0060entry\u0060 (zip entry name), \u0060phase\u0060 (conversion-timeout: queue|running), \u0060groups\u0060/\u0060outputs\u0060 (ambiguous-batch-names), \u0060candidates\u0060 (ambiguous-format)."
+        "description": "RFC 7807 problem details with a stable \u0060code\u0060 (docs/errors.md). Extra members may appear: \u0060phase\u0060 (conversion-timeout: queue|running), \u0060candidates\u0060 (ambiguous-format, ambiguous-encoding), \u0060probe\u0060 (ambiguous-encoding: pac-code-page|text-encoding)."
       },
       "CodePointCount": {
         "required": [
@@ -1642,13 +2305,13 @@
         }
       },
       "ConvertJsonRequest": {
-        "required": [
-          "content"
-        ],
         "type": "object",
         "properties": {
           "content": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "contentEncoding": {
             "type": [
@@ -1690,11 +2353,30 @@
               "string"
             ]
           },
-          "failFast": {
+          "input": {
             "type": [
               "null",
-              "boolean"
+              "string"
             ]
+          },
+          "output": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sidecar": {
+            "type": "boolean",
+            "default": false
+          },
+          "ifExists": {
+            "enum": [
+              "error",
+              "replace"
+            ],
+            "type": "string",
+            "description": "Default error: exclusive filesystem create or conditional S3 PUT. replace explicitly permits replacement. HTTPS follows signer/receiver policy.",
+            "default": "error"
           }
         }
       },
@@ -1704,8 +2386,7 @@
           "detected",
           "stats",
           "warnings",
-          "profile",
-          "entries"
+          "profile"
         ],
         "type": "object",
         "properties": {
@@ -1737,14 +2418,36 @@
           "profile": {
             "$ref": "#/components/schemas/JsonObject"
           },
-          "entries": {
+          "id": {
             "type": [
               "null",
-              "array"
+              "string"
+            ]
+          }
+        }
+      },
+      "CueDuration": {
+        "required": [
+          "cue",
+          "durationMs"
+        ],
+        "type": "object",
+        "properties": {
+          "cue": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
             ],
-            "items": {
-              "$ref": "#/components/schemas/ManifestEntry"
-            }
+            "format": "int32"
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         }
       },
@@ -1870,7 +2573,7 @@
         "properties": {
           "pointer": {
             "type": "string",
-            "description": "JSON pointer, e.g. /target/format or /file/entries/2; for ambiguous-batch-names the zip entry path."
+            "description": "JSON pointer, e.g. /target/format."
           },
           "message": {
             "type": "string"
@@ -1879,7 +2582,7 @@
             "type": "string"
           }
         },
-        "description": "A problem located by a JSON pointer (profile field, zip entry, query parameter, ...)."
+        "description": "A problem located by a JSON pointer (profile field, query parameter, ...)."
       },
       "FormatInfo": {
         "required": [
@@ -2015,6 +2718,74 @@
           }
         }
       },
+      "LimitsIo": {
+        "required": [
+          "timeoutSeconds",
+          "retries"
+        ],
+        "type": "object",
+        "properties": {
+          "timeoutSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "retries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "LimitsJobs": {
+        "required": [
+          "maxEntries",
+          "ttlSeconds",
+          "maxActive",
+          "maxMetadataBytes"
+        ],
+        "type": "object",
+        "properties": {
+          "maxEntries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "ttlSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxActive": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxMetadataBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "LimitsJson": {
         "required": [
           "maxDecodedContentBytes",
@@ -2068,12 +2839,16 @@
           "maxProfileBytes",
           "maxCues",
           "maxLineChars",
-          "zip",
           "conversionTimeoutSeconds",
           "queue",
           "rateLimitPerMinute",
           "auth",
-          "binary"
+          "binary",
+          "requestWaitSeconds",
+          "requestMaxWaitSeconds",
+          "io",
+          "jobs",
+          "storage"
         ],
         "type": "object",
         "properties": {
@@ -2115,9 +2890,6 @@
             ],
             "format": "int32"
           },
-          "zip": {
-            "$ref": "#/components/schemas/LimitsZip"
-          },
           "conversionTimeoutSeconds": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -2142,19 +2914,8 @@
           },
           "binary": {
             "$ref": "#/components/schemas/LimitsBinary"
-          }
-        }
-      },
-      "LimitsZip": {
-        "required": [
-          "maxEntries",
-          "maxUnpackedBytes",
-          "maxRatio",
-          "maxEntryBytes"
-        ],
-        "type": "object",
-        "properties": {
-          "maxEntries": {
+          },
+          "requestWaitSeconds": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -2162,118 +2923,42 @@
             ],
             "format": "int32"
           },
-          "maxUnpackedBytes": {
+          "requestMaxWaitSeconds": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
               "string"
             ],
-            "format": "int64"
+            "format": "int32"
           },
-          "maxRatio": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
+          "io": {
+            "$ref": "#/components/schemas/LimitsIo"
           },
-          "maxEntryBytes": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
+          "jobs": {
+            "$ref": "#/components/schemas/LimitsJobs"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/LimitsStorage"
           }
         }
       },
-      "ManifestEntry": {
+      "LimitsStorage": {
         "required": [
-          "source",
-          "status",
-          "outputs",
-          "detected",
-          "warnings",
-          "error"
+          "inputSchemes",
+          "outputSchemes"
         ],
         "type": "object",
         "properties": {
-          "source": {
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "ok",
-              "error",
-              "skipped"
-            ],
-            "type": "string"
-          },
-          "outputs": {
+          "inputSchemes": {
             "type": "array",
             "items": {
               "type": "string"
             }
           },
-          "detected": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/DetectedInfo"
-              }
-            ]
-          },
-          "warnings": {
+          "outputSchemes": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Warning"
-            }
-          },
-          "error": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ApiProblem"
-              }
-            ],
-            "description": "The entry\u0027s problem (ApiProblem without requestId); the request\u0027s X-Request-Id covers all entries."
-          },
-          "kind": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "codePage": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "reason": {
-            "enum": [
-              "nested-zip",
-              "macos-metadata",
-              null
-            ],
-            "type": [
-              "null",
-              "string"
-            ],
-            "description": "Why a skipped entry wasn\u0027t converted."
-          },
-          "verification": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "additionalProperties": {
-              "$ref": "#/components/schemas/Verification"
+              "type": "string"
             }
           }
         }
@@ -2304,7 +2989,10 @@
             "type": "string"
           },
           "content": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "contentEncoding": {
             "type": "string"
@@ -2320,12 +3008,6 @@
             ],
             "format": "int32"
           },
-          "source": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "kind": {
             "type": "string",
             "default": "text"
@@ -2339,6 +3021,21 @@
                 "$ref": "#/components/schemas/Verification"
               }
             ]
+          },
+          "output": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -2968,6 +3665,39 @@
                 "$ref": "#/components/schemas/RemedyInfo"
               }
             ]
+          },
+          "durations": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CueDuration"
+            }
+          },
+          "fields": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "timecode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "frameRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         }
       }
@@ -2981,6 +3711,9 @@
     }
   },
   "tags": [
+    {
+      "name": "jobs"
+    },
     {
       "name": "convert"
     },

@@ -32,6 +32,16 @@ public sealed class ApiException : Exception
 
 public static class ErrorCodes
 {
+    public const string JobNotFound = "job-not-found";
+    public const string JobInputNotStored = "job-input-not-stored";
+    public const string JobOutputNotStored = "job-output-not-stored";
+    public const string JobNotReady = "job-not-ready";
+    public const string JobFileGone = "job-file-gone";
+    public const string JobLocationNotReplayable = "job-location-not-replayable";
+    public const string StorageLocationRejected = "storage-location-rejected";
+    public const string StorageNotFound = "storage-not-found";
+    public const string StorageIoFailed = "storage-io-failed";
+    public const string OutputExists = "output-exists";
     public const string InvalidRequest = "invalid-request";
     public const string InvalidProfile = "invalid-profile";
     public const string EmptyInput = "empty-input";
@@ -39,16 +49,14 @@ public static class ErrorCodes
     public const string NotFound = "not-found";
     public const string PresetNotFound = "preset-not-found";
     public const string PayloadTooLarge = "payload-too-large";
-    public const string ZipLimitsExceeded = "zip-limits-exceeded";
-    public const string UnsafeZip = "unsafe-zip";
     public const string UnsupportedMediaType = "unsupported-media-type";
     public const string FormatNotDetected = "format-not-detected";
     public const string FormatNotSupported = "format-not-supported";
     public const string FormatNotWritable = "format-not-writable";
     public const string FormatOptionInvalid = "format-option-invalid";
     public const string InvalidBinaryInput = "invalid-binary-input";
-    public const string AmbiguousBatchNames = "ambiguous-batch-names";
     public const string AmbiguousFormat = "ambiguous-format";
+    public const string AmbiguousEncoding = "ambiguous-encoding";
     public const string EncodingError = "encoding-error";
     public const string UnsafeXml = "unsafe-xml";
     public const string InputLimitsExceeded = "input-limits-exceeded";
@@ -67,16 +75,14 @@ public static class ErrorCodes
         NotFound => "Not found",
         PresetNotFound => "Preset not found",
         PayloadTooLarge => "Payload too large",
-        ZipLimitsExceeded => "Zip limits exceeded",
-        UnsafeZip => "Unsafe zip entry",
         UnsupportedMediaType => "Unsupported media type",
         FormatNotDetected => "Format not detected",
         FormatNotSupported => "Format not supported",
         FormatNotWritable => "Format not writable",
         FormatOptionInvalid => "Invalid format option",
         InvalidBinaryInput => "Invalid binary input",
-        AmbiguousBatchNames => "Ambiguous batch names",
         AmbiguousFormat => "Ambiguous format",
+        AmbiguousEncoding => "Ambiguous encoding",
         EncodingError => "Encoding error",
         UnsafeXml => "Unsafe XML",
         InputLimitsExceeded => "Input limits exceeded",

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 
 // libse settings are process-global; tests share one process, so run them serially.
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
@@ -12,16 +13,18 @@ namespace SubtitleEditConverterApi.Tests;
 public class ApiFactory : WebApplicationFactory<Program>
 {
     private readonly Dictionary<string, string?>? settings;
+    private readonly Action<IServiceCollection>? configure;
     public ApiFactory() { }
-    protected ApiFactory(Dictionary<string, string?> settings) => this.settings = settings;
+    protected ApiFactory(Dictionary<string, string?> settings, Action<IServiceCollection>? configure = null) { this.settings = settings; this.configure = configure; }
 
-    public static ApiFactory With(Dictionary<string, string?> settings) => new Configured(settings);
-    private sealed class Configured(Dictionary<string, string?> s) : ApiFactory(s);
+    public static ApiFactory With(Dictionary<string, string?> settings, Action<IServiceCollection>? configure = null) => new Configured(settings, configure);
+    private sealed class Configured(Dictionary<string, string?> s, Action<IServiceCollection>? c) : ApiFactory(s, c);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("PROFILES_DIR", settings?.GetValueOrDefault("PROFILES_DIR") ?? Path.Combine(Path.GetTempPath(), "se-api-none-" + Guid.NewGuid()));
         foreach (var (k, v) in settings ?? []) builder.UseSetting(k, v);
+        if (configure != null) builder.ConfigureServices(configure);
     }
 }
 

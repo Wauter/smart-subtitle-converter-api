@@ -23,7 +23,6 @@ port, change only the left-hand number (`127.0.0.1:5050:8080`). To reach it from
 | `PROFILE_MAX_BYTES` | `65536` | Max inline profile size (min 1024) |
 | `QUEUE_CAPACITY` | `32` | Waiting conversions before `503 queue-full` |
 | `CONVERSION_TIMEOUT_SECONDS` | `30` | Queue-wait budget and run budget (each) |
-| `ZIP_MAX_ENTRIES` / `ZIP_MAX_UNPACKED_BYTES` / `ZIP_MAX_RATIO` | `100` / `52428800` / `100` | Zip guards |
 | `MAX_CUES` / `MAX_LINE_CHARS` | `200000` / `10000` | Input limits |
 | `RATE_LIMIT_PER_MINUTE` | off | Per key name, or per client IP when auth is off |
 | `CORS_ORIGINS` | off | Comma-separated allow-list |
@@ -31,11 +30,44 @@ port, change only the left-hand number (`127.0.0.1:5050:8080`). To reach it from
 | `DOCS_ENABLED` | `true` | `/docs` (Scalar) |
 | `METRICS_ENABLED` / `METRICS_PORT` | off | Prometheus text at `/metrics`, optionally only on that port |
 
+## Jobs and storage
+
+Copy selected settings from [`.env.example`](../.env.example); pass it with Docker `--env-file`.
+Compose's `.env` is interpolation input, not automatically the container environment: add `env_file` or
+explicit `environment` entries. Never commit real credentials.
+
+| Env | Default | Behaviour |
+|---|---|---|
+| `REQUEST_WAIT_SECONDS` | `30` | Caller wait; clamped to 0..60; `Prefer: wait=N` overrides per request |
+| `JOB_TTL_SECONDS` | `21600` | Seconds from creation; clamped to 1..86400; restart clears all records |
+| `JOB_MAX_ENTRIES` | `400` | Oldest-first history eviction; clamped to 1..10000 |
+| `IO_TIMEOUT_SECONDS` | `10` | Whole I/O attempt including body, clamped to 1..300 seconds |
+| `IO_RETRIES` | `3` | Extra transient attempts, clamped to 0..10; no retry on 403/404 or validation |
+| `STORAGE_FILE_ROOTS` | empty (off) | Absolute Linux roots separated by `:` or a JSON array; mounts use container paths |
+| `STORAGE_FILE_ATOMIC` | `false` | Sibling stage/flush/no-replace rename when true; otherwise exclusive direct write |
+| `HTTP_ALLOWED_HOSTS` | empty (off) | Exact hostnames, comma-separated, same for HTTPS GET and PUT; no wildcards |
+| `S3_ENDPOINT` | unset | Trusted custom endpoint; otherwise AWS regional endpoint |
+| `S3_REGION` | `us-east-1` | Signing region |
+| `S3_FORCE_PATH_STYLE` | `false` | Set true for MinIO |
+| `S3_ALLOWED_BUCKETS` | empty (off) | Comma-separated bucket names |
+| `S3_ALLOWED_PREFIXES` | unset | Comma-separated key prefixes, optional within allowed buckets |
+
+Each scheme is off until its allowlist is nonempty. `input` and `output` are independent.
+Filesystem writes reject existing files by default and create files with mode `0644` (narrowed by the umask; not configurable); S3 uses conditional create by default (explicit `ifExists:replace` allows replacement); HTTPS follows the receiver's PUT semantics.
+S3 uses the default AWS credential chain (environment/shared configuration/task or instance role), never
+credentials supplied by the request. A trusted S3 endpoint may be internal; HTTPS request URIs may not resolve
+to private addresses. No Azure or GCS adapter is installed.
+
+Active work is capped at `min(JOB_MAX_ENTRIES, QUEUE_CAPACITY + 1)` independently of history eviction.
+Records keep metadata only, with a 128 KiB result/error budget. Detailed diagnostics above that budget become
+a `metadataTruncated` summary. See [limits](limits.md), [URI usage and polling](usage.md#job-metadata) and
+[mount permissions](deployment.md#mounted-subtitle-storage).
+
 ## Queue
 
 libse keeps its settings in global state, so one worker runs one conversion at a time from a bounded queue
 (`QUEUE_CAPACITY`). A full queue answers `503 queue-full` with `Retry-After`; a job over
-`CONVERSION_TIMEOUT_SECONDS` answers `504 conversion-timeout` and the worker is recycled. Scale out with replicas.
+`CONVERSION_TIMEOUT_SECONDS` fails with `504 conversion-timeout` and the worker is recycled. Scale out with replicas.
 Details: [design.md §2.4](design.md#24-conversion-queue-global-state-hazard).
 
 ## Health and limits
@@ -48,3 +80,5 @@ Details: [design.md §2.4](design.md#24-conversion-queue-global-state-hazard).
   says whether auth is required, never anything about keys.
 
 The image has no shell or curl, so probe these from the orchestrator.
+
+`ifExists` is per request, not an environment variable: error (default) | replace. Replacement uses sibling staging for filesystem writes. S3 default writes are conditional; HTTPS follows signer/receiver policy. [Job-file downloads](usage.md#re-reading-job-files-and-overwrite-policy) re-use current storage settings.

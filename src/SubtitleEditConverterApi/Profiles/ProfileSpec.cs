@@ -44,13 +44,14 @@ public static class ProfileSpec
             ["format"] = new StrSpec("Output format id/alias (required after merging; seconv <format>)."),
             ["fps"] = new NumSpec("Target frame rate (seconv --target-fps).", Min: 0, ExclusiveMin: true, Max: 1000),
             ["fileName"] = new StrSpec("Output name template. Tokens: {stem}, {ext}, {format}. Default '{stem}.{ext}'."),
-            ["additional"] = new ArrSpec(new StrSpec(), "Extra output formats; the response becomes a zip.", MaxItems: 10),
+            ["additional"] = new ArrSpec(new StrSpec(), "Extra output formats; the multipart response becomes JSON.", MaxItems: 10),
         }, "What to write."),
         ["encoding"] = new ObjSpec(new()
         {
             ["input"] = new StrSpec("Force the input encoding (name or code page), skipping detection."),
             ["inputFallback"] = new StrSpec("Encoding used when input has no BOM and is not valid UTF-8 (seconv --input-encoding-fallback)."),
             ["output"] = new StrSpec("utf-8 (with BOM, default) | utf-8-no-bom | source | <encoding name or code page>."),
+            ["language"] = new StrSpec("ISO language code (e.g. ar, he, th, cs). On ambiguous non-UTF-8 text, keep only encodings that serve this language."),
         }),
         ["timing"] = new ObjSpec(new()
         {
@@ -171,7 +172,11 @@ public static class ProfileSpec
                 if (s.Pattern != null && !Regex.IsMatch(str, s.Pattern)) errors.Add(new(pointer, $"'{str}' must match {s.Pattern}."));
                 if (pointer is "/source/format" && !str.Equals("auto", StringComparison.OrdinalIgnoreCase)) CheckFormat(str, pointer, errors, formats);
                 if (pointer is "/target/format" || pointer.StartsWith("/target/additional/")) CheckFormat(str, pointer, errors, formats);
-                if (pointer.StartsWith("/encoding/") && !Encodings.IsKnown(str, pointer.EndsWith("/output")))
+                if (pointer == "/encoding/language")
+                {
+                    // Validated at decode time as 422 (Encodings.IsKnownLanguage); any string is accepted here.
+                }
+                else if (pointer.StartsWith("/encoding/") && !Encodings.IsKnown(str, pointer.EndsWith("/output")))
                     errors.Add(new(pointer, $"Unknown encoding '{str}'.", "Use e.g. utf-8, utf-8-no-bom, windows-1252, iso-8859-1, 1252, utf-16."));
                 break;
             case NumSpec n:

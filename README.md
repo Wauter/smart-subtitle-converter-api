@@ -23,13 +23,19 @@ of ambiguous input instead of a guess.
   `unverified`, with cue numbers and code points, never cue text.
 - **Warnings you can act on:** lost characters come with a `remedy`; for PAC the API tests each code page and
   lists only the ones that keep every character. It never switches settings on its own.
-- **No guessing:** PAC/FPC bytes without a `.pac`/`.fpc` name are rejected with `ambiguous-format` and both
-  candidates, instead of being converted as the wrong format.
+- **No guessing:** when a file could be read more than one way, it is rejected with the candidates instead of
+  converted wrongly: PAC/FPC bytes without a `.pac`/`.fpc` name give `ambiguous-format`, and a PAC code page or
+  non-UTF-8 text encoding that can't be told from the file's words gives `ambiguous-encoding`.
+- **Source checks:** overlapping cues, cues longer than 30 seconds, zero-length cues and an EBU STL programme start
+  are reported with cue numbers; header fields filled with defaults (such as `No Title`) are named
+  (`format-defaults-applied`).
 - **Presets and profiles:** built-in presets (`netflix-en-vtt`, `pal-to-film`, `clean-srt`, …), your own JSON
   presets in a mounted folder (picked up without a restart), and Subtitle Edit operations such as Fix Common Errors.
 - **One job at a time:** libse uses global settings, so one worker runs one job at a time from a bounded queue;
   settings are reset after every job, and a full queue answers `503` with `Retry-After`.
-- **Batch and detection:** zip in, zip out with a `manifest.json`; `/v1/detect` names format, encoding and code page.
+- **Detection:** `/v1/detect` names format, encoding, code page and, for frame-based files, the frame rate used.
+- **Storage and jobs:** read from and write to allowlisted folders, S3-compatible buckets or HTTPS URLs, with an
+  optional JSON sidecar next to the output. Every conversion gets a job id you can poll.
 - **Container defaults:** amd64/arm64, chiseled ASP.NET Core base with no shell, a non-root user, and a
   reference Compose that adds a read-only root filesystem, dropped capabilities and a `127.0.0.1`-only port.
   API keys and rate limits are optional.
@@ -66,9 +72,6 @@ curl -F file=@movie.srt -F preset=netflix-en-vtt \
 curl -F file=@movie.srt -F target=ebustl \
      -F 'profile={"formatOptions":{"ebuStl":{"frameRate":25}}}' localhost:4041/v1/convert -OJ
 
-# a whole season: zip in, zip out
-curl -F file=@season1.zip -F target=vtt localhost:4041/v1/convert -OJ
-
 # what is this file?
 curl -F file=@mystery.txt localhost:4041/v1/detect
 ```
@@ -81,19 +84,36 @@ Errors are `application/problem+json` with a stable `code` and a `hint`:
   "hint": "Did you mean 'webvtt'? See GET /v1/formats." }
 ```
 
-More in [docs/usage.md](docs/usage.md).
+Every error and warning code is explained in [docs/errors.md](docs/errors.md): what happened, why, and what to
+do. More examples in [docs/usage.md](docs/usage.md).
+
+## Storage and job tracking
+
+Send one subtitle per request: as an upload or inline content, or as an `input` location on an allowlisted
+filesystem, S3-compatible or HTTPS store. An optional `output` location stores the result, and `sidecar: true`
+writes `{output}.json` with the verification and warnings next to it (a write without it removes an old sidecar).
+Filesystem and S3 outputs are never overwritten unless you send `ifExists: "replace"`. ZIP and batch conversion are
+not supported.
+
+Every conversion returns a job id. Long requests continue in the background with `202` and a URL to poll, and
+the stored input and output can be re-read through the job while its record lives. Job history is kept in memory
+only, holds metadata (never file bytes), expires, and is cleared on restart: it is not a file archive.
+
+Start with [usage](docs/usage.md#job-metadata), [configuration](docs/configuration.md#jobs-and-storage),
+[limits](docs/limits.md), [mounted storage](docs/deployment.md#mounted-subtitle-storage),
+[allowlists and network checks](docs/security.md) and [`.env.example`](.env.example).
 
 ## Documentation
 
 | Read this | When you want to |
 |---|---|
-| [docs/usage.md](docs/usage.md) | See every endpoint with curl examples, the JSON endpoint and response headers |
+| [docs/usage.md](docs/usage.md) | See every endpoint with curl examples, the JSON endpoint, storage locations, jobs and response headers |
 | [docs/formats.md](docs/formats.md) | Work with binary formats: detection, code pages, frame rates, verification |
 | [docs/profiles.md](docs/profiles.md) | Use presets, write your own profiles, chain operations |
-| [docs/configuration.md](docs/configuration.md) | Change ports, limits, metrics or health checks |
+| [docs/configuration.md](docs/configuration.md) | Change ports, limits, storage allowlists, job history, metrics or health checks |
 | [docs/security.md](docs/security.md) | Expose it beyond localhost, enable API keys, see how files are handled |
 | [docs/deployment.md](docs/deployment.md) | Pick an image tag, run without Compose, build from source |
-| [docs/errors.md](docs/errors.md) | Look up an error or warning code, verification and remedy fields |
+| [docs/errors.md](docs/errors.md) | Look up an error or warning code: what happened, why, what to do; verification and remedy fields |
 | [docs/development.md](docs/development.md) | Build, test, run Postman/newman, see what CI does |
 | [docs/design.md](docs/design.md) · [docs/roadmap.md](docs/roadmap.md) | Understand the design decisions and what comes next |
 | [CHANGELOG.md](CHANGELOG.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | See what changed, and the versioning rule |

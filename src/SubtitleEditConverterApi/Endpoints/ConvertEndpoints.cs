@@ -3,233 +3,306 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Net.Http.Headers;
 using SubtitleEditConverterApi.Conversion;
+using SubtitleEditConverterApi.Jobs;
+using SubtitleEditConverterApi.Storage;
 using SubtitleEditConverterApi.Infrastructure;
 using SubtitleEditConverterApi.Profiles;
 
 namespace SubtitleEditConverterApi.Endpoints;
 
 public sealed record ConvertJsonRequest(
-    string Content, string? ContentEncoding, string? FileName, string? Preset, JsonObject? Profile, string? Target,
-    string? ResponseEncoding, bool? FailFast);
+    string? Content, string? ContentEncoding, string? FileName, string? Preset, JsonObject? Profile, string? Target,
+    string? ResponseEncoding, string? Input = null, string? Output = null, bool Sidecar = false, string? IfExists = null);
 
-/// <summary>One output. <c>verification</c>: the read-back check, binary targets only (1.2.0).</summary>
-public sealed record OutputDto(string FileName, string Format, string FormatId, string MediaType, string Content, string ContentEncoding, string Encoding, int Cues, string? Source = null,
-    string Kind = Formats.FormatKinds.Text, Verification? Verification = null);
+/// <summary>One output. <c>verification</c>: the read-back check, binary targets only .</summary>
+public sealed record OutputDto(string FileName, string Format, string FormatId, string MediaType, string? Content, string ContentEncoding, string Encoding, int Cues,
+    string Kind = Formats.FormatKinds.Text, Verification? Verification = null, string? Output = null, int? Bytes = null);
 public sealed record StatsDto(int ParagraphsIn, int ParagraphsOut, long ElapsedMs, long QueueWaitMs);
-/// <summary>One zip entry. <c>verification</c>: read-back checks of its binary outputs, keyed by output path (1.2.0).</summary>
-public sealed record ManifestEntry(string Source, string Status, string[] Outputs, DetectedInfo? Detected, List<Warning> Warnings, JsonObject? Error,
-    string? Kind = null, string? CodePage = null, string? Reason = null, Dictionary<string, Verification>? Verification = null);
-public sealed record ConvertJsonResponse(List<OutputDto> Outputs, DetectedInfo? Detected, StatsDto Stats, List<Warning> Warnings, JsonObject Profile, List<ManifestEntry>? Entries);
-
-public sealed record ConvertForm(IFormFile File, string? Preset, string? Profile, string? Target, bool? FailFast);
-
-/// <summary>A batch: one or many inputs (zip) converted with one profile, in one queue job.</summary>
-internal sealed record BatchItem(string Name, ConversionResult? Result, ApiException? Error, string? SkipReason = null);
-internal sealed record Batch(bool IsZip, List<BatchItem> Items, List<Warning> Warnings);
+public sealed record ConvertJsonResponse(List<OutputDto> Outputs, DetectedInfo? Detected, StatsDto Stats, List<Warning> Warnings, JsonObject Profile, string? Id = null);
 
 public static class ConvertEndpoints
 {
     public static void Map(RouteGroupBuilder v1)
     {
+        v1.MapGet("/jobs/{id}", (string id, HttpContext ctx, JobStore jobs) =>
+        {
+            ctx.Response.Headers.CacheControl = "no-store";
+            var job = jobs.Get(id);
+            if (job == null) throw JobNotFound();
+            return Results.Json(job, Json.Options);
+        }).WithName("getJob").WithTags("jobs").WithSummary("Get retained job metadata, never subtitle content.").Produces<JsonObject>().ProducesProblem(404);
+        foreach (var which in new[] { "input", "output" })
+        {
+            var selected = which;
+            v1.MapGet("/jobs/{id}/" + which, (string id, HttpContext ctx, JobStore jobs, StorageRouter storage, Formats.FormatRegistry formats) => GetJobFile(id, selected, ctx, jobs, storage, formats))
+                .WithName(which == "input" ? "getJobInput" : "getJobOutput").WithTags("jobs")
+                .WithSummary("Re-read the job's stored " + which + " location; never a cached file.")
+                .WithDescription("Any valid API key knowing the id may fetch it. Current allowlists/size limits apply. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared.")
+                .Produces(200, contentType: "application/octet-stream").ProducesProblem(404).ProducesProblem(409).ProducesProblem(413).ProducesProblem(422).ProducesProblem(502);
+        }
         v1.MapPost("/convert", ConvertMultipart)
             .WithName("convert").WithTags("convert")
             .WithSummary("Convert a subtitle file (multipart upload).")
-            .WithDescription("Upload `file` with `preset`, `target` and/or `profile` (JSON overrides). A zip upload converts every entry and returns a zip with manifest.json. Response headers report detected format/encoding, cue counts and warnings.")
+            .WithDescription("Upload `file` with `preset`, `target` and/or `profile` (JSON overrides). Response headers report detected format/encoding, cue counts and warnings.")
             .WithBody(new() { ["multipart/form-data"] = OpenApiBodies.Multipart(OpenApiBodies.ConvertParts) })
-            .Produces(200, contentType: "application/octet-stream")
-            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(413).ProducesProblem(415).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504)
+            .Produces(200, contentType: "application/octet-stream").Produces(202)
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(502).ProducesProblem(413).ProducesProblem(415).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504)
             .DisableAntiforgery();
 
         v1.MapPost("/convert/json", ConvertJson)
             .WithName("convertJson").WithTags("convert")
             .WithSummary("Convert subtitle content sent as JSON (for agents).")
             .WithDescription("Send `content` as text (or base64 with contentEncoding=base64; binary formats such as EBU STL must be base64). Outputs come back as text for Unicode encodings, base64 otherwise; binary targets are always base64.")
-            .Produces<ConvertJsonResponse>()
-            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(413).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504);
+            .Produces<ConvertJsonResponse>().Produces(202)
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(502).ProducesProblem(413).ProducesProblem(422).ProducesProblem(503).ProducesProblem(504);
     }
 
-    private static async Task<IResult> ConvertMultipart(HttpContext ctx, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts)
+    private static async Task<IResult> ConvertMultipart(HttpContext ctx, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, JobStore jobs, IHostApplicationLifetime lifetime, StorageRouter storage)
     {
-        var (bytes, fileName, preset, profileJson, target, failFast) = await ReadMultipart(ctx, opts);
+        var (bytes, fileName, preset, profileJson, target, inputRaw, outputRaw, sidecar, ifExists) = await ReadMultipart(ctx, opts);
+        var input = inputRaw == null ? null : StorageLocation.Parse(inputRaw);
+        var output = outputRaw == null ? null : StorageLocation.Parse(outputRaw);
+        fileName ??= input?.FileName;
         var overrides = ParseProfile(profileJson, opts);
         var (profile, resolved, presetName) = resolver.ResolveForConversion(preset, overrides, target);
         Track(ctx, profile, presetName, fileName);
-
-        var (batch, waitMs) = await queue.RunAsync(() => RunBatch(engine, opts, bytes, fileName, profile, failFast), ctx.RequestAborted);
+        if (bytes != null) RejectZip(bytes, fileName);
+        var (r, waitMs, id) = await RunJob(ctx, jobs, (jobId, ct) => ConvertWork(storage, bytes, fileName, input, output, sidecar, queue, engine, profile, resolved, jobId, ct, ifExists == "replace"), resolved, opts, lifetime.ApplicationStopping, inputRaw, outputRaw);
+        if (r == null) return Accepted(ctx, jobs, id);
         ctx.Items["queueWaitMs"] = waitMs;
-
-        var h = ctx.Response.Headers;
-        h.CacheControl = "no-store";
-        if (presetName != null) h["X-Profile"] = presetName;
-        var allWarnings = batch.Warnings.Concat(batch.Items.SelectMany(i => i.Result?.Warnings ?? [])).ToList();
-        SetWarnings(ctx, allWarnings);
-
-        if (!batch.IsZip)
-        {
-            var r = batch.Items[0].Result!;
-            SetDetected(ctx, r);
-            h["X-Output-Kind"] = r.Outputs[0].Format.Kind == Formats.FormatKinds.Binary ? "binary" : "text";
-            if (r.Outputs.Count == 1)
-            {
-                var o = r.Outputs[0];
-                h["X-Cue-Count"] = o.Cues.ToString();
-                if (o.Verification is { } v) h["X-Verification-Verdict"] = v.Verdict;
-                ctx.Items["bytesOut"] = o.Bytes.Length;
-                return File(ctx, o.Bytes, ContentType(o), o.FileName);
-            }
-            h["X-Cue-Count"] = r.Outputs[0].Cues.ToString();
-            var manifest = new { outputs = r.Outputs.Select(o => new { o.FileName, format = o.Format.Id, kind = o.Format.Kind, o.EncodingName, o.Cues, o.Verification }), detected = r.Detected, warnings = r.Warnings, profile = resolved };
-            BatchNames.CheckOutputs(r.Outputs.Select(o => (o.FileName, fileName ?? "subtitle")));
-            var zip = ZipIO.Write(r.Outputs.Select(o => (o.FileName, o.Bytes)), manifest);
-            return File(ctx, zip, "application/zip", ConversionEngine.SafeStem(fileName) + ".zip");
-        }
-
-        var entries = Manifest(batch, opts);
-        h["X-Entries-Ok"] = entries.Count(e => e.Status == "ok").ToString();
-        h["X-Entries-Failed"] = entries.Count(e => e.Status == "error").ToString();
-        h["X-Entries-Skipped"] = entries.Count(e => e.Status == "skipped").ToString();
-        var files = batch.Items.Where(i => i.Result != null)
-            .SelectMany(i => i.Result!.Outputs.Select(o => (o.FileName, o.Bytes)));
-        var zipOut = ZipIO.Write(files, new { entries, warnings = batch.Warnings, profile = resolved });
-        return File(ctx, zipOut, "application/zip", ConversionEngine.SafeStem(fileName) + ".zip");
+        ctx.Response.Headers.CacheControl = "no-store";
+        if (presetName != null) ctx.Response.Headers["X-Profile"] = presetName;
+        SetWarnings(ctx, r.Warnings);
+        SetDetected(ctx, r);
+        ctx.Response.Headers["X-Output-Kind"] = r.Outputs[0].Format.Kind;
+        if (output != null || r.Outputs.Count != 1) return Results.Json(ToJson(r, resolved, waitMs, null, outputRaw) with { Id = id }, Json.Options);
+        var o = r.Outputs[0];
+        if (o.Verification is { } v) ctx.Response.Headers["X-Verification-Verdict"] = v.Verdict;
+        ctx.Items["bytesOut"] = o.Bytes.Length;
+        return File(ctx, o.Bytes, ContentType(o), o.FileName);
     }
 
-    private static async Task<IResult> ConvertJson(HttpContext ctx, ConvertJsonRequest req, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, Formats.FormatRegistry formats)
+    private static async Task<IResult> ConvertJson(HttpContext ctx, ConvertJsonRequest req, ProfileResolver resolver, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, Formats.FormatRegistry formats, JobStore jobs, IHostApplicationLifetime lifetime, StorageRouter storage)
     {
-        var bytes = DecodeContent(req.Content, req.ContentEncoding);
-        if (bytes.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
+        var ifExists = ParseIfExists(req.IfExists);
+        if (req.Input != null && req.Content != null) throw new ApiException(422, ErrorCodes.InvalidRequest, "Use input or content, never both.", "Remove one source.");
+        var input = req.Input == null ? null : StorageLocation.Parse(req.Input);
+        var output = req.Output == null ? null : StorageLocation.Parse(req.Output);
+        var fileName = req.FileName ?? input?.FileName;
+        var bytes = input == null ? DecodeContent(req.Content, req.ContentEncoding) : null;
+        if (bytes?.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
         if (req.Profile is { } p && Encoding.UTF8.GetByteCount(p.ToJsonString()) > opts.ProfileMaxBytes) throw ProfileTooLarge(opts);
         var (profile, resolved, presetName) = resolver.ResolveForConversion(req.Preset, req.Profile, req.Target);
         Track(ctx, profile, presetName, req.FileName);
         var isText = (req.ContentEncoding ?? "text").Equals("text", StringComparison.OrdinalIgnoreCase);
-        if (isText && profile.Source?.Format is { } sf && formats.Find(sf) is { Kind: Formats.FormatKinds.Binary } bf)
+        if (input == null && isText && profile.Source?.Format is { } sf && formats.Find(sf) is { Kind: Formats.FormatKinds.Binary } bf)
         {
             throw new ApiException(422, ErrorCodes.InvalidBinaryInput, $"'{bf.Id}' is a binary format, but 'content' was sent as text.",
                 "Send the raw file bytes base64-encoded with contentEncoding=base64 (text would be UTF-8 re-encoded and corrupted).")
             { Errors = [new("/contentEncoding", "Must be 'base64' for a binary source format.")] };
         }
 
-        var (batch, waitMs) = await queue.RunAsync(() => RunBatch(engine, opts, bytes, req.FileName, profile, req.FailFast ?? false, "/content"), ctx.RequestAborted);
+        if (bytes != null) RejectZip(bytes, req.FileName);
+        var (r, waitMs, id) = await RunJob(ctx, jobs, (jobId, ct) => ConvertWork(storage, bytes, fileName, input, output, req.Sidecar, queue, engine, profile, resolved, jobId, ct, ifExists == "replace"), resolved, opts, lifetime.ApplicationStopping, req.Input, req.Output);
+        if (r == null) return Accepted(ctx, jobs, id);
         ctx.Items["queueWaitMs"] = waitMs;
         ctx.Response.Headers.CacheControl = "no-store";
-        var forceBase64 = string.Equals(req.ResponseEncoding, "base64", StringComparison.OrdinalIgnoreCase);
-
-        var forceText = string.Equals(req.ResponseEncoding, "text", StringComparison.OrdinalIgnoreCase);
-        var extra = new List<Warning>();
-        var outputs = new List<OutputDto>();
-        foreach (var (name, result, _, _) in batch.Items.Where(i => i.Result != null))
-        {
-            foreach (var o in result!.Outputs)
-            {
-                var binary = o.Format.Kind == Formats.FormatKinds.Binary;
-                var asText = !binary && o.Unicode && !forceBase64;
-                if (binary && forceText && extra.Count == 0)
-                    extra.Add(new("encoding-ignored", "responseEncoding=text is ignored for binary targets; their content is always base64."));
-                outputs.Add(new OutputDto(o.FileName, o.Format.Name, o.Format.Id, o.Format.MediaType,
-                    asText ? DecodeUnicode(o.Bytes) : Convert.ToBase64String(o.Bytes), asText ? "text" : "base64", o.EncodingName, o.Cues,
-                    batch.IsZip ? name : null, o.Format.Kind, o.Verification));
-            }
-        }
-        var single = batch.IsZip ? null : batch.Items[0].Result;
-        if (single != null) SetDetected(ctx, single);
-        var warnings = batch.Warnings.Concat(batch.Items.SelectMany(i => i.Result?.Warnings ?? [])).Concat(extra).ToList();
-        if (single != null) ctx.Response.Headers["X-Output-Kind"] = single.Outputs[0].Format.Kind == Formats.FormatKinds.Binary ? "binary" : "text";
-        var stats = new StatsDto(batch.Items.Sum(i => i.Result?.ParagraphsIn ?? 0), batch.Items.Sum(i => i.Result?.Outputs.FirstOrDefault()?.Cues ?? 0),
-            batch.Items.Sum(i => i.Result?.ElapsedMs ?? 0), waitMs);
+        SetDetected(ctx, r);
+        ctx.Response.Headers["X-Output-Kind"] = r.Outputs[0].Format.Kind;
         if (presetName != null) ctx.Response.Headers["X-Profile"] = presetName;
-        return Results.Json(new ConvertJsonResponse(outputs, single?.Detected, stats, warnings, resolved, batch.IsZip ? Manifest(batch, opts) : null), Json.Options);
+        return Results.Json(ToJson(r, resolved, waitMs, req.ResponseEncoding, req.Output) with { Id = id }, Json.Options);
     }
 
-    // ---------------- shared helpers ----------------
+    private static ApiException JobNotFound() => new(404, ErrorCodes.JobNotFound, "Job is unknown or gone (expired, evicted or server restarted).", "Job history is in memory only. A missing record is not a failed conversion; inspect the original storage before resubmitting writes.");
 
-    internal static Batch RunBatch(ConversionEngine engine, ApiOptions opts, byte[] bytes, string? fileName, Profile profile, bool failFast, string pointerBase = "/file")
+    private static async Task<IResult> GetJobFile(string id, string which, HttpContext ctx, JobStore jobs, StorageRouter storage, Formats.FormatRegistry formats)
     {
-        var warnings = new List<Warning>();
-        if (!ZipIO.IsZip(bytes))
+        ctx.Response.Headers.CacheControl = "no-store";
+        var job = jobs.Get(id) ?? throw JobNotFound();
+        if (which == "output" && (string?)job["status"] == "running")
+            throw new ApiException(409, ErrorCodes.JobNotReady, "The conversion is still running; its output is not ready.", "Poll GET /v1/jobs/{id} and retry once succeeded. Stored input may already be readable.");
+        var location = (string?)job[which];
+        var publicLocation = location?.StartsWith('/') == true ? new Uri(location).AbsoluteUri : location;
+        if (location == null || which == "output" && (string?)job["status"] == "failed") throw new ApiException(409, which == "input" ? ErrorCodes.JobInputNotStored : ErrorCodes.JobOutputNotStored,
+            "The job has no stored " + which + " location.", which == "input" ? "The original request used upload/inline content; those bytes are not retained." : "No successful stored output is available (response-only or failed conversion). Inspect the original result/error and destination before retrying; response bytes are not retained.");
+        if ((bool?)job[which + "Replayable"] != true)
+            throw new ApiException(409, ErrorCodes.JobLocationNotReplayable, "This job location cannot be replayed because its HTTPS query was redacted.", "Use a fresh signed URL via input on a new request, or access storage directly. No signed query is retained by the job.") { Extensions = { ["location"] = publicLocation } };
+        var parsed = StorageLocation.Parse(location);
+        byte[] bytes;
+        try { bytes = await storage.ReadAsync(parsed, ctx.RequestAborted); }
+        catch (ApiException ex) when (ex.Code == "storage-not-found")
+        { throw new ApiException(404, ErrorCodes.JobFileGone, "The file is no longer at the job's stored location.", "Job history is not a file archive. Inspect storage or the original result; do not blindly repeat writes.") { Extensions = { ["location"] = publicLocation } }; }
+        var formatId = which == "input" ? (string?)job["result"]?["detected"]?["id"] : (string?)job["result"]?["outputs"]?.AsArray().FirstOrDefault()?["formatId"];
+        var format = formats.Find(formatId ?? Path.GetExtension(parsed.FileName));
+        ctx.Response.Headers["X-Job-Id"] = id;
+        return File(ctx, bytes, format?.MediaType ?? "application/octet-stream", parsed.FileName);
+    }
+
+    private static string ParseIfExists(string? value) => value switch
+    {
+        null or "error" => "error", "replace" => "replace",
+        _ => throw new ApiException(422, ErrorCodes.InvalidRequest, "Unknown ifExists policy.", "Valid ifExists values: error | replace. Archive and delete are not API operations.")
+            { Errors = [new("/ifExists", "error | replace")] },
+    };
+
+    private sealed record Completed(ConversionResult? Result, long WaitMs, ApiException? Error = null);
+
+    private static async Task<(ConversionResult? Result, long WaitMs, string Id)> RunJob(HttpContext ctx, JobStore jobs,
+        Func<string, CancellationToken, Task<(ConversionResult Result, long QueueWaitMs)>> work, JsonObject resolved, ApiOptions opts,
+        CancellationToken stopping, string? input = null, string? output = null)
+    {
+        var waitSeconds = ParseWait(ctx.Request.Headers["Prefer"].ToString(), opts.RequestWaitSeconds);
+        var id = jobs.Create(input, output);
+        ctx.Items["jobId"] = id;
+        ctx.Response.Headers["X-Job-Id"] = id;
+        ctx.Response.Headers.CacheControl = "no-store";
+        if (ctx.Request.Headers.ContainsKey("Prefer")) ctx.Response.Headers["Preference-Applied"] = $"wait={waitSeconds}";
+        // No HttpContext, request stream or request cancellation token is captured by the job.
+        var task = CompleteJob(jobs, id, work, resolved, opts, stopping, output, RequestIdMiddleware.Get(ctx), ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ConversionJobs"));
+        if (waitSeconds == 0) return (null, 0, id);
+        Completed done;
+        try { done = await task.WaitAsync(TimeSpan.FromSeconds(waitSeconds), ctx.RequestAborted); }
+        catch (TimeoutException) { return (null, 0, id); }
+        if (done.Error != null) throw done.Error;
+        return (done.Result, done.WaitMs, id);
+    }
+
+    private static async Task<Completed> CompleteJob(JobStore jobs, string id,
+        Func<string, CancellationToken, Task<(ConversionResult Result, long QueueWaitMs)>> work,
+        JsonObject resolved, ApiOptions opts, CancellationToken stopping, string? output, string requestId, ILogger logger)
+    {
+        try
         {
-            return new Batch(false, [new BatchItem(fileName ?? "subtitle", engine.Convert(bytes, fileName, profile), null)], warnings);
+            var (r, wait) = await work(id, stopping);
+            var metadata = ToJson(r, resolved, wait, null, output, includeContent: false);
+            metadata = metadata with { Outputs = metadata.Outputs.Select(o => o with { Content = null }).ToList(), Id = id };
+            jobs.Finish(id, JsonSerializer.SerializeToNode(metadata, Json.Options)!.AsObject());
+            return new(r, wait);
         }
-        var entries = ZipIO.Read(bytes, opts, warnings, pointerBase);
-        BatchNames.CheckEntries(entries.Where(e => e.SkipReason == null).Select(e => e.Name)); // before any conversion, whatever failFast says
-        var items = new List<BatchItem>();
-        var processed = 0; // <i> in pointers counts processed (non-skipped) entries
-        foreach (var e in entries)
+        catch (Exception ex)
         {
-            if (e.SkipReason != null)
+            var problem = ex as ApiException ?? new ApiException(500, ErrorCodes.InternalError, "Conversion failed or was interrupted by server shutdown.", "See the server logs.");
+            problem.Extensions["id"] = id;
+            if (ex is not ApiException)
             {
-                items.Add(new BatchItem(e.Name, null, null, e.SkipReason));
-                continue;
+                // Do not log exception messages: a transport may include a signed URL.
+                logger.LogError("Job {jobId} request {requestId} failed: {exceptionType} {stackTrace}", id, requestId, ex.GetType().FullName, ex.StackTrace);
+                problem.Debug["exceptionType"] = ex.GetType().FullName;
+                problem.Debug["stackTrace"] = ex.StackTrace;
             }
-            var i = processed++;
-            try
-            {
-                items.Add(new BatchItem(e.Name, engine.Convert(e.Bytes, e.Name, profile), null));
-            }
-            catch (ApiException ex) when (ex.Code is not (ErrorCodes.InvalidProfile or ErrorCodes.InvalidRequest))
-            {
-                if (failFast)
-                {
-                    var stop = new ApiException(ex.Status, ex.Code, $"Zip entry {i} ('{e.Name}') failed: {ex.Message}", ex.Hint + " (failFast=true stops at the first failing entry.)", ex.InnerException)
-                    { Errors = [new FieldError($"{pointerBase}/entries/{i}", ex.Message, ex.Hint)] };
-                    foreach (var (k, v) in ex.Extensions) stop.Extensions[k] = v; // e.g. candidates (ambiguous-format)
-                    stop.Extensions["entry"] = e.Name;
-                    foreach (var (k, v) in ex.Debug) stop.Debug[k] = v;
-                    throw stop;
-                }
-                ex.Extensions["entry"] = e.Name;
-                items.Add(new BatchItem(e.Name, null, ex));
-            }
+            jobs.Finish(id, error: Problems.ToJson(problem, requestId, opts.ErrorsVerbose));
+            return new(null, 0, problem); // observed even when the original HTTP request already returned 202
         }
-        return new Batch(true, FinalNames(items), warnings);
     }
 
-    /// <summary>
-    /// Final output paths for a zip batch (entry folder + output file name), decided once so the
-    /// manifest, JSON outputs[] and the zip agree. Collisions fail the request; nothing is renamed.
-    /// </summary>
-    private static List<BatchItem> FinalNames(List<BatchItem> items)
+    internal static int ParseWait(string prefer, int defaultWait)
     {
-        var named = items.Select(item => item.Result == null ? item
-            : item with { Result = item.Result with { Outputs = item.Result.Outputs.Select(o => o with { FileName = EntryOutputName(item.Name, o.FileName) }).ToList() } }).ToList();
-        BatchNames.CheckOutputs(named.Where(i => i.Result != null).SelectMany(i => i.Result!.Outputs.Select(o => (o.FileName, i.Name))));
-        return named;
+        var values = prefer.Split(',').Select(p => p.Trim()).Where(p => p.StartsWith("wait", StringComparison.OrdinalIgnoreCase) && (p.Length == 4 || p[4] is '=' or ' ')).ToList();
+        if (values.Count == 0) return defaultWait;
+        var parts = values[0].Split('=', 2, StringSplitOptions.TrimEntries);
+        if (values.Count != 1 || parts.Length != 2 || !int.TryParse(parts[1], System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var wait) || wait is < 0 or > 60)
+            throw new ApiException(400, ErrorCodes.InvalidRequest, "Prefer: wait must be one integer from 0 to 60 seconds.", "Use Prefer: wait=30, or wait=0 for an immediate job id.");
+        return wait;
     }
 
-    private static List<ManifestEntry> Manifest(Batch batch, ApiOptions opts) =>
-        batch.Items.Select(i => new ManifestEntry(i.Name, i.SkipReason != null ? "skipped" : i.Error == null ? "ok" : "error",
-            i.Result?.Outputs.Select(o => o.FileName).ToArray() ?? [],
-            i.Result?.Detected, i.Result?.Warnings ?? [],
-            i.Error == null ? null : Problems.ToJson(i.Error, "", opts.ErrorsVerbose).Also(j => j.Remove("requestId")),
-            i.Result?.Detected.Kind, i.Result?.Detected.CodePage, i.SkipReason,
-            i.Result?.Outputs.Where(o => o.Verification != null).ToDictionary(o => o.FileName, o => o.Verification!) is { Count: > 0 } v ? v : null)).ToList();
-
-    private static string EntryOutputName(string entryName, string outputName)
+    private static IResult Accepted(HttpContext ctx, JobStore jobs, string id)
     {
-        var dir = Path.GetDirectoryName(entryName)?.Replace('\\', '/');
-        return string.IsNullOrEmpty(dir) ? outputName : $"{dir}/{outputName}";
+        ctx.Response.Headers.Location = $"/v1/jobs/{id}";
+        ctx.Response.Headers.RetryAfter = "1";
+        return Results.Json(new { id, status = "running", location = $"/v1/jobs/{id}" }, Json.Options, statusCode: 202);
     }
 
-    private static async Task<(byte[] Bytes, string? FileName, string? Preset, string? Profile, string? Target, bool FailFast)> ReadMultipart(HttpContext ctx, ApiOptions opts)
+    internal static ConvertJsonResponse ToJson(ConversionResult r, JsonObject resolved, long waitMs, string? responseEncoding, string? output = null, bool includeContent = true)
+    {
+        var warnings = r.Warnings.ToList();
+        var outputs = new List<OutputDto>();
+        foreach (var o in r.Outputs)
+        {
+            var binary = o.Format.Kind == Formats.FormatKinds.Binary;
+            var asText = !binary && o.Unicode && !string.Equals(responseEncoding, "base64", StringComparison.OrdinalIgnoreCase);
+            if (binary && string.Equals(responseEncoding, "text", StringComparison.OrdinalIgnoreCase) && !warnings.Any(w => w.Code == "encoding-ignored"))
+                warnings.Add(new("encoding-ignored", "responseEncoding=text is ignored for binary targets; their content is always base64."));
+            outputs.Add(new(o.FileName, o.Format.Name, o.Format.Id, o.Format.MediaType,
+                output != null || !includeContent ? null : asText ? DecodeUnicode(o.Bytes) : Convert.ToBase64String(o.Bytes), asText ? "text" : "base64", o.EncodingName, o.Cues,
+                Kind: o.Format.Kind, Verification: o.Verification, Output: JobStore.Redact(output), Bytes: o.Bytes.Length));
+        }
+        return new(outputs, r.Detected, new(r.ParagraphsIn, r.Outputs[0].Cues, r.ElapsedMs, waitMs), warnings, resolved);
+    }
+
+    internal static void RejectZip(byte[] bytes, string? fileName)
+    {
+        if ((bytes.Length >= 4 && bytes[0] == 'P' && bytes[1] == 'K' && bytes[2] is 3 or 5 or 7 && bytes[3] is 4 or 6 or 8)
+            || string.Equals(Path.GetExtension(fileName), ".zip", StringComparison.OrdinalIgnoreCase))
+            throw new ApiException(422, ErrorCodes.FormatNotSupported, "ZIP input is not supported. Send one subtitle per request.", "Extract the archive and submit a separate conversion for each subtitle.");
+    }
+
+    private static async Task<(byte[]? Bytes, string? FileName, string? Preset, string? Profile, string? Target, string? Input, string? Output, bool Sidecar, string IfExists)> ReadMultipart(HttpContext ctx, ApiOptions opts)
     {
         if (!ctx.Request.HasFormContentType || !(ctx.Request.ContentType ?? "").StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ApiException(415, ErrorCodes.UnsupportedMediaType, $"Content-Type '{ctx.Request.ContentType}' is not supported here.",
-                "Use multipart/form-data (curl -F file=@movie.srt -F target=webvtt), or POST /v1/convert/json.");
-        }
-        if (ctx.Request.ContentLength > opts.MaxUploadBytes + 128 * 1024) throw Problems.TooLarge(opts);
+            throw new ApiException(415, ErrorCodes.UnsupportedMediaType, "Use multipart/form-data here.", "Send file or input, or use POST /v1/convert/json.");
         var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
         var file = form.Files.GetFile("file");
-        if (file == null)
+        var input = NullIfEmpty(form["input"]);
+        if ((file == null) == (input == null)) throw new ApiException(400, ErrorCodes.InvalidRequest, "Provide exactly one of multipart file or input.", "Send one subtitle per request.");
+        byte[]? bytes = null;
+        if (file != null)
         {
-            throw new ApiException(400, ErrorCodes.InvalidRequest, "Missing the 'file' part.", "Send the subtitle as a multipart part named 'file' (curl -F file=@movie.srt).")
-            { Errors = [new FieldError("/file", "Required.")] };
+            if (file.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms, ctx.RequestAborted); bytes = ms.ToArray();
         }
-        if (file.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
-        var ms = new MemoryStream((int)file.Length);
-        await file.CopyToAsync(ms, ctx.RequestAborted);
-        var failFastRaw = form["failFast"].ToString();
-        return (ms.ToArray(), file.FileName, NullIfEmpty(form["preset"]), NullIfEmpty(form["profile"]), NullIfEmpty(form["target"]),
-            failFastRaw.Equals("true", StringComparison.OrdinalIgnoreCase) || failFastRaw == "1");
+        var sidecar = false;
+        if (form.ContainsKey("sidecar") && !bool.TryParse(form["sidecar"], out sidecar))
+            throw new ApiException(400, ErrorCodes.InvalidRequest, "sidecar must be true or false.", "Use sidecar=true to write a JSON companion file.");
+        return (bytes, file?.FileName, NullIfEmpty(form["preset"]), NullIfEmpty(form["profile"]), NullIfEmpty(form["target"]), input, NullIfEmpty(form["output"]), sidecar, ParseIfExists(form.ContainsKey("ifExists") ? form["ifExists"].ToString() : null));
+    }
+
+    private static async Task<(ConversionResult Result, long QueueWaitMs)> ConvertWork(StorageRouter storage, byte[]? uploaded, string? fileName,
+        StorageLocation? input, StorageLocation? output, bool sidecar, ConversionQueue queue, ConversionEngine engine, Profile profile,
+        JsonObject resolved, string id, CancellationToken ct, bool replace)
+    {
+        if (output != null && (profile.Target?.Additional?.Count ?? 0) != 0)
+            throw new ApiException(422, ErrorCodes.InvalidRequest, "An explicit output names one file, but this profile has additional targets.", "Remove target.additional, or omit output to receive multiple results inline.");
+        var bytes = input == null ? uploaded! : await storage.ReadAsync(input, ct);
+        RejectZip(bytes, fileName);
+        var (r, wait) = await queue.RunAsync(() => engine.Convert(bytes, fileName, profile), ct);
+        if (output != null)
+        {
+            var o = r.Outputs.Single();
+            await storage.WriteAsync(output, o.Bytes, o.Format.MediaType, ct, replace);
+            if (!sidecar && output.Scheme != "https")
+            {
+                // The subtitle at this location is new, so a companion {output}.json left from an earlier job describes a file
+                // that no longer exists: delete it (Wauter, 2026-11-06). Never fails the conversion.
+                try
+                {
+                    await storage.DeleteAsync(StorageLocation.Parse(output.Value + ".json"), ct);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+                {
+                    r.Warnings.Add(new("sidecar-delete-failed", "The subtitle was written, but an older JSON sidecar next to it ({output}.json) could not be deleted; it describes a previous file.",
+                        Hint: "Delete or ignore the stale sidecar (check permissions on that path); the subtitle was kept. Or send sidecar:true to replace it."));
+                }
+            }
+            if (sidecar)
+            {
+                if (output.Scheme == "https") r.Warnings.Add(new("sidecar-skipped", "HTTPS output names one object; no second signed sidecar URL can be derived."));
+                else
+                {
+                    try
+                    {
+                        var metadata = ToJson(r, resolved, wait, null, output.Value) with { Id = id };
+                        await storage.WriteAsync(StorageLocation.Parse(output.Value + ".json"), JsonSerializer.SerializeToUtf8Bytes(metadata, Json.Options), "application/json", ct, replace);
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        r.Warnings.Add(new("sidecar-write-failed", "The subtitle was written but its JSON sidecar could not be written.", Hint: "Check the sidecar path, permissions, limits and existing files; the subtitle was kept."));
+                    }
+                }
+            }
+        }
+        return (r, wait);
     }
 
     internal static ApiException ProfileTooLarge(ApiOptions opts) =>

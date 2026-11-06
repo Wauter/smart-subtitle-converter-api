@@ -46,8 +46,8 @@ public class ApiFixesTests(ApiFactory f) : IClassFixture<ApiFactory>
         var spec = await Spec();
         var schemas = spec["components"]!["schemas"]!;
         Assert.Null(schemas["ProblemDetails"]);
-        Assert.Contains("ApiProblem", schemas["ManifestEntry"]!["properties"]!["error"]!.ToJsonString());
-        Assert.Equal(["content"], schemas["ConvertJsonRequest"]!["required"]!.AsArray().Select(v => (string)v!));
+        Assert.Null(schemas["ManifestEntry"]);
+        Assert.True(schemas["ConvertJsonRequest"]!["required"] == null || schemas["ConvertJsonRequest"]!["required"]!.AsArray().Count == 0);
         Assert.Equal("bearer", (string)spec["components"]!["securitySchemes"]!["bearer"]!["scheme"]!);
         foreach (var (path, item) in spec["paths"]!.AsObject())
         foreach (var (method, op) in item!.AsObject())
@@ -74,11 +74,11 @@ public class ApiFixesTests(ApiFactory f) : IClassFixture<ApiFactory>
     [Fact] // A5
     public async Task Binding_failures_are_problem_json()
     {
-        var r = await _c.PostAsync("/v1/convert/json", new StringContent("""{"content":"x","target":"srt","failFast":"yes"}""", Encoding.UTF8, "application/json"));
+        var r = await _c.PostAsync("/v1/convert/json", new StringContent("""{"content":"x","target":"srt","responseEncoding":42}""", Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
         var p = await r.Json();
         Assert.Equal("invalid-request", (string)p["code"]!);
-        Assert.Equal("/failFast", (string)p["errors"]![0]!["pointer"]!);
+        Assert.Equal("/responseEncoding", (string)p["errors"]![0]!["pointer"]!);
         Assert.Equal("application/problem+json", r.Content.Headers.ContentType!.MediaType);
 
         r = await _c.PostAsync("/v1/convert/json", new StringContent("{not json", Encoding.UTF8, "application/json"));
@@ -93,101 +93,6 @@ public class ApiFixesTests(ApiFactory f) : IClassFixture<ApiFactory>
         p = await r.Json();
         Assert.Equal("invalid-request", (string)p["code"]!);
         Assert.Equal("/query/textOnly", (string)p["errors"]![0]!["pointer"]!);
-    }
-
-    [Fact] // A7
-    public async Task Dot_dot_is_rejected_only_as_a_path_segment()
-    {
-        var ok = await _c.PostAsync("/v1/convert", Samples.Form(Samples.Zip(("a..b.srt", Srt)), "in.zip", ("target", "webvtt")));
-        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
-        using (var z = new ZipArchive(await ok.Content.ReadAsStreamAsync()))
-            Assert.Contains(z.Entries, e => e.FullName == "a..b.vtt");
-        var bad = await _c.PostAsync("/v1/convert", Samples.Form(Samples.Zip(("x/../../evil.srt", Srt)), "in.zip", ("target", "webvtt")));
-        Assert.Equal("unsafe-zip", (string)(await bad.Json())["code"]!);
-    }
-
-    private static readonly byte[] Vtt = Encoding.UTF8.GetBytes("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n");
-
-    [Theory] // ambiguous-batch-names, replaces A8 renaming
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Entries_with_the_same_folder_and_stem_are_rejected_before_conversion(bool json)
-    {
-        // failFast=false (default) still rejects; nothing is converted.
-        var zip = Samples.Zip(("ep1.srt", Srt), ("EP1.vtt", Vtt), ("ep2.srt", Srt), ("s2/ep1.srt", Srt));
-        var r = json
-            ? await _c.PostAsJsonAsync("/v1/convert/json", new { content = Convert.ToBase64String(zip), contentEncoding = "base64", target = "subrip", failFast = false })
-            : await _c.PostAsync("/v1/convert", Samples.Form(zip, "in.zip", ("target", "subrip"), ("failFast", "false")));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, r.StatusCode);
-        Assert.Equal("application/problem+json", r.Content.Headers.ContentType!.MediaType);
-        var p = await r.Json();
-        Assert.Equal("ambiguous-batch-names", (string)p["code"]!);
-        Assert.Equal(["ep1.srt", "EP1.vtt"], p["errors"]!.AsArray().Select(e => (string)e!["pointer"]!));
-        Assert.Contains("'EP1.vtt'", (string)p["errors"]![0]!["message"]!);
-        var groups = p["groups"]!.AsArray();
-        Assert.Single(groups);
-        Assert.Equal(["ep1.srt", "EP1.vtt"], groups[0]!.AsArray().Select(n => (string)n!));
-        Assert.NotNull(p["requestId"]);
-    }
-
-    [Fact]
-    public async Task Same_stem_in_different_folders_is_fine()
-    {
-        var zip = Samples.Zip(("s1/ep1.srt", Srt), ("s2/ep1.vtt", Vtt), ("s1/ep1-forced.srt", Srt));
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(zip, "in.zip", ("target", "subrip")));
-        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
-        using var z = new ZipArchive(await r.Content.ReadAsStreamAsync());
-        var names = z.Entries.Select(e => e.FullName).Where(n => n != "manifest.json").Order(StringComparer.Ordinal).ToArray();
-        Assert.Equal(["s1/ep1-forced.srt", "s1/ep1.srt", "s2/ep1.srt"], names);
-        using var m = new StreamReader(z.GetEntry("manifest.json")!.Open());
-        var manifest = JsonNode.Parse(m.ReadToEnd())!;
-        Assert.Equal(names, manifest["entries"]!.AsArray().SelectMany(e => e!["outputs"]!.AsArray().Select(o => (string)o!)).Order(StringComparer.Ordinal).ToArray());
-
-        var j = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = Convert.ToBase64String(zip), contentEncoding = "base64", target = "subrip" })).Json();
-        Assert.Equal(names, j["outputs"]!.AsArray().Select(o => (string)o!["fileName"]!).Order(StringComparer.Ordinal).ToArray());
-    }
-
-    [Theory]
-    [InlineData("out.{ext}", "out.vtt")]       // template without {stem}
-    [InlineData("manifest.json", "manifest.json")] // reserved name
-    public async Task Colliding_output_paths_fail_the_request(string template, string output)
-    {
-        var zip = Samples.Zip(("a.srt", Srt), ("b.srt", Srt));
-        var profile = "{\"target\":{\"format\":\"webvtt\",\"fileName\":\"" + template + "\"}}";
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(zip, "in.zip", ("profile", profile)));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, r.StatusCode);
-        var p = await r.Json();
-        Assert.Equal("ambiguous-batch-names", (string)p["code"]!);
-        Assert.Equal([output], p["outputs"]!.AsArray().Select(o => (string)o!));
-        Assert.Contains("a.srt", p["errors"]!.AsArray().Select(e => (string)e!["pointer"]!));
-        Assert.Contains("b.srt", p["errors"]!.AsArray().Select(e => (string)e!["pointer"]!));
-        Assert.Contains($"'{output}'", (string)p["errors"]![0]!["message"]!);
-    }
-
-    [Fact] // A9
-    public async Task Skipped_entries_are_listed_and_errors_name_the_entry()
-    {
-        var zip = Samples.Zip(("inner.zip", Samples.Zip(("a.srt", Srt))), ("__MACOSX/._a.srt", [0, 5, 22]), ("a.srt", Srt), ("bad.srt", Encoding.UTF8.GetBytes("nonsense")));
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(zip, "in.zip", ("target", "webvtt")));
-        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
-        Assert.Equal("2", r.Header("X-Entries-Skipped"));
-        Assert.Equal("1", r.Header("X-Entries-Failed"));
-        using var z = new ZipArchive(await r.Content.ReadAsStreamAsync());
-        using var m = new StreamReader(z.GetEntry("manifest.json")!.Open());
-        var entries = JsonNode.Parse(m.ReadToEnd())!["entries"]!.AsArray();
-        var nested = entries.Single(e => (string)e!["source"]! == "inner.zip")!;
-        Assert.Equal("skipped", (string)nested["status"]!);
-        Assert.Equal("nested-zip", (string)nested["reason"]!);
-        Assert.Equal("macos-metadata", (string)entries.Single(e => (string)e!["source"]! == "__MACOSX/._a.srt")!["reason"]!);
-        var bad = entries.Single(e => (string)e!["source"]! == "bad.srt")!;
-        Assert.Equal("bad.srt", (string)bad["error"]!["entry"]!);
-        Assert.Null(bad["error"]!["requestId"]);
-
-        var j = await _c.PostAsJsonAsync("/v1/convert/json", new { content = Convert.ToBase64String(zip), contentEncoding = "base64", target = "webvtt", failFast = true });
-        var p = await j.Json();
-        Assert.Equal("format-not-detected", (string)p["code"]!);
-        Assert.Equal("bad.srt", (string)p["entry"]!);
-        Assert.Equal("/content/entries/1", (string)p["errors"]![0]!["pointer"]!); // processed entries: a.srt=0, bad.srt=1
     }
 
     [Fact] // A11

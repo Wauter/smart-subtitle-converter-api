@@ -13,16 +13,20 @@ public static class OpenApiBodies
     private static OpenApiSchema Str(string description, string? format = null) =>
         new() { Type = JsonSchemaType.String, Description = description, Format = format };
 
+    private static OpenApiSchema Part(string key, string description) => key == "ifExists"
+        ? new() { Type = JsonSchemaType.String, Description = description, Enum = ["error", "replace"], Default = System.Text.Json.Nodes.JsonValue.Create("error") }
+        : Str(description);
+
     public static OpenApiMediaType Multipart(Dictionary<string, string> textParts) => new()
     {
         Schema = new OpenApiSchema
         {
             Type = JsonSchemaType.Object,
-            Required = new HashSet<string> { "file" },
+            Required = new HashSet<string>(),
             Properties = new Dictionary<string, IOpenApiSchema>
             {
-                ["file"] = Str("The subtitle file, or a zip of subtitle files.", "binary"),
-            }.Concat(textParts.Select(p => KeyValuePair.Create(p.Key, (IOpenApiSchema)Str(p.Value)))).ToDictionary(),
+                ["file"] = Str("One subtitle file.", "binary"),
+            }.Concat(textParts.Select(p => KeyValuePair.Create(p.Key, (IOpenApiSchema)Part(p.Key, p.Value)))).ToDictionary(),
         },
     };
 
@@ -35,10 +39,13 @@ public static class OpenApiBodies
 
     public static readonly Dictionary<string, string> ConvertParts = new()
     {
+        ["ifExists"] = "error (default) | replace. Filesystem/S3 reject existing outputs by default; HTTPS follows signer/receiver policy.",
+        ["input"] = "Storage URI; mutually exclusive with file.",
+        ["output"] = "Exact output URI; omit to receive converted bytes.",
+        ["sidecar"] = "true | false (default false), write output.json beside output.",
         ["preset"] = "Preset name (GET /v1/profiles).",
         ["target"] = "Target format id/alias; shorthand for profile.target.format.",
         ["profile"] = "Profile JSON (full profile or overrides on top of preset). Schema: GET /v1/schemas/profile.json.",
-        ["failFast"] = "Zip input only: 'true' stops at the first failing entry instead of reporting it in manifest.json.",
     };
 
     public static OpenApiMediaType JsonObject(Dictionary<string, string> props, params string[] required) => new()
@@ -47,7 +54,7 @@ public static class OpenApiBodies
         {
             Type = JsonSchemaType.Object,
             Required = required.ToHashSet(),
-            Properties = props.ToDictionary(p => p.Key, p => (IOpenApiSchema)Str(p.Value)),
+            Properties = props.ToDictionary(p => p.Key, p => (IOpenApiSchema)Part(p.Key, p.Value)),
         },
     };
 }

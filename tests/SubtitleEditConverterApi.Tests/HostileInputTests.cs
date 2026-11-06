@@ -44,30 +44,6 @@ public class HostileInputTests : IClassFixture<HostileInputTests.SmallLimits>
     }
 
     [Fact]
-    public async Task Zip_bomb_by_ratio_and_size_is_413()
-    {
-        var ms = new MemoryStream();
-        using (var z = new ZipArchive(ms, ZipArchiveMode.Create, true))
-        {
-            using var s = z.CreateEntry("bomb.srt", CompressionLevel.SmallestSize).Open();
-            s.Write(new byte[20_000_000]);
-        }
-        Assert.Equal((413, "zip-limits-exceeded"), await Post(ms.ToArray(), "bomb.zip"));
-    }
-
-    [Theory]
-    [InlineData("../evil.srt")]
-    [InlineData("/etc/evil.srt")]
-    [InlineData("dir\\evil.srt")]
-    [InlineData("C:evil.srt")]
-    public async Task Zip_path_traversal_is_rejected(string name) =>
-        Assert.Equal((422, "unsafe-zip"), await Post(Samples.Zip((name, Encoding.UTF8.GetBytes(Samples.Srt))), "e.zip"));
-
-    [Fact]
-    public async Task Too_many_zip_entries_is_413() =>
-        Assert.Equal((413, "zip-limits-exceeded"), await Post(Samples.Zip(Enumerable.Range(0, 6).Select(i => ($"{i}.srt", Encoding.UTF8.GetBytes(Samples.Srt))).ToArray()), "many.zip"));
-
-    [Fact]
     public async Task Pathological_regex_times_out_cleanly()
     {
         var evil = "1\r\n00:00:01,000 --> 00:00:02,000\r\n" + new string('a', 3000) + "!\r\n";

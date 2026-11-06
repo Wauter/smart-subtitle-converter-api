@@ -21,11 +21,10 @@ enforces it for `src/` changes. `/healthz` and the OpenAPI `info.version` report
 
 [`postman/`](../postman) has a v2.1 collection covering every endpoint with the examples from [usage.md](usage.md)
 and [formats.md](formats.md) (health, formats, detect, profiles list/get/validate, schema, convert with target,
-preset, overrides, inline profile, multi-output zip, zip in/out, JSON in/out, limits, binary formats: SRT→STL,
-STL→SRT, PAC with a code page, a mixed text/binary zip) and the error cases (unsupported format, read-only target,
+preset, overrides, inline profile, multiple-target JSON, JSON in/out, limits, binary formats: SRT→STL,
+STL→SRT, PAC with a code page, ZIP rejection) and the error cases (unsupported format, read-only target,
 truncated STL, bad profile, unknown preset, wrong media type, missing/wrong API key). Each request has test scripts
-for status codes and key headers (`X-Request-Id`, `X-Detected-*`, `X-Cue-Count`, `X-Profile`, `X-Entries-*`,
-problem+json `code`).
+for status codes, response headers and problem+json `code`.
 
 - Import `postman/subtitleedit-converter-api.postman_collection.json` and
   `postman/subtitleedit-converter-api.postman_environment.json`.
@@ -52,3 +51,7 @@ When all of that is green:
 
 Both are multi-arch with SBOM and provenance. PRs never push. Tags and releases are cut only on the owner's
 go-ahead. Image tags for users: [deployment.md](deployment.md#image-tags).
+
+## Isolated S3-compatible tests
+
+Set `MINIO_BIN` to a local MinIO server executable when running `dotnet test`. CI builds its pinned test dependency from public source. The test starts a loopback-only process on a temporary port with generated throwaway credentials, writes only into a temporary directory, and stops only that process afterwards. No personal S3 key or external bucket is needed. HTTPS-to-S3 uses an injected deterministic HTTPS transport; S3 traffic goes to real MinIO. Without `MINIO_BIN`, the integration test is explicitly skipped; policy/retry tests still run.

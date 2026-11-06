@@ -6,6 +6,40 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Nothing here has been tagged or released yet; the private `:edge` image carries
 the version of the `main` commit it was built from.
 
+## 1.3.0 — Unreleased
+
+Broadcast-tester follow-ups:
+
+- PAC input code page `auto` now probes all 13 code pages and keeps one only when it yields words of a language that page serves (`codePageConfidence: "probed"`, `probedLanguage`). No match or several different texts: new `422 ambiguous-encoding` with `candidates` and `probe: "pac-code-page"` instead of a silent Latin read. An explicit `inputCodePage` is `"forced"`. A `.pac` name or `source.format: pac` loads PAC even when libse's header check fails. Word-poor PAC files need `inputCodePage`.
+- Non-UTF-8 text is probed over the common Windows, ISO-8859 and CJK encodings the same way (`encodingConfidence: "probed"`); conflicting readings give `422 ambiguous-encoding` (`probe: "text-encoding"`); with no recognisable words libse's heuristic is used with a new `encoding-guessed` warning. `encoding.input` still forces.
+- Text encoding probe: distinctive-script matches (Arabic, Hebrew, Thai, Greek, Cyrillic, CJK) with dictionary hits drop Latin code-page rivals before deciding, so legacy Arabic/Hebrew/Thai SRTs no longer 422 against a windows-1250 false rival. Genuine clashes still return `422 ambiguous-encoding` with per-candidate `{encoding, language, hits, sample}` (samples always present). New optional `encoding.language` filters the probe; successful force/language retries warn `encoding-forced` / `language-applied` (`encodingConfidence` `forced` / `language`). The no-dictionary-hits `encoding-guessed` path is unchanged.
+- Breaking (timing): `target.fps` no longer rescales time-based sources (SRT, WebVTT, ...). Rescaling uses `source.fps` or a rate the file states/implies (EBU header, SCC timecodes); `formatDetails.frameRate`/`frameRateSource` report it. New `frame-rate-assumed` warning when a frame-based source is read at libse's default.
+- SCC with drop-frame (`;`) timecodes, or frame numbers of 25 and above, is read at 29.97.
+- New source warnings `overlapping-cues`, `long-cue` (over 30 s, with durations) and `programme-start-not-applied` (EBU STL with a non-zero TCP; times unchanged).
+- New `format-defaults-applied` warning lists EBU STL / Cavena 890 identity fields filled in although the request didn't set them (libse's `No Title`, `USA`, fallback language, Cavena file-name title).
+- Writing an output without `sidecar` deletes a stale `{output}.json` (filesystem, S3); failure keeps the subtitle and adds `sidecar-delete-failed`.
+- Filesystem outputs are created `0644` (was `0600`).
+- Docs: every error and warning code in `docs/errors.md` now explains what happened, why, and what to do, with the technical details for integrators after it; the README covers storage, jobs and the new checks in the main flow.
+
+- Add input/output job-file routes that re-read storage without retaining bytes; any valid key knowing an unguessable id can read job metadata/files. Distinguish not-ready, not-found, unstored, gone and non-replayable locations, with redacted locations where applicable.
+- Add request-level ifExists error | replace for filesystem/S3. S3 default PUT is conditional; explicit filesystem replacement stages before rename. HTTPS PUT retains signer/receiver semantics. Report the documented maximum wait through limits.
+
+- Complete storage/job configuration, usage, mount/UID, policy, error and limits documentation; add a commented `.env.example` and opt-in Postman URI examples.
+- Report effective caller wait, I/O retries/timeouts, enabled schemes and job caps/TTL in `/v1/limits`; retain original request correlation and job id on admitted conversion failures.
+
+- Add S3-compatible storage through AWSSDK.S3, configured endpoint/path-style, bucket/prefix allowlists and independent hybrid source/destination schemes.
+
+- Add allowlisted HTTPS GET/PUT with connection-time IP checks, capped streaming, separate I/O budgets and transient retries. Skip HTTPS sidecars with a warning.
+
+- Add allowlisted Linux filesystem inputs/outputs, optional sibling staging and per-request metadata sidecars. Existing files and symlinks are rejected.
+
+- Wait up to the configured default (30 seconds), honour Prefer: wait=0..60 and return 202 with polling headers when work continues.
+
+- Every conversion has a job id. Add bounded in-memory metadata retention and GET /v1/jobs/{id}; no subtitle bytes are retained.
+
+- Breaking: remove ZIP batch input/output and failFast. Submit one subtitle per request. Multiple targets from one subtitle return JSON rather than ZIP.
+- Paired with MCP 1.3.0.
+
 ## 1.2.1 (unreleased)
 
 `characters-replaced` remedies state facts instead of guessing (approved by Wauter).

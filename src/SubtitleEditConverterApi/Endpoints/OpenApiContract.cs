@@ -30,17 +30,17 @@ public static class OpenApiContract
         schemas["FieldError"] = new OpenApiSchema
         {
             Type = JsonSchemaType.Object,
-            Description = "A problem located by a JSON pointer (profile field, zip entry, query parameter, ...).",
+            Description = "A problem located by a JSON pointer (profile field, query parameter, ...).",
             Required = new HashSet<string> { "pointer", "message" },
             Properties = new Dictionary<string, IOpenApiSchema>
             {
-                ["pointer"] = Str("JSON pointer, e.g. /target/format or /file/entries/2; for ambiguous-batch-names the zip entry path."), ["message"] = Str(), ["hint"] = Str(),
+                ["pointer"] = Str("JSON pointer, e.g. /target/format."), ["message"] = Str(), ["hint"] = Str(),
             },
         };
         schemas["ApiProblem"] = new OpenApiSchema
         {
             Type = JsonSchemaType.Object,
-            Description = "RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `entry` (zip entry name), `phase` (conversion-timeout: queue|running), `groups`/`outputs` (ambiguous-batch-names), `candidates` (ambiguous-format).",
+            Description = "RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `phase` (conversion-timeout: queue|running), `candidates` (ambiguous-format, ambiguous-encoding), `probe` (ambiguous-encoding: pac-code-page|text-encoding).",
             Required = new HashSet<string> { "type", "title", "status", "code", "detail", "hint" },
             Properties = new Dictionary<string, IOpenApiSchema>
             {
@@ -50,45 +50,29 @@ public static class OpenApiContract
                 ["code"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = AllCodes.Select(c => (System.Text.Json.Nodes.JsonNode)c!).ToList() },
                 ["detail"] = Str(),
                 ["hint"] = Str("What to do about it."),
-                ["requestId"] = Str("Same as the X-Request-Id header; absent inside manifest entries."),
+                ["requestId"] = Str("Same as the X-Request-Id header."),
                 ["errors"] = new OpenApiSchema { Type = JsonSchemaType.Array, Items = new OpenApiSchemaReference("FieldError", doc) },
                 ["debug"] = new OpenApiSchema { Type = JsonSchemaType.Object, Description = "Diagnostics, only when ERRORS_VERBOSE=true. Never contains file content." },
-                ["entry"] = Str("Zip entry name, for per-entry and failFast errors."),
-                ["groups"] = new OpenApiSchema
-                {
-                    Type = JsonSchemaType.Array, Description = "ambiguous-batch-names only: clashing zip entry paths, one array per group.",
-                    Items = new OpenApiSchema { Type = JsonSchemaType.Array, Items = new OpenApiSchema { Type = JsonSchemaType.String } },
-                },
-                ["outputs"] = new OpenApiSchema
-                {
-                    Type = JsonSchemaType.Array, Description = "ambiguous-batch-names only, for output-path clashes: the colliding output paths.",
-                    Items = new OpenApiSchema { Type = JsonSchemaType.String },
-                },
                 ["phase"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["queue", "running"], Description = "conversion-timeout only: queue is retryable like 503." },
                 ["candidates"] = new OpenApiSchema
                 {
-                    Type = JsonSchemaType.Array, Description = "ambiguous-format only: the format ids the bytes match; set profile.source.format to one of them.",
-                    Items = new OpenApiSchema { Type = JsonSchemaType.String },
+                    Type = JsonSchemaType.Array,
+                    Description = "ambiguous-format: format ids (strings). ambiguous-encoding pac-code-page: code page names (strings). ambiguous-encoding text-encoding: objects {encoding, language, hits, sample}; set encoding.input or encoding.language, picking only from this list.",
+                    Items = new OpenApiSchema { Description = "string (format id / PAC code page) or {encoding, language, hits, sample} for text-encoding." },
                 },
+                ["probe"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["pac-code-page", "text-encoding"], Description = "ambiguous-encoding only: which probe could not decide." },
             },
             AdditionalPropertiesAllowed = true,
         };
         schemas.Remove("ProblemDetails");
 
-        if (schemas.TryGetValue("ManifestEntry", out var me) && me is OpenApiSchema mes && mes.Properties != null)
-        {
-            mes.Properties["error"] = new OpenApiSchema
-            {
-                Description = "The entry's problem (ApiProblem without requestId); the request's X-Request-Id covers all entries.",
-                OneOf = [new OpenApiSchema { Type = JsonSchemaType.Null }, new OpenApiSchemaReference("ApiProblem", doc)],
-            };
-            mes.Properties["status"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["ok", "error", "skipped"] };
-            mes.Properties["reason"] = new OpenApiSchema { Type = JsonSchemaType.String | JsonSchemaType.Null, Enum = ["nested-zip", "macos-metadata", null!], Description = "Why a skipped entry wasn't converted." };
-        }
         foreach (var name in new[] { "ConvertJsonRequest", "DetectJsonRequest" })
         {
-            if (schemas.TryGetValue(name, out var rs) && rs is OpenApiSchema r) r.Required = new HashSet<string> { "content" };
+            if (schemas.TryGetValue(name, out var rs) && rs is OpenApiSchema r) r.Required = new HashSet<string>();
         }
+
+        if (schemas.TryGetValue("ConvertJsonRequest", out var convertSchema) && convertSchema is OpenApiSchema convert && convert.Properties != null)
+            convert.Properties["ifExists"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["error", "replace"], Default = System.Text.Json.Nodes.JsonValue.Create("error"), Description = "Default error: exclusive filesystem create or conditional S3 PUT. replace explicitly permits replacement. HTTPS follows signer/receiver policy." };
 
         doc.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
         doc.Components.SecuritySchemes["bearer"] = new OpenApiSecurityScheme
@@ -133,6 +117,13 @@ public static class OpenApiContract
                 }
                 if (method == HttpMethod.Get && op.Parameters.Any(p => p.In is ParameterLocation.Query or ParameterLocation.Path))
                     op.Responses.TryAdd("400", Problem(doc, "invalid-request: a parameter has an invalid value.", 400));
+                if (ConvertOperations.Contains(id))
+                {
+                    op.Parameters.Add(new OpenApiParameter { Name = "Prefer", In = ParameterLocation.Header, Description = "wait=N, from 0 to 60 seconds; default configured wait is 30. wait=0 returns 202 immediately.", Schema = Str() });
+                    op.Responses["202"] = new OpenApiResponse { Description = "Still running; poll Location. Jobs retain metadata, not subtitle bytes.",
+                        Content = new Dictionary<string, OpenApiMediaType> { ["application/json"] = new() { Schema = new OpenApiSchema { Type = JsonSchemaType.Object } } },
+                        Headers = new Dictionary<string, IOpenApiHeader> { ["X-Job-Id"] = Header("Job id."), ["Location"] = Header("Relative job URL."), ["Retry-After"] = Header("Seconds before polling.") } };
+                }
                 if (ConvertOperations.Contains(id) && op.Responses.TryGetValue("200", out var ok) && ok is OpenApiResponse okr)
                 {
                     okr.Headers ??= new Dictionary<string, IOpenApiHeader>();
@@ -145,6 +136,7 @@ public static class OpenApiContract
 
     private static readonly (string, string)[] ConvertHeaders =
     [
+        ("X-Job-Id", "Job id; GET /v1/jobs/{id} retrieves metadata while retained."),
         ("X-Detected-Format", "Detected (or forced) source format id; single input only."),
         ("X-Detected-Encoding", "Detected text encoding, or `binary` for binary input."),
         ("X-Detected-Code-Page", "Binary input only: EBU GSI code page (e.g. 850) or pac-<name>."),
@@ -152,12 +144,9 @@ public static class OpenApiContract
         ("X-Cue-Count", "Cues in the (first) output."),
         ("X-Cue-Count-In", "Cues read from the input."),
         ("X-Warnings-Count", "Number of warnings."),
-        ("X-Warnings", "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body / manifest."),
+        ("X-Warnings", "Warnings as compact JSON with code, message and count only (ASCII, truncated to 4 KB); hint and details are in the JSON body."),
         ("X-Verification-Verdict", "Single binary output only: read-back verdict lossless | quantised | lossy | unverified (details in the JSON response's outputs[].verification)."),
         ("X-Profile", "Preset name, when one was used."),
-        ("X-Entries-Ok", "Zip input: entries converted."),
-        ("X-Entries-Failed", "Zip input: entries that failed."),
-        ("X-Entries-Skipped", "Zip input: entries skipped (nested zip, macOS metadata)."),
     ];
 
     private static OpenApiHeader Header(string description) => new() { Description = description, Schema = new OpenApiSchema { Type = JsonSchemaType.String } };

@@ -29,7 +29,11 @@ public sealed record Verification(
     CueList? TruncatedCues, CueList? MissingCues, CueList? ZeroLengthCues = null, string? Reason = null);
 
 /// <summary>Structured warning details (JSON body only, never the X-Warnings header).</summary>
-public sealed record WarningDetails(int? CueCount = null, int[]? Cues = null, int? DistinctCodePoints = null, List<CodePointCount>? CodePoints = null, RemedyInfo? Remedy = null);
+public sealed record WarningDetails(int? CueCount = null, int[]? Cues = null, int? DistinctCodePoints = null, List<CodePointCount>? CodePoints = null, RemedyInfo? Remedy = null,
+    List<CueDuration>? Durations = null, Dictionary<string, string>? Fields = null, string? Timecode = null, double? FrameRate = null);
+
+/// <summary>long-cue details: 1-based cue number and its duration in milliseconds.</summary>
+public sealed record CueDuration(int Cue, double DurationMs);
 
 /// <summary>
 /// characters-replaced (v1.2.1): the facts needed to choose a fix, so the caller decides instead of the API guessing.
@@ -363,26 +367,87 @@ public static class Verifier
         Binary.BinaryOptions.CavenaLanguages.TryGetValue(language, out var v) ? v.Script : "latin";
 }
 
-/// <summary>Cheap source diagnostics (v1.2.0): zero-length cues and U+FFFD already in the text, plus line endings.</summary>
+/// <summary>
+/// Cheap source diagnostics: zero-length cues, overlapping cues, very long cues, U+FFFD already in the text,
+/// a guessed text encoding, plus line endings. Warnings only; timings are never changed here.
+/// </summary>
 public static class SourceChecks
 {
     public const string ZeroLengthCue = "zero-length-cue";
     public const string SourceReplacementChars = "source-replacement-chars";
+    public const string OverlappingCues = "overlapping-cues";
+    public const string LongCue = "long-cue";
+    public const string EncodingGuessed = "encoding-guessed";
+    public const string EncodingForced = "encoding-forced";
+    public const string LanguageApplied = "language-applied";
+
+    /// <summary>A cue longer than this (ms) is reported as long-cue: far beyond any reading time, usually a broken or merged cue.</summary>
+    public const double LongCueMs = 30_000;
 
     public static List<Warning> Check(Subtitle s, DecodedText decoded, bool binary)
     {
         var warnings = new List<Warning>();
         var zero = new List<int>();
+        var overlap = new List<int>();
+        var longCues = new List<int>();
         var fffdCues = new List<int>();
         var fffd = 0;
+        var latestEnd = double.MinValue;
         for (var i = 0; i < s.Paragraphs.Count; i++)
         {
             var p = s.Paragraphs[i];
-            if (p.EndTime.TotalMilliseconds - p.StartTime.TotalMilliseconds <= 0) zero.Add(i);
+            var start = p.StartTime.TotalMilliseconds;
+            var duration = p.EndTime.TotalMilliseconds - start;
+            if (duration <= 0) zero.Add(i);
+            else
+            {
+                // Overlap with any earlier cue (zero-length cues are reported on their own and don't count here).
+                if (start < latestEnd) overlap.Add(i);
+                latestEnd = Math.Max(latestEnd, p.EndTime.TotalMilliseconds);
+                if (duration > LongCueMs) longCues.Add(i);
+            }
             var n = (p.Text ?? "").Count(c => c == '\uFFFD');
             if (n == 0) continue;
             fffd += n;
             fffdCues.Add(i);
+        }
+        if (overlap.Count > 0)
+        {
+            warnings.Add(new(OverlappingCues,
+                $"{overlap.Count} cue(s) in the source start before an earlier cue has ended: cue(s) {Verifier.List(overlap)}.",
+                overlap.Count,
+                "Check them: overlaps are often timing errors, but can be intended (two speakers). Formats and players that show one cue at a time may hide or cut one of them. Fix the times at the source, or run operations FixCommonErrors with rule FixOverlappingDisplayTimes if they are errors.",
+                Verifier.Details(overlap)));
+        }
+        if (longCues.Count > 0)
+        {
+            var durations = longCues.Take(20).Select(i => new CueDuration(i + 1, Math.Round(s.Paragraphs[i].EndTime.TotalMilliseconds - s.Paragraphs[i].StartTime.TotalMilliseconds))).ToList();
+            warnings.Add(new(LongCue,
+                $"{longCues.Count} cue(s) in the source last longer than {LongCueMs / 1000:0} seconds: cue(s) {Verifier.List(longCues)} (longest {Verifier.Tc(durations.Max(d => d.DurationMs))}).",
+                longCues.Count,
+                "This often indicates a broken or merged cue (a wrong end time, or several cues joined). Check them at the source; the times were left as they are.",
+                Verifier.Details(longCues) with { Durations = durations }));
+        }
+        if (!binary && decoded.Confidence == "heuristic")
+        {
+            warnings.Add(new(EncodingGuessed,
+                $"The input is not UTF-8 and no probed encoding turned it into recognisable words, so it was read as {decoded.EncodingName} by libse's heuristic.",
+                null,
+                "Check the text; if it looks wrong, set profile.encoding.input (or encoding in /v1/detect) to the file's encoding, or save the file as UTF-8."));
+        }
+        if (!binary && decoded.Confidence == "forced")
+        {
+            warnings.Add(new(EncodingForced,
+                $"The input was decoded as {decoded.EncodingName} because encoding.input (or encoding in /v1/detect) forced that page; auto-detection was skipped.",
+                null,
+                "Confirm the text looks right. A wrong forced page yields mojibake with no further error."));
+        }
+        if (!binary && decoded.Confidence == "language")
+        {
+            warnings.Add(new(LanguageApplied,
+                $"The input was decoded as {decoded.EncodingName} because encoding.language narrowed the probe to encodings that serve that language.",
+                null,
+                "Confirm the text looks right. If it is wrong, set encoding.input to the exact page instead."));
         }
         if (zero.Count > 0)
         {

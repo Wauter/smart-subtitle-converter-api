@@ -223,36 +223,6 @@ public class VerificationTests : IClassFixture<ApiFactory>
         Assert.Equal("pacscreenelectronics", (string)asPac["detected"]!["id"]!);
     }
 
-    [Fact]
-    public async Task Zip_entries_are_checked_by_entry_name()
-    {
-        var fpc = await Fpc();
-        var zip = Samples.Zip(("a.bin", fpc), ("b.fpc", fpc));
-        var j = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = System.Convert.ToBase64String(zip), contentEncoding = "base64", target = "srt" })).Json();
-        var entries = j["entries"]!.AsArray();
-        var a = entries.Single(e => (string)e!["source"]! == "a.bin")!;
-        Assert.Equal("error", (string)a["status"]!);
-        Assert.Equal("ambiguous-format", (string)a["error"]!["code"]!);
-        var b = entries.Single(e => (string)e!["source"]! == "b.fpc")!;
-        Assert.Equal("ok", (string)b["status"]!);
-        var ff = await _c.PostAsJsonAsync("/v1/convert/json", new { content = System.Convert.ToBase64String(zip), contentEncoding = "base64", target = "srt", failFast = true });
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, ff.StatusCode);
-        var p = await ff.Json();
-        Assert.Equal("ambiguous-format", (string)p["code"]!);
-        Assert.Equal("a.bin", (string)p["entry"]!);
-        Assert.Equal(2, p["candidates"]!.AsArray().Count);
-    }
-
-    [Fact]
-    public async Task Zip_manifest_carries_verification_per_output()
-    {
-        var zip = Samples.Zip(("s/g.srt", Encoding.UTF8.GetBytes(Greek)), ("s/l.srt", Encoding.UTF8.GetBytes(Latin)));
-        var j = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = System.Convert.ToBase64String(zip), contentEncoding = "base64", target = "pac" })).Json();
-        var g = j["entries"]!.AsArray().Single(e => (string)e!["source"]! == "s/g.srt")!;
-        Assert.Equal("lossy", (string)g["verification"]!["s/g.pac"]!["verdict"]!);
-        Assert.All(j["outputs"]!.AsArray(), o => Assert.NotNull(o!["verification"]));
-    }
-
     [Fact] // libse 5.1.0's Cavena 890 reader throws on its own Greek output: we say so instead of staying silent
     public async Task Unreadable_output_is_unverified_with_a_reason()
     {
