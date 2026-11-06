@@ -2,6 +2,8 @@
 
 ## 1.3.0 — Unreleased
 
+- Add allowlisted HTTPS GET/PUT with connection-time IP checks, capped streaming, separate I/O budgets and transient retries. Skip HTTPS sidecars with a warning.
+
 - Add allowlisted Linux filesystem inputs/outputs, optional sibling staging and per-request metadata sidecars. Existing files and symlinks are rejected.
 
 - Wait up to the configured default (30 seconds), honour Prefer: wait=0..60 and return 202 with polling headers when work continues.

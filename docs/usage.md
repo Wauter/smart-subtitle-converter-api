@@ -56,3 +56,13 @@ Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs
 Set `STORAGE_FILE_ROOTS` to allowlisted absolute roots (OS path separator, or a JSON array); empty disables file URIs. `STORAGE_FILE_ATOMIC=false` writes directly with exclusive creation, removing its own incomplete file after a failed write. With `true`, stage a sibling temporary file, flush it, then rename without replacing an existing destination. Consumers may see a growing file with direct writes; use atomic writes for scanning directories. Network mounts still need suitable rename semantics.
 
 `sidecar:true` writes `{output}.json` with verification, warnings, effective profile and the job id, never converted subtitle content. No output means no sidecar. Subtitle success plus sidecar failure keeps the subtitle and adds `sidecar-write-failed`; receivers must inspect warnings.
+
+## HTTPS input and output
+
+```json
+{"input":"https://mam.example.com/in/show.stl?signature=...","output":"https://store.example.com/out/show.pac?signature=...","target":"pac","sidecar":true}
+```
+
+Set `HTTP_ALLOWED_HOSTS=mam.example.com,store.example.com` (exact hostnames, no wildcards). Input uses GET, output uses PUT of the raw converted bytes, without bearer credentials from this API. Both use the same host/IP policy; Content-Type is not used for detection. Redirects, encoded response bodies and partial GET responses are rejected. No URL-derived second sidecar is attempted for HTTPS output: `sidecar:true` adds `sidecar-skipped` instead. Signed queries are excluded from job metadata.
+
+`IO_TIMEOUT_SECONDS=10` covers each transfer attempt including reading the body. `IO_RETRIES=3` means three extra attempts, with backoff for connection resets, timeouts and HTTP 408/429/500/502/503/504. 403/404, certificate failures and validation rejections are not retried. A timed-out PUT may have reached the receiver: retries target the same URL and object; receiving systems must make repeated PUTs safe. There is no rollback of an external receiver.

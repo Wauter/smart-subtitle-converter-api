@@ -34,11 +34,12 @@ public interface IStorage
     Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct);
 }
 
-public sealed class StorageRouter(FileStorage files) : IStorage
+public sealed class StorageRouter(FileStorage files, HttpStorage http) : IStorage
 {
     private IStorage For(StorageLocation location) => location.Scheme switch
     {
         "file" => files,
+        "https" => http,
         _ => throw StorageLocation.Rejected($"The {location.Scheme} storage scheme is not enabled."),
     };
     public Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct) => For(location).ReadAsync(location, ct);

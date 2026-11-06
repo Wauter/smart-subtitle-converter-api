@@ -18,6 +18,9 @@ public sealed class ApiOptions
     public int MaxLineChars { get; init; } = 10_000;
     public string[] CorsOrigins { get; init; } = [];
     public string[] KnownProxies { get; init; } = [];
+    public string[] HttpAllowedHosts { get; init; } = [];
+    public int IoTimeoutSeconds { get; init; } = 10;
+    public int IoRetries { get; init; } = 3;
     public string[] StorageFileRoots { get; init; } = [];
     public bool StorageFileAtomic { get; init; }
     public int RequestWaitSeconds { get; init; } = 30;
@@ -59,6 +62,9 @@ public sealed class ApiOptions
             RateLimitPerMinute = c.GetValue("RATE_LIMIT_PER_MINUTE", 0),
             MaxCues = c.GetValue("MAX_CUES", d.MaxCues),
             MaxLineChars = c.GetValue("MAX_LINE_CHARS", d.MaxLineChars),
+            HttpAllowedHosts = List(c["HTTP_ALLOWED_HOSTS"]),
+            IoTimeoutSeconds = Math.Clamp(c.GetValue("IO_TIMEOUT_SECONDS", d.IoTimeoutSeconds), 1, 300),
+            IoRetries = Math.Clamp(c.GetValue("IO_RETRIES", d.IoRetries), 0, 10),
             StorageFileRoots = Roots(c["STORAGE_FILE_ROOTS"]),
             StorageFileAtomic = c.GetValue("STORAGE_FILE_ATOMIC", false),
             RequestWaitSeconds = Math.Clamp(c.GetValue("REQUEST_WAIT_SECONDS", d.RequestWaitSeconds), 0, 60),

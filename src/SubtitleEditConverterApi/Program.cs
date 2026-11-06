@@ -46,6 +46,7 @@ builder.Services.ConfigureHttpJsonOptions(j =>
 
 builder.Services.AddSingleton(opts);
 builder.Services.AddSingleton<SubtitleEditConverterApi.Storage.FileStorage>();
+builder.Services.AddSingleton(sp => new SubtitleEditConverterApi.Storage.HttpStorage(opts));
 builder.Services.AddSingleton<SubtitleEditConverterApi.Storage.StorageRouter>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<SubtitleEditConverterApi.Jobs.JobStore>();

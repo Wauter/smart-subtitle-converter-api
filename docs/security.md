@@ -46,3 +46,9 @@ All values: [configuration.md](configuration.md).
 - Warnings and verification report cue numbers and code points, never subtitle text.
 
 Design background: [design.md §6](design.md#6-security-and-auth).
+
+## HTTPS storage destinations
+
+HTTPS requires exact host allowlisting. Resolution occurs inside the socket connection callback; every returned IP must pass the public-unicast policy, and connections use that checked IP set rather than resolving again. Loopback, private, link-local, unspecified, multicast, reserved/documentation ranges, common tunnels and cloud metadata addresses are rejected, including mapped IPv4. Proxies, cookies, redirects and decompression are disabled. TLS certificate and hostname validation remain enabled. A size cap applies while streaming even without Content-Length. No remote Content-Type is trusted.
+
+For internal MinIO use `s3://` with a server-configured endpoint, not an HTTPS URL resolving to private addresses. Protect allowlist and endpoint configuration like other operator settings. A signed URL is a credential: job records remove its query, and transport errors do not echo it.
