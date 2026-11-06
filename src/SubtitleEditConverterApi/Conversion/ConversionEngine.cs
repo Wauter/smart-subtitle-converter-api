@@ -751,8 +751,8 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             new WarningDetails(FrameRate: Math.Round(assumed, 3)));
 
     /// <summary>
-    /// SCC timecodes: a ';' (drop-frame) separator means 29.97 fps; a frame number of 24 or more rules out 23.976/24/25
-    /// and means NTSC 29.97 non-drop. Otherwise the rate can't be told (null).
+    /// SCC timecodes: a ';' (drop-frame) separator means 29.97 fps; a frame number of 25 or more rules out 23.976/24/25
+    /// (frame 24 is still legal at 25 fps) and means NTSC 29.97 non-drop. Otherwise the rate can't be told (null).
     /// </summary>
     internal static (double Fps, string Basis)? InferSccFrameRate(List<string> lines)
     {
