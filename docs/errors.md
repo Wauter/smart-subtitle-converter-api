@@ -39,7 +39,6 @@ Extension members:
 | 503 | <a id="queue-full"></a>`queue-full` | Conversion queue full; retry after `Retry-After` seconds or scale out. |
 | 504 | <a id="conversion-timeout"></a>`conversion-timeout` | Over `CONVERSION_TIMEOUT_SECONDS`; see `phase`. |
 | 500 | <a id="internal-error"></a>`internal-error` | A bug. Report it with the `requestId`. |
-
 | 422 | <a id="storage-location-rejected"></a>`storage-location-rejected` | Invalid URI, disabled scheme, outside an allowlist or a symlink/dot segment. Name a complete file, not a directory. |
 | 404 | <a id="storage-not-found"></a>`storage-not-found` | Storage input or parent directory does not exist. |
 | 502 | <a id="storage-io-failed"></a>`storage-io-failed` | Storage transfer failed; check permissions, availability and the concrete error. |
@@ -47,11 +46,11 @@ Extension members:
 
 ## Warning codes
 
-Warnings are not errors: the conversion succeeded. They appear in `warnings[]`, the manifest and
+Warnings are not errors: the conversion succeeded. They appear in `warnings[]`, sidecars, retained job metadata and
 `X-Warnings`/`X-Warnings-Count`. Each warning has `code` and `message`, and may have `count`, `hint` (what
 to do) and `details` (`cueCount`, `cues` (1-based cue numbers, at most 20 listed),
 `distinctCodePoints`, `codePoints` (`[{codePoint: "U+039A", count}]`, at most 20)). `X-Warnings` carries only
-`code`, `message` and `count`; `hint` and `details` are in the JSON body and the manifest. Details never
+`code`, `message` and `count`; `hint` and `details` are in the JSON body and requested sidecar. Details never
 contain subtitle text, only positions and code points.
 
 Cue numbers in source warnings (`zero-length-cue`, `source-replacement-chars`) are positions in the
@@ -69,6 +68,8 @@ in the written output (after operations).
 | `frame-rate-changed` | EBU STL only: the written Disk Format Code implies a different frame rate (by more than 0.01 fps) than the intended one: the requested rate (`formatOptions.ebuStl.frameRate`, else `target.fps`) or, when none was requested, the source's (the rate an EBU source was read at, i.e. `readFrameRate` or its own code; else `source.fps`). Typical case: a 29.97 fps source or request written as `STL30.01`, because EBU Tech 3264 only defines `STL25.01` and `STL30.01`. The message names the code, both rates and the workaround (`formatOptions.ebuStl.frameRate`, or `headerFromSource:false`). No `count`. |
 | `lossy-format` | The target format can't keep everything: Cheetah styling, cues missing on read-back (`details.cues`, matched by start time), zero-length cues the target can't store, or timing moved by more than one frame (`details.cues`). |
 | `encoding-ignored` | `encoding.output` / `responseEncoding=text` doesn't apply to binary output (always base64 in JSON). |
+| `sidecar-write-failed` | Subtitle was written; sidecar failed. Keep the subtitle and inspect the warning; there is no rollback. |
+| `sidecar-skipped` | HTTPS output cannot supply a second signed URL. No sidecar was attempted. |
 | `format-option-ignored` | A `formatOptions` block doesn't apply to this source or target. |
 
 ## Verification (binary outputs)
@@ -106,7 +107,7 @@ target playout or editing software accepts it.
 
 ## Remedy (`characters-replaced`)
 
-`warnings[].details.remedy` (JSON body and manifests only, never `X-Warnings`) gives the caller the facts to
+`warnings[].details.remedy` (JSON body and requested sidecar only, never `X-Warnings`) gives the caller the facts to
 choose a fix instead of the API guessing one:
 
 | field | meaning |
@@ -134,3 +135,16 @@ Greek SRT → PAC (default code page), hint and remedy (`allowedValues` shortene
 
 Traditional Chinese → PAC: `candidates` = `chinese-traditional`, `chinese-simplified`, `korean`, `japanese` (all
 tested), `suggested` null. Polish → PAC: lossless with the default latin code page, so no warning.
+
+## Job and transfer failures
+
+A retained failed job is HTTP 200 with `status: failed` and a problem in `error`; it is not a successful
+conversion. Unknown/expired/evicted/restarted jobs return 404 `not-found`, meaning gone, not failed.
+An admitted conversion that fails synchronously returns its usual problem status plus `X-Job-Id` and `id`;
+validation/admission failures have no job. Error `requestId` retains the original POST correlation.
+Malformed/duplicate `Prefer: wait` or values outside 0..60 return 400 `invalid-request`.
+
+`storage-io-failed` includes concrete remote status/attempt information without signed URL queries.
+Timeouts/reset/transient HTTP statuses may be retried; policy rejections and 403/404 are not.
+A failed PUT response does not prove the receiver did not accept the object. Do not blindly replay the
+conversion POST after losing a response. Poll a known job id; there is no idempotency-key deduplication.

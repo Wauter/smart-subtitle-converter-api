@@ -15,7 +15,7 @@ public sealed record ConvertJsonRequest(
     string? ResponseEncoding, string? Input = null, string? Output = null, bool Sidecar = false);
 
 /// <summary>One output. <c>verification</c>: the read-back check, binary targets only .</summary>
-public sealed record OutputDto(string FileName, string Format, string FormatId, string MediaType, string? Content, string ContentEncoding, string Encoding, int Cues, string? Source = null,
+public sealed record OutputDto(string FileName, string Format, string FormatId, string MediaType, string? Content, string ContentEncoding, string Encoding, int Cues,
     string Kind = Formats.FormatKinds.Text, Verification? Verification = null, string? Output = null, int? Bytes = null);
 public sealed record StatsDto(int ParagraphsIn, int ParagraphsOut, long ElapsedMs, long QueueWaitMs);
 public sealed record ConvertJsonResponse(List<OutputDto> Outputs, DetectedInfo? Detected, StatsDto Stats, List<Warning> Warnings, JsonObject Profile, string? Id = null);
@@ -111,11 +111,12 @@ public static class ConvertEndpoints
     {
         var waitSeconds = ParseWait(ctx.Request.Headers["Prefer"].ToString(), opts.RequestWaitSeconds);
         var id = jobs.Create(ctx.Items["keyName"] as string ?? "", input, output);
+        ctx.Items["jobId"] = id;
         ctx.Response.Headers["X-Job-Id"] = id;
         ctx.Response.Headers.CacheControl = "no-store";
         if (ctx.Request.Headers.ContainsKey("Prefer")) ctx.Response.Headers["Preference-Applied"] = $"wait={waitSeconds}";
         // No HttpContext, request stream or request cancellation token is captured by the job.
-        var task = CompleteJob(jobs, id, work, resolved, opts, stopping, output);
+        var task = CompleteJob(jobs, id, work, resolved, opts, stopping, output, RequestIdMiddleware.Get(ctx), ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ConversionJobs"));
         if (waitSeconds == 0) return (null, 0, id);
         Completed done;
         try { done = await task.WaitAsync(TimeSpan.FromSeconds(waitSeconds), ctx.RequestAborted); }
@@ -126,7 +127,7 @@ public static class ConvertEndpoints
 
     private static async Task<Completed> CompleteJob(JobStore jobs, string id,
         Func<string, CancellationToken, Task<(ConversionResult Result, long QueueWaitMs)>> work,
-        JsonObject resolved, ApiOptions opts, CancellationToken stopping, string? output)
+        JsonObject resolved, ApiOptions opts, CancellationToken stopping, string? output, string requestId, ILogger logger)
     {
         try
         {
@@ -139,7 +140,15 @@ public static class ConvertEndpoints
         catch (Exception ex)
         {
             var problem = ex as ApiException ?? new ApiException(500, ErrorCodes.InternalError, "Conversion failed or was interrupted by server shutdown.", "See the server logs.");
-            jobs.Finish(id, error: Problems.ToJson(problem, id, opts.ErrorsVerbose));
+            problem.Extensions["id"] = id;
+            if (ex is not ApiException)
+            {
+                // Do not log exception messages: a transport may include a signed URL.
+                logger.LogError("Job {jobId} request {requestId} failed: {exceptionType} {stackTrace}", id, requestId, ex.GetType().FullName, ex.StackTrace);
+                problem.Debug["exceptionType"] = ex.GetType().FullName;
+                problem.Debug["stackTrace"] = ex.StackTrace;
+            }
+            jobs.Finish(id, error: Problems.ToJson(problem, requestId, opts.ErrorsVerbose));
             return new(null, 0, problem); // observed even when the original HTTP request already returned 202
         }
     }

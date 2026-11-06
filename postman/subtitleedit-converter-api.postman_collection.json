@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "48b0adfa-e493-5b61-a071-2cf7c7caee01",
     "name": "subtitleedit-converter-api",
-    "description": "Every subtitleedit-converter-api endpoint with the README examples, plus negative cases.\n\nSet `baseUrl` (default http://localhost:4041) and `apiKey` (leave empty for an open server) in the environment. File parts use paths relative to the repository root: in Postman set Settings -> General -> Working directory to your checkout; with newman pass `--working-dir <checkout>`.\n\nEvery request sends `Authorization: Bearer {{apiKey}}` when apiKey is set, except those tagged [no auth].",
+    "description": "Every subtitleedit-converter-api endpoint with the README examples, plus negative cases.\n\nSet `baseUrl` (default http://localhost:4041) and `apiKey` (leave empty for an open server) in the environment. File parts use paths relative to the repository root: in Postman set Settings -> General -> Working directory to your checkout; with newman pass `--working-dir <checkout>`.\n\nEvery request sends `Authorization: Bearer {{apiKey}}` when apiKey is set, except those tagged [no auth].\n\nStorage/job examples: URI transfers are opt-in. Fill fileInput/fileOutput, s3Input/s3Output, or httpsInput/httpsOutput only for storage you have configured. fileOutput is a complete-file template; each write inserts a GUID to avoid replacing files. Leave unused values empty to skip. Never commit signed URLs or credentials.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "event": [
@@ -2005,6 +2005,802 @@
                   "pm.test(\"code ambiguous-format\", () => pm.expect(p.code).to.eql(\"ambiguous-format\"));",
                   "pm.test(\"candidates\", () => pm.expect(p.candidates).to.eql([\"pacscreenelectronics\", \"pacunicodeunipac\"]));",
                   "pm.test(\"hint names source.format\", () => pm.expect(p.hint).to.include(\"source.format\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Storage and jobs (storage examples opt-in)",
+      "item": [
+        {
+          "name": "Effective limits",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/limits",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "limits"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('storage and job settings', () => { pm.expect(j.requestWaitSeconds).to.be.a('number'); pm.expect(j.io.retries).to.be.a('number'); pm.expect(j.jobs.ttlSeconds).to.be.a('number'); pm.expect(j.storage.inputSchemes).to.be.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inline conversion, Prefer wait=30",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "wait=30"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"1\\n00:00:01,000 --> 00:00:02,000\\nHello\\n\",\n  \"fileName\": \"show.srt\",\n  \"target\": \"vtt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completed or accepted', () => pm.expect(pm.response.code).to.be.oneOf([200,202]));",
+                  "const j = pm.response.json();",
+                  "pm.test('job id', () => pm.expect(j.id).to.eql(pm.response.headers.get('X-Job-Id')));",
+                  "if (j.id) pm.environment.set('jobId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET saved job metadata",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const required = [\"jobId\"];",
+                  "if (required.some(k => !pm.environment.get(k))) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('same job, no content', () => { pm.expect(j.id).to.eql(pm.environment.get('jobId')); if (j.result && j.result.outputs) j.result.outputs.forEach(o => pm.expect(o.content == null).to.eql(true)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Immediate job, Prefer wait=0",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "wait=0"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"1\\n00:00:01,000 --> 00:00:02,000\\nHello\\n\",\n  \"target\": \"vtt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 202', () => pm.response.to.have.status(202));",
+                  "const j = pm.response.json(); pm.environment.set('jobId', j.id);",
+                  "pm.test('polling headers', () => { pm.expect(pm.response.headers.get('Location')).to.eql('/v1/jobs/' + j.id); pm.expect(pm.response.headers.get('Retry-After')).to.eql('1'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET immediate job status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const required = [\"jobId\"];",
+                  "if (required.some(k => !pm.environment.get(k))) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('known status', () => pm.expect(pm.response.json().status).to.be.oneOf(['running','succeeded','failed']));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detect filesystem URI",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/detect",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "detect"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"{{fileInput}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const required = [\"fileInput\"];",
+                  "if (required.some(k => !pm.environment.get(k))) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('detected', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().id).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filesystem input/output and sidecar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "wait=30"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"{{fileInput}}\",\n  \"output\": \"{{resolvedFileOutput}}\",\n  \"target\": \"vtt\",\n  \"sidecar\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const required = [\"fileInput\", \"fileOutput\"];",
+                  "if (required.some(k => !pm.environment.get(k))) pm.execution.skipRequest();",
+                  "const base = pm.environment.get('fileOutput') || '';",
+                  "const slash = base.lastIndexOf('/'), dot = base.lastIndexOf('.');",
+                  "const at = dot > slash ? dot : base.length;",
+                  "pm.variables.set('resolvedFileOutput', base.slice(0, at) + '-' + pm.variables.replaceIn('{{$guid}}') + base.slice(at));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completed or accepted', () => pm.expect(pm.response.code).to.be.oneOf([200,202]));",
+                  "const j = pm.response.json();",
+                  "pm.test('job id', () => pm.expect(j.id).to.eql(pm.response.headers.get('X-Job-Id')));",
+                  "if (j.id) pm.environment.set('jobId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "S3 input/output and sidecar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "wait=30"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"{{s3Input}}\",\n  \"output\": \"{{s3Output}}\",\n  \"target\": \"vtt\",\n  \"sidecar\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const required = [\"s3Input\", \"s3Output\"];",
+                  "if (required.some(k => !pm.environment.get(k))) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completed or accepted', () => pm.expect(pm.response.code).to.be.oneOf([200,202]));",
+                  "const j = pm.response.json();",
+                  "pm.test('job id', () => pm.expect(j.id).to.eql(pm.response.headers.get('X-Job-Id')));",
+                  "if (j.id) pm.environment.set('jobId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "HTTPS GET input",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "wait=30"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"{{httpsInput}}\",\n  \"target\": \"vtt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const required = [\"httpsInput\"];",
+                  "if (required.some(k => !pm.environment.get(k))) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completed or accepted', () => pm.expect(pm.response.code).to.be.oneOf([200,202]));",
+                  "const j = pm.response.json();",
+                  "pm.test('job id', () => pm.expect(j.id).to.eql(pm.response.headers.get('X-Job-Id')));",
+                  "if (j.id) pm.environment.set('jobId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "HTTPS PUT output (sidecar skipped)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "wait=30"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"1\\n00:00:01,000 --> 00:00:02,000\\nHello\\n\",\n  \"output\": \"{{httpsOutput}}\",\n  \"target\": \"vtt\",\n  \"sidecar\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const required = [\"httpsOutput\"];",
+                  "if (required.some(k => !pm.environment.get(k))) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completed or accepted', () => pm.expect(pm.response.code).to.be.oneOf([200,202]));",
+                  "const j = pm.response.json();",
+                  "pm.test('job id', () => pm.expect(j.id).to.eql(pm.response.headers.get('X-Job-Id')));",
+                  "if (j.id) pm.environment.set('jobId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hybrid S3 to filesystem",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "wait=30"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"{{s3Input}}\",\n  \"output\": \"{{resolvedFileOutput}}\",\n  \"target\": \"vtt\",\n  \"sidecar\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const required = [\"s3Input\", \"fileOutput\"];",
+                  "if (required.some(k => !pm.environment.get(k))) pm.execution.skipRequest();",
+                  "const base = pm.environment.get('fileOutput') || '';",
+                  "const slash = base.lastIndexOf('/'), dot = base.lastIndexOf('.');",
+                  "const at = dot > slash ? dot : base.length;",
+                  "pm.variables.set('resolvedFileOutput', base.slice(0, at) + '-' + pm.variables.replaceIn('{{$guid}}') + base.slice(at));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completed or accepted', () => pm.expect(pm.response.code).to.be.oneOf([200,202]));",
+                  "const j = pm.response.json();",
+                  "pm.test('job id', () => pm.expect(j.id).to.eql(pm.response.headers.get('X-Job-Id')));",
+                  "if (j.id) pm.environment.set('jobId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hybrid filesystem to S3",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "wait=30"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"{{fileInput}}\",\n  \"output\": \"{{s3Output}}\",\n  \"target\": \"vtt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const required = [\"fileInput\", \"s3Output\"];",
+                  "if (required.some(k => !pm.environment.get(k))) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completed or accepted', () => pm.expect(pm.response.code).to.be.oneOf([200,202]));",
+                  "const j = pm.response.json();",
+                  "pm.test('job id', () => pm.expect(j.id).to.eql(pm.response.headers.get('X-Job-Id')));",
+                  "if (j.id) pm.environment.set('jobId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hybrid HTTPS to S3",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "wait=30"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"{{httpsInput}}\",\n  \"output\": \"{{s3Output}}\",\n  \"target\": \"vtt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const required = [\"httpsInput\", \"s3Output\"];",
+                  "if (required.some(k => !pm.environment.get(k))) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completed or accepted', () => pm.expect(pm.response.code).to.be.oneOf([200,202]));",
+                  "const j = pm.response.json();",
+                  "pm.test('job id', () => pm.expect(j.id).to.eql(pm.response.headers.get('X-Job-Id')));",
+                  "if (j.id) pm.environment.set('jobId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject input plus content",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"s3://subs/in/show.srt\",\n  \"content\": \"1\\n00:00:01,000 --> 00:00:02,000\\nHello\\n\",\n  \"target\": \"vtt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ambiguous source rejected', () => { pm.response.to.have.status(422); pm.expect(pm.response.json().code).to.eql('invalid-request'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject directory destination",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/convert/json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "convert",
+                "json"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"1\\n00:00:01,000 --> 00:00:02,000\\nHello\\n\",\n  \"output\": \"/data/out/\",\n  \"target\": \"vtt\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('complete file required', () => { pm.response.to.have.status(422); pm.expect(pm.response.json().code).to.eql('storage-location-rejected'); });"
                 ]
               }
             }

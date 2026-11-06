@@ -21,6 +21,26 @@ curl -F file=@movie.srt -F preset=netflix-en-vtt \
 curl -F file=@movie.ttml -F target=srt localhost:4041/v1/convert -OJ
 curl -F file=@movie.srt  -F preset=srt-to-ass localhost:4041/v1/convert -OJ
 
+# several targets for ONE input -> JSON outputs (not an archive)
+curl -F file=@movie.srt -F target=vtt -F 'profile={"target":{"additional":["ass","ttml"]}}' localhost:4041/v1/convert -OJ
+```
+
+Presets, profiles and operations: [profiles.md](profiles.md). Binary formats (EBU STL, PAC, …):
+[formats.md](formats.md).
+
+## JSON in/out (for agents and scripts)
+
+```bash
+curl localhost:4041/v1/convert/json -H 'content-type: application/json' \
+     -d '{"content":"1\n00:00:01,000 --> 00:00:02,000\nHello\n","fileName":"a.srt","target":"vtt"}'
+```
+
+Binary content must be base64 (`"contentEncoding":"base64"`); binary outputs always come back base64. Example in
+[formats.md](formats.md#examples).
+
+## Detection
+
+```bash
 # what is this file? (text or binary; binary adds codePage/formatDetails and up to 5 candidates)
 curl -F file=@mystery.txt localhost:4041/v1/detect
 ```
@@ -34,10 +54,44 @@ curl localhost:4041/v1/profiles/netflix-en-vtt  # raw + resolved (extends flatte
 curl localhost:4041/v1/profiles/validate -H 'content-type: application/json' -d @my-profile.json
 curl localhost:4041/v1/schemas/profile.json     # JSON Schema for editors and agents
 
+# server limits (body caps, wait, I/O, jobs, storage schemes, queue depth, auth required?) before you upload
+curl localhost:4041/v1/limits
+```
+
+## With API keys enabled
+
+```bash
+curl -H "Authorization: Bearer $KEY" -F file=@movie.srt -F target=vtt localhost:4041/v1/convert -OJ
+```
+
+How to enable keys: [security.md](security.md#api-keys).
+
+## Response headers
+
+Conversions return `X-Request-Id`, `X-Detected-Format`, `X-Detected-Encoding`, `X-Detected-Code-Page` (binary
+input), `X-Output-Kind` (`text`/`binary`), `X-Cue-Count`, `X-Cue-Count-In`, `X-Warnings-Count`, `X-Warnings`,
+`X-Profile`, `X-Libse-Version`, `X-Verification-Verdict` (single binary output) and `X-Job-Id`.
+Detection/conversion headers are available on a completed response; a 202 carries job/polling headers.
+
+Send your own `X-Request-Id` (`[A-Za-z0-9._-]{1,64}`) to correlate requests; anything else is replaced by a fresh id.
+
+## Errors
+
+Errors are `application/problem+json` with a stable `code`, a `hint` and the `requestId`, which also appears in
+the logs:
+
+```json
+{ "type": ".../docs/errors.md#invalid-profile", "title": "Invalid profile", "status": 400,
+  "code": "invalid-profile", "detail": "The profile has 1 error(s); first at '/target/format': Unknown format 'vtt2'.",
+  "hint": "Did you mean 'webvtt'? See GET /v1/formats.", "requestId": "01M52D3QQQP64E77FSF5QXGHJJ",
+  "errors": [ { "pointer": "/target/format", "message": "Unknown format 'vtt2'.", "hint": "Did you mean 'webvtt'?" } ] }
+```
+
+Every error and warning code: [errors.md](errors.md).
 
 ## Job metadata
 
-Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs/{id}` returns status, timestamps and result metadata, without subtitle content. Records live in memory only: restart, expiry or oldest-first eviction returns 404, not a failed status. Defaults: six-hour TTL and 400 records. Running work has a separate cap, so eviction does not allow unlimited work. Metadata is bounded to 128 KiB per result; oversized diagnostics are replaced by a summary. Jobs belong to the authenticated key name.
+Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs/{id}` returns status, timestamps and result metadata, without subtitle content. Records live in memory only: restart, expiry or oldest-first eviction returns 404, not a failed status. Defaults: six-hour TTL from creation and 400 records. Running work has a separate cap, so eviction does not allow unlimited work. Metadata is bounded to 128 KiB per result; oversized diagnostics are replaced by a summary. Jobs belong to the authenticated key name (use a distinct name for each principal). Requests rejected before admission have no job. Failed admitted jobs also return their id.
 
 ## Waiting and polling
 
@@ -78,3 +132,28 @@ Inputs and outputs are independent; all enabled schemes can be mixed. S3 require
 `S3_ENDPOINT` selects one server-configured compatible endpoint; unset uses the AWS endpoint for `S3_REGION` (default `us-east-1`). Set `S3_FORCE_PATH_STYLE=true` for MinIO. Credentials come from the SDK's default environment/role chain. Custom endpoints are trusted operator configuration and may be internal; never let untrusted callers configure them. No Azure/GCS support or tests.
 
 Outputs use a single object PUT, replacing an existing object at that key; no temporary object, rename, copy or delete. Use a unique output key if replacement is unwanted. The subtitle and `{key}.json` sidecar are two independent writes, not a transaction. S3 and HTTPS use the same attempt timeout/retry count; SDK retries are disabled so attempts do not multiply.
+
+## URI and polling examples
+
+After configuring the matching allowlists (see [configuration](configuration.md)):
+
+```bash
+# API container paths, not the caller's paths. Parent folders must already exist.
+curl localhost:4041/v1/convert/json -H 'content-type: application/json' \
+  -H 'Prefer: wait=30' \
+  -d '{"input":"file:///data/in/show.srt","output":"/data/out/show.vtt","target":"vtt","sidecar":true}'
+
+# Hybrid input/output; response is a job immediately.
+curl -i localhost:4041/v1/convert/json -H 'content-type: application/json' \
+  -H 'Prefer: wait=0' \
+  -d '{"input":"s3://subs/in/show.stl","output":"/data/out/show.pac","target":"pac","sidecar":true}'
+curl localhost:4041/v1/jobs/JOB_ID  # replace JOB_ID with the returned id
+
+# Detection from storage does not create a conversion job.
+curl localhost:4041/v1/detect -H 'content-type: application/json' \
+  -d '{"input":"s3://subs/in/show.stl"}'
+```
+
+The [Postman collection](../postman/subtitleedit-converter-api.postman_collection.json) includes these flows,
+HTTPS GET/PUT and sidecars. Storage requests are skipped until their environment variables are supplied;
+use fresh filesystem output names for repeated runs. ZIP input is rejected: loop over single-file requests.

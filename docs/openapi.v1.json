@@ -958,7 +958,7 @@
         "tags": [
           "info"
         ],
-        "summary": "Effective limits of this server (upload, JSON body, queue, timeouts).",
+        "summary": "Effective upload, queue, wait, I/O, job and storage-scheme limits.",
         "description": "Lets clients pre-check inputs. \u0060queue.depth\u0060 is a live value. \u0060auth.required\u0060 says whether a bearer key is needed; keys are never exposed.",
         "operationId": "getLimits",
         "parameters": [
@@ -1048,7 +1048,7 @@
           "formats"
         ],
         "summary": "Detect the format and encoding of a subtitle.",
-        "description": "Send multipart \u0060file\u0060, or JSON {content, contentEncoding, fileName} (binary files as base64). Returns \u0060kind\u0060, \u0060codePage\u0060 for binary input and up to 5 \u0060candidates\u0060. 422 format-not-detected when nothing matches.",
+        "description": "Send multipart \u0060file\u0060, or JSON {content, contentEncoding, fileName} (binary files as base64). Or send \u0060input\u0060 (file, S3 or HTTPS URI) instead of inline content/file. Returns \u0060kind\u0060, \u0060codePage\u0060 for binary input and up to 5 \u0060candidates\u0060. 422 format-not-detected when nothing matches.",
         "operationId": "detect",
         "parameters": [
           {
@@ -2192,6 +2192,74 @@
           }
         }
       },
+      "LimitsIo": {
+        "required": [
+          "timeoutSeconds",
+          "retries"
+        ],
+        "type": "object",
+        "properties": {
+          "timeoutSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "retries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "LimitsJobs": {
+        "required": [
+          "maxEntries",
+          "ttlSeconds",
+          "maxActive",
+          "maxMetadataBytes"
+        ],
+        "type": "object",
+        "properties": {
+          "maxEntries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "ttlSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxActive": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxMetadataBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "LimitsJson": {
         "required": [
           "maxDecodedContentBytes",
@@ -2249,7 +2317,11 @@
           "queue",
           "rateLimitPerMinute",
           "auth",
-          "binary"
+          "binary",
+          "requestWaitSeconds",
+          "io",
+          "jobs",
+          "storage"
         ],
         "type": "object",
         "properties": {
@@ -2315,6 +2387,44 @@
           },
           "binary": {
             "$ref": "#/components/schemas/LimitsBinary"
+          },
+          "requestWaitSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "io": {
+            "$ref": "#/components/schemas/LimitsIo"
+          },
+          "jobs": {
+            "$ref": "#/components/schemas/LimitsJobs"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/LimitsStorage"
+          }
+        }
+      },
+      "LimitsStorage": {
+        "required": [
+          "inputSchemes",
+          "outputSchemes"
+        ],
+        "type": "object",
+        "properties": {
+          "inputSchemes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "outputSchemes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -2362,12 +2472,6 @@
               "string"
             ],
             "format": "int32"
-          },
-          "source": {
-            "type": [
-              "null",
-              "string"
-            ]
           },
           "kind": {
             "type": "string",

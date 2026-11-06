@@ -1,6 +1,15 @@
 # Changelog
 
+All notable API changes. Versions follow [semver](https://semver.org/); the version is the
+`<Version>` in `src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj` and is what
+`GET /healthz` (`version`) and the OpenAPI `info.version` report. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for the bump rule. Nothing here has been tagged or released yet; the private `:edge` image carries
+the version of the `main` commit it was built from.
+
 ## 1.3.0 — Unreleased
+
+- Complete storage/job configuration, usage, mount/UID, policy, error and limits documentation; add a commented `.env.example` and opt-in Postman URI examples.
+- Report effective caller wait, I/O retries/timeouts, enabled schemes and job caps/TTL in `/v1/limits`; retain original request correlation and job id on admitted conversion failures.
 
 - Add S3-compatible storage through AWSSDK.S3, configured endpoint/path-style, bucket/prefix allowlists and independent hybrid source/destination schemes.
 
@@ -14,13 +23,6 @@
 
 - Breaking: remove ZIP batch input/output and failFast. Submit one subtitle per request. Multiple targets from one subtitle return JSON rather than ZIP.
 - Paired with MCP 1.3.0.
-
-
-All notable API changes. Versions follow [semver](https://semver.org/); the version is the
-`<Version>` in `src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj` and is what
-`GET /healthz` (`version`) and the OpenAPI `info.version` report. See [CONTRIBUTING.md](CONTRIBUTING.md)
-for the bump rule. Nothing here has been tagged or released yet; the private `:edge` image carries
-the version of the `main` commit it was built from.
 
 ## 1.2.1 (unreleased)
 

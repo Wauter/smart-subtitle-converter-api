@@ -16,7 +16,7 @@ These come from reading `/workspace/subtitleedit` (`main` @ `f9a41e0`, 2026-10-1
 
 | Finding | Evidence | Consequence |
 |---|---|---|
-| Only `libse` is packable. It ships on NuGet as `libse` 5.3.0, targeting `netstandard2.1;net10.0`, and depends on `SkiaSharp` 3.119.4 and `UTF.Unknown` 2.7.0. | `src/libse/LibSE.csproj` (`IsPackable=true`) | Pin it as a NuGet package. |
+| Only `libse` is packable. It ships on NuGet as `libse`; target frameworks and dependency pins are in the project file. | `src/libse/LibSE.csproj` (`IsPackable=true`) | Pin it as a NuGet package. |
 | `libuilogic` is **not packable**. | `src/libuilogic/LibUiLogic.csproj` (`IsPackable=false`) | Nothing from libuilogic is available on NuGet. |
 | `seconv` is an `Exe`. Its pipeline (`SubtitleConverter`, `ConversionOptions`, `LibSEIntegration.ApplyOperations`, `OperationOrderParser`) is `internal`, and `InternalsVisibleTo` names only `SeConvTests`. | `src/seconv/SeConv.csproj`, `Core/*.cs` | It can't be consumed as a library, whether by NuGet or by project reference. |
 | The seconv pipeline works on file paths and globs (`Patterns`, `OutputFolder`, rotating file names, `AtomicFileWriter`), not on streams. | `ConversionOptions` | It doesn't fit a request/response model without refactoring. |
@@ -30,7 +30,7 @@ These come from reading `/workspace/subtitleedit` (`main` @ `f9a41e0`, 2026-10-1
 ## 1. Goals / non-goals
 
 **Goals (V1)**
-- Text-to-text subtitle conversion over HTTP, synchronous: one request in, one response out.
+- One subtitle conversion over HTTP: synchronous result or asynchronous job metadata, with optional URI storage.
 - Run libse's operation pipeline under the same names and semantics as `seconv`, so presets carry over between the CLI and the API.
 - Named, file-based presets ("profiles"). They can be built in or mounted from a folder, and can be inspected for troubleshooting.
 - A small, stateless container (100–150 MB) built for amd64 and arm64.
@@ -57,7 +57,7 @@ These come from reading `/workspace/subtitleedit` (`main` @ `f9a41e0`, 2026-10-1
             │                                              └───┬────────────┘      │
             │             SubtitleEditConverterApi.Pipeline ───┤ (ops adapter)     │
             └──────────────────────────────────────────────────┼───────────────────┘
-                                                   NuGet: libse 5.3.0 (pinned)
+                                                   NuGet: libse (pinned in project)
                                                    NuGet: SubtitleEditConverterApi.Formats (own plugin)
 ```
 
@@ -106,7 +106,7 @@ libse operations read `Configuration.Settings`, a static, mutable object. Two co
 
 - **Base:** `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled` plus an ICU/tzdata overlay built by `docker/icu-slim.sh` (see §13 row 3). libse does culture-sensitive casing and language detection, so we don't run in invariant globalization mode (`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false`; plain chiseled defaults to `true`). The previous `-chiseled-extra` base stays available with `--build-arg RUNTIME_BASE=base-extra`. Runs as a non-root user (`app`, UID 1654). There is no shell.
 - **Build:** `mcr.microsoft.com/dotnet/sdk:10.0`, multi-stage, `dotnet publish -c Release --no-self-contained -r linux-$TARGETARCH`. `$BUILDPLATFORM` cross-builds the managed code, so QEMU isn't needed for compilation.
-- **Natives:** libse references SkiaSharp. Add `SkiaSharp.NativeAssets.Linux.NoDependencies` (no fontconfig dependency, which suits chiseled images) and pin it to the same 3.119.4 version. This avoids the `DllNotFoundException` in seconv's csproj comment (#11872) and the ABI mismatch (#11864/#11931). Text conversion rarely loads Skia, but the startup self-test behind `/readyz` exercises it once.
+- **Natives:** libse references SkiaSharp. Add `SkiaSharp.NativeAssets.Linux.NoDependencies` (no fontconfig dependency, which suits chiseled images) and pin it to the matching package version. This avoids the `DllNotFoundException` in seconv's csproj comment (#11872) and the ABI mismatch (#11864/#11931). Text conversion rarely loads Skia, but the startup self-test behind `/readyz` exercises it once.
 - **Size:** measured, not estimated: amd64 158 MiB uncompressed / 68 MiB compressed, arm64 165 / 64 MiB (§13 row 3). CI computes exact sizes from an OCI export on every run, writes them to the job summary and fails at measured + ~15% per arch.
 - **Multi-arch:** GitHub Actions `docker/setup-qemu-action` + `docker/setup-buildx-action` + `docker/build-push-action`, `platforms: linux/amd64,linux/arm64`, pushed to GHCR. Tags are `:X.Y.Z`, `:X.Y`, `:latest` and `:sha-<short>`. Each image also gets an SBOM and provenance attestation.
 - **Runtime config:** `PROFILES_DIR=/profiles` (read-only mount), `MAX_UPLOAD_BYTES`, `QUEUE_CAPACITY`, `CONVERSION_TIMEOUT_SECONDS`, `API_KEYS_FILE`, `ERRORS_VERBOSE`, `ASPNETCORE_HTTP_PORTS=8080` (full list in §6–§7). Probes: liveness `/healthz`, readiness `/readyz`. The chiseled image has no curl, so the orchestrator probes it.
@@ -269,7 +269,7 @@ Fields map 1:1 to seconv options and to the `dump-settings` schema (`docs/refere
 Validation notes:
 - Merge semantics: objects deep-merge; arrays (`operations`, `additional`) replace wholesale; `null` clears an inherited value.
 - Unknown keys are **errors**, not warnings. seconv makes the same choice for unknown CLI flags, but its `--settings` JSON only warns on unknown keys.
-- File-path options from seconv (`--assa-style-file`, `--ebu-header-file`, `--multiple-replace`) become inline content. The server never reads paths supplied by a client.
+- File-path options from seconv (`--assa-style-file`, `--ebu-header-file`, `--multiple-replace`) become inline content. Those operation-specific files stay inline; source/destination storage paths use separate allowlisted `input`/`output` fields.
 - Not in V1 (rejected with a hint): `FixCommonErrors` rule `FixCommonOcrErrors` (needs Hunspell or libuilogic), `customtext`, OCR, `translate`, image styling, and track selection.
 - `FixMisreadQuotes` is opt-in, as in seconv (`all` does not include it).
 - The `rules.*` defaults are the libse defaults (`seconv dump-settings`). The test suite asserts they match the pinned libse version.
@@ -326,8 +326,8 @@ Validation notes:
 | Profile JSON size | 64 KB | n/a |
 | `MultipleReplace` regex | 100 ms match timeout, `RegexOptions.NonBacktracking` where possible | n/a |
 
-- **XML**: everything is parsed with `DtdProcessing = Prohibit` and `XmlResolver = null`, so external entities are never fetched. A DTD returns `422 unsafe-xml`. libse creates its own `XmlDocument` instances in format classes, so the service **pre-screens** every XML-looking input with a hardened `XmlReader` before handing it to libse. An upstream PR hardens libse's own readers.
-- **No storage**: uploads and results exist only in memory for the request's lifetime. There are no temp files, and the container filesystem is read-only except `/tmp` (tmpfs, unused by design).
+- **XML**: everything is parsed with `DtdProcessing = Prohibit` and `XmlResolver = null`, so external entities are never fetched. A DTD returns `422 unsafe-xml`. libse creates its own `XmlDocument` instances in format classes, so the service **pre-screens** every XML-looking input with an `XmlReader` with DTDs prohibited and no resolver before handing it to libse. The same parser settings are proposed for libse’s own readers.
+- **Storage**: uploads/results are bounded in memory; binary operations use private temporary files. Optional allowlisted filesystem/S3/HTTPS input and output are described in [usage](usage.md#filesystem-locations-and-sidecars). Retained jobs contain metadata only.
 - **CORS**: off by default. `CORS_ORIGINS` enables an explicit allow-list; wildcards are not supported when auth is on.
 - **Headers**: `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'` on API responses (relaxed only for `/docs`), and `Cache-Control: no-store` on conversion responses.
 - **Container**: non-root, read-only root filesystem, no shell (chiseled image), all capabilities dropped.
@@ -364,7 +364,7 @@ Every error is `application/problem+json`:
 `X-Request-Id`, `X-Detected-Format`, `X-Detected-Encoding`, `X-Cue-Count` (output), `X-Cue-Count-In`, `X-Warnings-Count`, `X-Warnings` (compact JSON, truncated to 4 KB; the complete list is in the JSON endpoint), `X-Libse-Version`, `X-Profile` (resolved preset name). CORS `Access-Control-Expose-Headers` lists them when CORS is enabled.
 
 ### 7.4 Versioning
-- Path versioning `/v1`. Within v1, changes are **additive only**: new endpoints, optional fields, error codes, headers and formats.
+- Path versioning `/v1`. Package compatibility changes, including removed features while alpha, are recorded in the CHANGELOG.
 - Removing or renaming anything, or changing semantics, requires `/v2`, which runs alongside v1 for at least one minor release cycle and is announced with `Deprecation`/`Sunset` headers.
 - The OpenAPI document is committed. CI rejects breaking diffs (§9).
 
@@ -395,7 +395,7 @@ Scope: **our layer only**. libse's parsing, writing and operation logic is trust
 
 ## 10. MCP server: `subtitleedit-converter-mcp`
 
-- **Stack**: TypeScript, Node 22 LTS, official SDK `@modelcontextprotocol/sdk`, `zod` schemas. It is a thin client over the HTTP API with no conversion logic of its own.
+- **Stack**: TypeScript, Node (see package engines), official SDK `@modelcontextprotocol/sdk`, `zod` schemas. It is a thin client over the HTTP API with no conversion logic of its own.
 - **Transports**: stdio (`npx subtitleedit-converter-mcp`) and Streamable HTTP (`subtitleedit-converter-mcp --http :3000`, endpoint `/mcp`, stateless mode).
 - **Config**: `SUBTITLE_API_URL` (required; also `--api-url`), `SUBTITLE_API_KEY` (optional bearer key, sent as `Authorization: Bearer`), `SUBTITLE_MCP_MAX_BYTES`, `SUBTITLE_MCP_TIMEOUT_MS`. In HTTP mode, an incoming `Authorization` header is passed through to the API unchanged and takes precedence over the configured key. The MCP server stores no keys and logs none. The tool descriptions are regenerated from the API's OpenAPI at build time so they don't drift.
 
@@ -415,12 +415,12 @@ Errors are surfaced as `isError: true` with the ProblemDetails `code`, `hint` an
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | **Text API** | §4 endpoints, option A adapter, queue, optional API keys, safeguards, built-in presets, multi-arch image | All CI gates green; smoke corpus passes with the real sample files |
-| **Presets and hardening** | Mounted-preset hot reload, settings-hash fast path (no lock), `MultipleReplace` import of SE `.template`/`.csv`, OpenTelemetry traces, more smoke samples, the upstream PRs (format registration, explicit settings, `libseconv`) | p95 under 50 ms for 1 k cues |
+| **Presets and runtime controls** | Mounted-preset hot reload, settings-hash fast path (no lock), `MultipleReplace` import of SE `.template`/`.csv`, OpenTelemetry traces, more smoke samples, the upstream PRs (format registration, explicit settings, `libseconv`) | p95 under 50 ms for 1 k cues |
 | **MCP server** | `subtitleedit-converter-mcp`, first release (§10) | Works in Claude Desktop, Cursor and an HTTP client; contract tests green |
 | **MCP follow-ups** | In `subtitleedit-converter-mcp` (no separate roadmap there yet): a full `analyze_subtitle` tool (report-only diagnostics using the profile's own thresholds, with Fix Common Errors in preview mode; needs an API endpoint first); hosted hardening (`--hosted`, which refuses to start today) | Each item ships with tests and is documented in the MCP's `docs/tools.md` |
 | **Agent guidance (AGENTS.md)** | A short `AGENTS.md` in both repos for coding agents: build, test and lint commands; the version-bump and CHANGELOG rule (the MCP's major.minor follows the API); keeping error codes in sync (ErrorCodes, docs/errors.md, OpenAPI, Postman); contract tests against the pinned API image; no cue text, file content or tokens in logs and warnings; no tags, releases or publishing without the owner's go-ahead | A coding agent can build, test and open a correct PR in either repo from AGENTS.md alone |
 | **Public release and Docker Hub** | Contact the Subtitle Edit author (Nikolaj Olsson) before going public, to agree on naming and make it clear this is a community wrapper. Then make the repos and the GHCR package public, and publish the same multi-arch image to Docker Hub as well as GHCR from one build, and the MCP's npm package and image (its `PUBLISH_ENABLED` gate) (Hub account and namespace, access token as a GitHub Actions secret, Hub login plus a second image name in the publish job). README pull instructions for both registries, mentioning Docker Hub's anonymous pull rate limits. | Upstream author contacted; same digest on GHCR and Docker Hub for each release |
-| **OCR (separate image tag)** | `:X.Y-ocr` adds Tesseract and traineddata (about +100–300 MB, depending on languages), plus image inputs (sup, VobSub). AI engines (PaddleOCR, llama.cpp vision) go in `:X.Y-ocr-ai` (GBs, possibly GPU), or are delegated to an external endpoint (Ollama or `llama-server` URL). This needs libuilogic, so either option B or C is a prerequisite. Introduces **async jobs**: `POST /v1/jobs` → `202` + `Location`, `GET /v1/jobs/{id}`, result download, in-memory queue first and then Redis or a similar store. | The text-only image stays unchanged in size |
+| **OCR (separate image tag)** | `:X.Y-ocr` adds Tesseract and traineddata (about +100–300 MB, depending on languages), plus image inputs (sup, VobSub). AI engines (PaddleOCR, llama.cpp vision) go in `:X.Y-ocr-ai` (GBs, possibly GPU), or are delegated to an external endpoint (Ollama or `llama-server` URL). This needs libuilogic, so either option B or C is a prerequisite. Uses the existing conversion job flow. Persisted history and result replay are not implemented. | The text-only image stays unchanged in size |
 | **Container extraction** | MKV/MKS, MP4, TS teletext and MXF text tracks via libse `ContainerFormats`, with `GET /v1/inspect` listing tracks and `trackNumbers`/`forcedOnly` in the profile. Large uploads move to async jobs or streaming (multi-GB media → presigned URL or chunked upload) | Upload limits are configurable per endpoint |
 | **Saved server profiles** | Server-side CRUD `/v1/profiles` (DB-backed) with per-key ownership, plus an audit log. Mounted and built-in presets stay read-only. SSO and tenants still come from a gateway. | Read-only presets are unaffected |
 
@@ -435,8 +435,8 @@ Recorded while building v1 (2026-10-16). Where these conflict with earlier secti
 
 | # | Area | Design said | V1 does | Why |
 |---|---|---|---|---|
-| 1 | libse pin (§0, §2) | NuGet `libse` 5.3.0 | **5.1.0** | 5.3.0 is only the version in upstream `main`; the newest published package is 5.1.0 (built from `5f0238b`). Bump when upstream publishes. The libse *assembly* version reads 5.0.0, so `X-Libse-Version`/`/healthz` report the package version stamped at build time. |
-| 2 | Operations adapter (§2.1) | Mirror seconv on libse main | Mirrors seconv, minus what 5.1.0 lacks: no `FixMisreadQuotes` FCE rule; `RemoveFormatting` rules mapped onto `HtmlUtil` (no `RemoveFormattingUtil` in 5.1.0); FCE runs without a names list (`EmptyFixCallback.Names` doesn't exist in 5.1.0). | Published API. Re-align on the next bump. |
+| 1 | libse pin (§0, §2) | Published NuGet package | Pin lives in the project file; the package version is stamped for health responses. | Bump after upstream publishes. |
+| 2 | Operations adapter (§2.1) | Mirror published seconv/libse APIs | Only published APIs are used; unsupported rules are rejected. | Re-align on package updates. |
 | 3 | Image size (§3) | 100–150 MB, CI fails above 170 MB | Plain `-noble-chiseled` + trimmed ICU overlay. amd64 **158.2 MiB** uncompressed / **68.2 MiB** compressed, arm64 **165.2 / 64.4 MiB** (was 172.1 / 74.8 and 179.2 / 71.1 on `-chiseled-extra`). Budgets: amd64 78 / 182 MiB, arm64 74 / 190 MiB (compressed / uncompressed). | See row 11. The rest is the ASP.NET runtime base (~124 MB) and our 17 MB app layer; going lower needs a trimmed self-contained publish on `runtime-deps` (libse's reflection over format types makes trimming risky), tracked in the roadmap. |
 | 11 | ICU in the image (§3) | `-chiseled-extra` (ICU + tzdata) | `docker/icu-slim.sh` (build host, no QEMU) copies `libicuuc`/`libicui18n` 74.2 byte-for-byte from the matching `-chiseled-extra`, extracts the ICU data blob from its `libicudata`, drops what .NET never reads (charset converters, transliteration, RBNF, unit names, character names, confusables, CJK/Thai/Lao/Khmer/Burmese word dictionaries; 815 of 4083 items, 30.8 → 17.7 MB), re-links it with the target binutils under the same soname/symbol, and copies tzdata without the `right/` leap-second duplicates. All locales, collation, casing, normalization, display names and time zones stay. Overlay 24 MB vs 38 MB in `-extra`. | Leanest option that keeps globalization fully working. Rejected: **copying ICU + tzdata as-is** onto plain chiseled (≈1.5 MB saving, same data); **app-local ICU** (`Microsoft.ICU.ICU4C.Runtime` + `System.Globalization.AppLocalIcu`) ships the full ~30 MB data file per RID (no saving, a second ICU version to track); **invariant mode** breaks culture lookups outright (`CultureNotFoundException` for `tr-TR` etc.; verified). Guard: a startup `GlobalizationCheck` (Turkish/Greek casing, sv/de/ja collation, culture-aware search, number/date formats, display names, normalization, IDN, IANA time zones + Windows id mapping, code pages, libse language detection fr/de/tr) gates `/readyz`, so a bad trim, a missing library or invariant mode fails the smoke test. It already caught the plain-chiseled invariant default. The script fails the build if `icu-devtools` and the base image's ICU major differ. |
 | 12 | Naming (header, §10) | Repos `subtitleedit-api` / `subtitleedit-mcp`, namespace `SubtitleEditApi`, title "Subtitle Edit API" | Renamed 2026-10-17 to `subtitleedit-converter-api` / `subtitleedit-converter-mcp`, namespace and assemblies `SubtitleEditConverterApi`, image `ghcr.io/<owner>/subtitleedit-converter-api`, title "Subtitle Edit Converter API". `/v1/...` paths and error codes are unchanged. | Make clear this is a community wrapper around libse, not an official Subtitle Edit product. GitHub redirects the old repo URLs. Nothing had been published under the old names (no tags, no images). |
@@ -462,8 +462,12 @@ Recorded while building v1 (2026-10-16). Where these conflict with earlier secti
 | 25 | Re-read verification (milestone §4.3; structured verification) | Re-read and compare | The output is re-read with the same reader and compared with the cues meant to be written (tags and whitespace normalised). Result: `verification` per binary output (verdict, timing, replaced code points, truncated/missing/zero-length cues; cue numbers and code points only, never text) and the warnings `characters-replaced` (with `details`, a remedy `hint` and `details.remedy`: option, allowed values, tested candidates for PAC, `suggested` only when exactly one fits), `text-truncated`, `frame-quantised`, `lossy-format`. Differing cue counts are matched by start time. A reader that throws on our own output gives `unverified` + `verification-failed` (earlier versions stayed silent). | Client feedback 2026-10-17: users wrote their own round-trip scripts. |
 | 26 | Profile schema | `codePage` name or number | `StrOrIntSpec`: rendered as `oneOf: [{enum}, {integer, min, max}]` in `/v1/schemas/profile.json`. | |
 | 27 | Body caps (milestone §3.1) | multipart `MAX_UPLOAD+256 KiB`, JSON `4*ceil(n/3)+PROFILE_MAX+64 KiB` | Same. Kestrel's global cap is the larger of the two; a middleware sets the per-request cap from the route and content type. | TestServer doesn't enforce Kestrel limits, so the JSON cap was verified against the real host. |
-| 28 | OpenAPI problems (MCP answers A1/A2) | n/a | One `ApiProblem` schema (with the `code` enum) on every error response; `ManifestEntry.error` refs it (no `requestId`). Optional `bearer` security on `/v1`, 401/429 on every `/v1` operation, 503/504 on queued ones, 400 on GETs with parameters, documented headers, `X-Request-Id` request header. A contract test keeps `ErrorCodes`, `errors.md` and the enum in sync. | |
+| 28 | OpenAPI problems (MCP answers A1/A2) | n/a | One `ApiProblem` schema (with the `code` enum) on every error response; Optional `bearer` security on `/v1`, 401/429 on every `/v1` operation, 503/504 on queued ones, 400 on GETs with parameters, documented headers, `X-Request-Id` request header. A contract test keeps `ErrorCodes`, `errors.md` and the enum in sync. | |
 | 29 | Binding errors (A5) | n/a | `ThrowOnBadRequest`: wrong JSON types → `400 invalid-request` with a pointer to the field (`/contentEncoding`), bad query values → pointer `/query/<name>`, wrong Content-Type on `/v1/convert/json` → `415` (was a 404 because the JSON body makes routing skip the endpoint). | |
 | 31 | Timeout phase (A11) | n/a | `504 conversion-timeout` has `phase: "queue"` (never started, retryable) or `"running"`. | |
 | 32 | Temp files (milestone §4.2) | Private dir, delete after each job | `se-bin-<pid>-*` (0700) under the system temp dir, a `job-<guid>` subdir per job, files `<guid><ext>` (0600) with an allowlisted extension. Deleted in the worker's `finally`, on cancel, on queue-wait timeout and on running timeout (then old job dirs are swept after the worker restarts); at startup, dirs of dead processes are removed. | An abandoned libse call may still hold its file until it returns; the sweep catches it. |
 | 34 | PAC / FPC ambiguity (Wauter, 2026-10-17) | Pick PAC | PAC and PAC Unicode share their header. Auto-detection that finds bytes valid (and plausible) as both, with no `.pac` / `.fpc` name to decide, fails with `422 ambiguous-format` and `candidates`. An explicit `source.format` or the right extension decides. | Ambiguity is rejected, never guessed. |
+
+## Storage and job contract
+
+Current URI, wait, metadata-only job and sidecar behaviour is in [usage](usage.md#job-metadata); effective configuration is in [configuration](configuration.md#jobs-and-storage). Single-file calls replace all archive and folder batch processing.

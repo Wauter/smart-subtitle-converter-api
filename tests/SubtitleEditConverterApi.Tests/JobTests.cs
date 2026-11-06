@@ -64,4 +64,20 @@ public class JobTests
         Assert.Null(job["result"]!["outputs"]![0]!["content"]);
         Assert.Equal(404, (int)(await c.GetAsync("/v1/jobs/gone")).StatusCode);
     }
+    [Fact]
+    public async Task Failed_accepted_conversion_keeps_job_id_and_original_request_correlation()
+    {
+        using var f = new ApiFactory(); var c = f.CreateClient();
+        c.DefaultRequestHeaders.Add("X-Request-Id", "jobs-correlation");
+        var response = await c.PostAsJsonAsync("/v1/convert/json", new { content = "not a subtitle", target = "vtt" });
+        Assert.Equal(422, (int)response.StatusCode);
+        var error = await response.Json();
+        var id = response.Header("X-Job-Id");
+        Assert.False(string.IsNullOrWhiteSpace(id));
+        Assert.Equal(id, (string)error["id"]!);
+        var job = await (await c.GetAsync("/v1/jobs/" + id)).Json();
+        Assert.Equal("failed", (string)job["status"]!);
+        Assert.Equal("jobs-correlation", (string)job["error"]!["requestId"]!);
+        Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
+    }
 }

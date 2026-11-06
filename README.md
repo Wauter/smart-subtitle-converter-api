@@ -106,3 +106,14 @@ All subtitle format support comes from [Subtitle Edit](https://github.com/Subtit
 `libse` library by Nikolaj Olsson and contributors, used under the MIT license. Thank you.
 
 This wrapper is MIT licensed, see [LICENSE](LICENSE).
+
+## Storage and job tracking
+
+Send one subtitle per request, as an upload/inline content or an allowlisted filesystem, S3-compatible or
+HTTPS input. An optional output URI stores the result; `sidecar:true` requests `{output}.json` metadata.
+Conversions return a job id, and long requests continue with 202 and polling. Job history is in memory,
+metadata only, not a download cache. ZIP conversion is not supported.
+
+Start with [usage](docs/usage.md#job-metadata), [configuration](docs/configuration.md#jobs-and-storage),
+[limits](docs/limits.md), [mount deployment](docs/deployment.md#mounted-subtitle-storage),
+[allowlists and network checks](docs/security.md), and [`.env.example`](.env.example).

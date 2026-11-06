@@ -23,6 +23,11 @@ public sealed partial class RequestIdMiddleware(RequestDelegate next, ILogger<Re
     {
         var h = ctx.Response.Headers;
         h["X-Request-Id"] = Get(ctx);
+        if (ctx.Items["jobId"] is string jobId)
+        {
+            h["X-Job-Id"] = jobId;
+            h.CacheControl = "no-store";
+        }
         h["X-Libse-Version"] = LibseInfo.Version;
         h.XContentTypeOptions = "nosniff";
         if (!ctx.Request.Path.StartsWithSegments("/docs"))

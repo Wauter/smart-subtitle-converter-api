@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using SubtitleEditConverterApi.Conversion;
+using SubtitleEditConverterApi.Jobs;
 using SubtitleEditConverterApi.Storage;
 using SubtitleEditConverterApi.Formats;
 using SubtitleEditConverterApi.Infrastructure;
@@ -18,17 +19,29 @@ public sealed record LimitsJson(long MaxDecodedContentBytes, string Base64);
 public sealed record LimitsQueue(int Capacity, int Depth);
 public sealed record LimitsAuth(bool Required);
 public sealed record LimitsBinary(long EbuStlMaxBytes);
+public sealed record LimitsIo(int TimeoutSeconds, int Retries);
+public sealed record LimitsJobs(int MaxEntries, int TtlSeconds, int MaxActive, int MaxMetadataBytes);
+public sealed record LimitsStorage(string[] InputSchemes, string[] OutputSchemes);
 public sealed record LimitsResponse(long MaxUploadBytes, LimitsBodyBytes MaxRequestBodyBytes, LimitsJson Json, int MaxProfileBytes, int MaxCues, int MaxLineChars,
-    int ConversionTimeoutSeconds, LimitsQueue Queue, int RateLimitPerMinute, LimitsAuth Auth, LimitsBinary Binary)
+    int ConversionTimeoutSeconds, LimitsQueue Queue, int RateLimitPerMinute, LimitsAuth Auth, LimitsBinary Binary, int RequestWaitSeconds, LimitsIo Io, LimitsJobs Jobs, LimitsStorage Storage)
 {
     /// <summary>libse's EBU IsMine rejects files of 2,048,000 bytes or more.</summary>
     public const long EbuStlMaxBytes = 2_047_999;
+
+    private static string[] Schemes(ApiOptions o) => new[] {
+        o.StorageFileRoots.Length > 0 && OperatingSystem.IsLinux() ? "file" : null,
+        o.HttpAllowedHosts.Length > 0 ? "https" : null,
+        o.S3AllowedBuckets.Length > 0 ? "s3" : null,
+    }.OfType<string>().ToArray();
 
     public static LimitsResponse From(ApiOptions o, ConversionQueue q, ApiKeyStore keys) =>
         new(o.MaxUploadBytes, new LimitsBodyBytes(o.MaxMultipartBodyBytes, o.MaxJsonBodyBytes),
             new LimitsJson(o.MaxUploadBytes, "encoded length = 4*ceil(n/3); already included in maxRequestBodyBytes.json"),
             o.ProfileMaxBytes, o.MaxCues, o.MaxLineChars,
-            o.ConversionTimeoutSeconds, new LimitsQueue(q.Capacity, q.Depth), o.RateLimitPerMinute, new LimitsAuth(keys.Enabled), new LimitsBinary(EbuStlMaxBytes));
+            o.ConversionTimeoutSeconds, new LimitsQueue(q.Capacity, q.Depth), o.RateLimitPerMinute, new LimitsAuth(keys.Enabled), new LimitsBinary(EbuStlMaxBytes),
+            o.RequestWaitSeconds, new(o.IoTimeoutSeconds, o.IoRetries),
+            new(o.JobMaxEntries, o.JobTtlSeconds, Math.Min(o.JobMaxEntries, o.QueueCapacity + 1), JobStore.MaxMetadataBytes),
+            new(Schemes(o), Schemes(o)));
 }
 
 public static class InfoEndpoints
@@ -64,13 +77,13 @@ public static class InfoEndpoints
             ctx.Response.Headers.CacheControl = "no-store";
             return Results.Json(LimitsResponse.From(opts, queue, keys), Json.Options);
         }).WithName("getLimits").WithTags("info")
-          .WithSummary("Effective limits of this server (upload, JSON body, queue, timeouts).")
+          .WithSummary("Effective upload, queue, wait, I/O, job and storage-scheme limits.")
           .WithDescription("Lets clients pre-check inputs. `queue.depth` is a live value. `auth.required` says whether a bearer key is needed; keys are never exposed.")
           .Produces<LimitsResponse>();
 
         v1.MapPost("/detect", Detect).WithName("detect").WithTags("formats")
           .WithSummary("Detect the format and encoding of a subtitle.")
-          .WithDescription("Send multipart `file`, or JSON {content, contentEncoding, fileName} (binary files as base64). Returns `kind`, `codePage` for binary input and up to 5 `candidates`. 422 format-not-detected when nothing matches.")
+          .WithDescription("Send multipart `file`, or JSON {content, contentEncoding, fileName} (binary files as base64). Or send `input` (file, S3 or HTTPS URI) instead of inline content/file. Returns `kind`, `codePage` for binary input and up to 5 `candidates`. 422 format-not-detected when nothing matches.")
           .WithBody(new()
           {
               ["multipart/form-data"] = OpenApiBodies.Multipart(new() { ["input"] = "Storage URI, mutually exclusive with file.", ["encoding"] = "Optional: force the input encoding." }),
