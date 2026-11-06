@@ -1,12 +1,13 @@
 using System.Text.Json.Nodes;
 using SubtitleEditConverterApi.Conversion;
+using SubtitleEditConverterApi.Storage;
 using SubtitleEditConverterApi.Formats;
 using SubtitleEditConverterApi.Infrastructure;
 using SubtitleEditConverterApi.Profiles;
 
 namespace SubtitleEditConverterApi.Endpoints;
 
-public sealed record DetectJsonRequest(string Content, string? ContentEncoding, string? FileName, string? Encoding);
+public sealed record DetectJsonRequest(string? Content, string? ContentEncoding, string? FileName, string? Encoding, string? Input = null);
 public sealed record PresetSummary(string Name, string Origin, string? Path, bool Valid, string? Description, string? Target, DateTimeOffset LoadedAt, string? Shadows, List<FieldError>? Errors, List<FieldError>? Warnings);
 public sealed record PresetDetail(string Name, string Origin, string? Path, bool Valid, string? Description, string? Target, DateTimeOffset LoadedAt, string? Shadows, List<FieldError> Errors, List<FieldError> Warnings, JsonObject? Raw, JsonObject? Resolved);
 public sealed record ProfilesResponse(List<PresetSummary> Profiles, string? ProfilesDir, string? MountError);
@@ -72,12 +73,12 @@ public static class InfoEndpoints
           .WithDescription("Send multipart `file`, or JSON {content, contentEncoding, fileName} (binary files as base64). Returns `kind`, `codePage` for binary input and up to 5 `candidates`. 422 format-not-detected when nothing matches.")
           .WithBody(new()
           {
-              ["multipart/form-data"] = OpenApiBodies.Multipart(new() { ["encoding"] = "Optional: force the input encoding." }),
+              ["multipart/form-data"] = OpenApiBodies.Multipart(new() { ["input"] = "Storage URI, mutually exclusive with file.", ["encoding"] = "Optional: force the input encoding." }),
               ["application/json"] = OpenApiBodies.JsonObject(new()
               {
-                  ["content"] = "Subtitle content (text, or base64).", ["contentEncoding"] = "text (default) | base64",
+                  ["input"] = "Storage URI, mutually exclusive with content.", ["content"] = "Subtitle content (text, or base64).", ["contentEncoding"] = "text (default) | base64",
                   ["fileName"] = "Optional file name (helps detection).", ["encoding"] = "Optional: force the input encoding.",
-              }, "content"),
+              }),
           })
           .Produces<DetectedInfo>().ProducesProblem(400).ProducesProblem(415).ProducesProblem(422)
           .DisableAntiforgery();
@@ -135,7 +136,7 @@ public static class InfoEndpoints
           .WithSummary("JSON Schema (2020-12) for profiles.");
     }
 
-    private static async Task<IResult> Detect(HttpContext ctx, ConversionQueue queue, ConversionEngine engine, ApiOptions opts)
+    private static async Task<IResult> Detect(HttpContext ctx, ConversionQueue queue, ConversionEngine engine, ApiOptions opts, StorageRouter storage)
     {
         byte[] bytes;
         string? fileName;
@@ -143,20 +144,30 @@ public static class InfoEndpoints
         if (ctx.Request.HasFormContentType)
         {
             var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
-            var file = form.Files.GetFile("file") ?? throw new ApiException(400, ErrorCodes.InvalidRequest, "Missing the 'file' part.", "Send the subtitle as a multipart part named 'file'.");
-            if (file.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
-            var ms = new MemoryStream();
-            await file.CopyToAsync(ms, ctx.RequestAborted);
-            bytes = ms.ToArray();
-            fileName = file.FileName;
+            var file = form.Files.GetFile("file");
+            var inputRaw = form["input"].ToString();
+            if ((file == null) == string.IsNullOrEmpty(inputRaw)) throw new ApiException(400, ErrorCodes.InvalidRequest, "Provide exactly one of file or input.", "Send one subtitle.");
+            if (file != null)
+            {
+                if (file.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
+                using var ms = new MemoryStream(); await file.CopyToAsync(ms, ctx.RequestAborted);
+                bytes = ms.ToArray(); fileName = file.FileName;
+            }
+            else
+            {
+                var input = StorageLocation.Parse(inputRaw);
+                bytes = await storage.ReadAsync(input, ctx.RequestAborted); fileName = input.FileName;
+            }
             encoding = form["encoding"].ToString() is { Length: > 0 } e ? e : null;
         }
         else if ((ctx.Request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
         {
             var req = await ctx.Request.ReadFromJsonAsync<DetectJsonRequest>(Json.Options, ctx.RequestAborted)
                       ?? throw new ApiException(400, ErrorCodes.InvalidRequest, "Empty JSON body.", "Send {\"content\": \"...\"}.");
-            bytes = ConvertEndpoints.DecodeContent(req.Content, req.ContentEncoding);
-            fileName = req.FileName;
+            if (req.Input != null && req.Content != null) throw new ApiException(422, ErrorCodes.InvalidRequest, "Use input or content, never both.", "Remove one source.");
+            var input = req.Input == null ? null : StorageLocation.Parse(req.Input);
+            bytes = input == null ? ConvertEndpoints.DecodeContent(req.Content, req.ContentEncoding) : await storage.ReadAsync(input, ctx.RequestAborted);
+            fileName = req.FileName ?? input?.FileName;
             encoding = req.Encoding;
         }
         else

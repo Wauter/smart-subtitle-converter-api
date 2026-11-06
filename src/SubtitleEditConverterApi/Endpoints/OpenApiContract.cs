@@ -66,7 +66,7 @@ public static class OpenApiContract
 
         foreach (var name in new[] { "ConvertJsonRequest", "DetectJsonRequest" })
         {
-            if (schemas.TryGetValue(name, out var rs) && rs is OpenApiSchema r) r.Required = new HashSet<string> { "content" };
+            if (schemas.TryGetValue(name, out var rs) && rs is OpenApiSchema r) r.Required = new HashSet<string>();
         }
 
         doc.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();

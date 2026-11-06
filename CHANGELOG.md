@@ -2,6 +2,8 @@
 
 ## 1.3.0 — Unreleased
 
+- Add allowlisted Linux filesystem inputs/outputs, optional sibling staging and per-request metadata sidecars. Existing files and symlinks are rejected.
+
 - Wait up to the configured default (30 seconds), honour Prefer: wait=0..60 and return 202 with polling headers when work continues.
 
 - Every conversion has a job id. Add bounded in-memory metadata retention and GET /v1/jobs/{id}; no subtitle bytes are retained.

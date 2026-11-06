@@ -40,6 +40,11 @@ Extension members:
 | 504 | <a id="conversion-timeout"></a>`conversion-timeout` | Over `CONVERSION_TIMEOUT_SECONDS`; see `phase`. |
 | 500 | <a id="internal-error"></a>`internal-error` | A bug. Report it with the `requestId`. |
 
+| 422 | <a id="storage-location-rejected"></a>`storage-location-rejected` | Invalid URI, disabled scheme, outside an allowlist or a symlink/dot segment. Name a complete file, not a directory. |
+| 404 | <a id="storage-not-found"></a>`storage-not-found` | Storage input or parent directory does not exist. |
+| 502 | <a id="storage-io-failed"></a>`storage-io-failed` | Storage transfer failed; check permissions, availability and the concrete error. |
+| 409 | <a id="output-exists"></a>`output-exists` | Filesystem destination already exists and was not replaced. Choose a new path. |
+
 ## Warning codes
 
 Warnings are not errors: the conversion succeeded. They appear in `warnings[]`, the manifest and

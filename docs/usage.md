@@ -44,3 +44,15 @@ Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs
 `Prefer: wait=N` selects a wait from 0 to 60 seconds (default 30, set by `REQUEST_WAIT_SECONDS`). A fast conversion returns its normal 200; unfinished work returns 202 with `Location: /v1/jobs/{id}`, `X-Job-Id` and `Retry-After: 1`. Poll that URL until status is `succeeded` or `failed`; the polling HTTP status is 200 even for a failed job, whose `error` contains problem details. Destination never selects synchronous versus asynchronous mode. Disconnecting does not cancel accepted work; server shutdown does.
 
 **No replay of file bytes:** jobs retain metadata only. With upload/download and no `output`, only the original synchronous 200 carries content. If it becomes asynchronous, GET cannot recover that content: use an explicit output location for work that may exceed the wait. Do not blindly resubmit writes after a lost response; there is no idempotency-key deduplication.
+
+## Filesystem locations and sidecars
+
+```json
+{"input":"file:///data/in/show.srt","output":"/data/out/show.pac","target":"pac","sidecar":true}
+```
+
+`input` is mutually exclusive with JSON `content` or multipart `file`. `output` is optional; with it the response contains output metadata and verification, not file bytes. An explicit `output` requires exactly one target; `target.additional` remains available for inline results. `detect` accepts `input` too. A path must name a file: no trailing slash, dot segments or symlinks. Only Linux server filesystem storage is supported; directory handles and no-follow opens prevent path-component symlink swaps. Pre-create parent directories. Existing output files are rejected, not overwritten.
+
+Set `STORAGE_FILE_ROOTS` to allowlisted absolute roots (OS path separator, or a JSON array); empty disables file URIs. `STORAGE_FILE_ATOMIC=false` writes directly with exclusive creation, removing its own incomplete file after a failed write. With `true`, stage a sibling temporary file, flush it, then rename without replacing an existing destination. Consumers may see a growing file with direct writes; use atomic writes for scanning directories. Network mounts still need suitable rename semantics.
+
+`sidecar:true` writes `{output}.json` with verification, warnings, effective profile and the job id, never converted subtitle content. No output means no sidecar. Subtitle success plus sidecar failure keeps the subtitle and adds `sidecar-write-failed`; receivers must inspect warnings.

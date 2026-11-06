@@ -170,15 +170,24 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "required": [
-                  "file"
-                ],
                 "type": "object",
                 "properties": {
                   "file": {
                     "type": "string",
                     "description": "One subtitle file.",
                     "format": "binary"
+                  },
+                  "input": {
+                    "type": "string",
+                    "description": "Storage URI; mutually exclusive with file."
+                  },
+                  "output": {
+                    "type": "string",
+                    "description": "Exact output URI; omit to receive converted bytes."
+                  },
+                  "sidecar": {
+                    "type": "string",
+                    "description": "true | false (default false), write output.json beside output."
                   },
                   "preset": {
                     "type": "string",
@@ -1056,15 +1065,16 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "required": [
-                  "file"
-                ],
                 "type": "object",
                 "properties": {
                   "file": {
                     "type": "string",
                     "description": "One subtitle file.",
                     "format": "binary"
+                  },
+                  "input": {
+                    "type": "string",
+                    "description": "Storage URI, mutually exclusive with file."
                   },
                   "encoding": {
                     "type": "string",
@@ -1075,11 +1085,12 @@
             },
             "application/json": {
               "schema": {
-                "required": [
-                  "content"
-                ],
                 "type": "object",
                 "properties": {
+                  "input": {
+                    "type": "string",
+                    "description": "Storage URI, mutually exclusive with content."
+                  },
                   "content": {
                     "type": "string",
                     "description": "Subtitle content (text, or base64)."
@@ -1713,6 +1724,10 @@
           },
           "code": {
             "enum": [
+              "storage-location-rejected",
+              "storage-not-found",
+              "storage-io-failed",
+              "output-exists",
               "invalid-request",
               "invalid-profile",
               "empty-input",
@@ -1798,13 +1813,13 @@
         }
       },
       "ConvertJsonRequest": {
-        "required": [
-          "content"
-        ],
         "type": "object",
         "properties": {
           "content": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "contentEncoding": {
             "type": [
@@ -1845,6 +1860,22 @@
               "null",
               "string"
             ]
+          },
+          "input": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "output": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sidecar": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -2351,6 +2382,21 @@
                 "$ref": "#/components/schemas/Verification"
               }
             ]
+          },
+          "output": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },

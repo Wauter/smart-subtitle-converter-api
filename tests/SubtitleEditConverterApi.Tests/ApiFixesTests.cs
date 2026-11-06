@@ -47,7 +47,7 @@ public class ApiFixesTests(ApiFactory f) : IClassFixture<ApiFactory>
         var schemas = spec["components"]!["schemas"]!;
         Assert.Null(schemas["ProblemDetails"]);
         Assert.Null(schemas["ManifestEntry"]);
-        Assert.Equal(["content"], schemas["ConvertJsonRequest"]!["required"]!.AsArray().Select(v => (string)v!));
+        Assert.True(schemas["ConvertJsonRequest"]!["required"] == null || schemas["ConvertJsonRequest"]!["required"]!.AsArray().Count == 0);
         Assert.Equal("bearer", (string)spec["components"]!["securitySchemes"]!["bearer"]!["scheme"]!);
         foreach (var (path, item) in spec["paths"]!.AsObject())
         foreach (var (method, op) in item!.AsObject())

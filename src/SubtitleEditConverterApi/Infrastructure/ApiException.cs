@@ -32,6 +32,10 @@ public sealed class ApiException : Exception
 
 public static class ErrorCodes
 {
+    public const string StorageLocationRejected = "storage-location-rejected";
+    public const string StorageNotFound = "storage-not-found";
+    public const string StorageIoFailed = "storage-io-failed";
+    public const string OutputExists = "output-exists";
     public const string InvalidRequest = "invalid-request";
     public const string InvalidProfile = "invalid-profile";
     public const string EmptyInput = "empty-input";

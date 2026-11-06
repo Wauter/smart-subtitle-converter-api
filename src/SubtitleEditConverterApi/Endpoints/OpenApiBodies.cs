@@ -18,7 +18,7 @@ public static class OpenApiBodies
         Schema = new OpenApiSchema
         {
             Type = JsonSchemaType.Object,
-            Required = new HashSet<string> { "file" },
+            Required = new HashSet<string>(),
             Properties = new Dictionary<string, IOpenApiSchema>
             {
                 ["file"] = Str("One subtitle file.", "binary"),
@@ -35,6 +35,9 @@ public static class OpenApiBodies
 
     public static readonly Dictionary<string, string> ConvertParts = new()
     {
+        ["input"] = "Storage URI; mutually exclusive with file.",
+        ["output"] = "Exact output URI; omit to receive converted bytes.",
+        ["sidecar"] = "true | false (default false), write output.json beside output.",
         ["preset"] = "Preset name (GET /v1/profiles).",
         ["target"] = "Target format id/alias; shorthand for profile.target.format.",
         ["profile"] = "Profile JSON (full profile or overrides on top of preset). Schema: GET /v1/schemas/profile.json.",

@@ -70,3 +70,19 @@ Needs the .NET SDK matching `TargetFramework` in `src/SubtitleEditConverterApi/S
 ```bash
 dotnet run --project src/SubtitleEditConverterApi   # listens on http://localhost:5000 (ASPNETCORE_HTTP_PORTS to change)
 ```
+
+## Mounted subtitle storage
+
+On a Linux host, mount the files into the container and allowlist the container path, not the host path:
+
+```yaml
+services:
+  api:
+    volumes:
+      - /srv/subtitles:/data
+    environment:
+      STORAGE_FILE_ROOTS: /data
+      STORAGE_FILE_ATOMIC: "false"
+```
+
+Parent directories must exist. Match the container UID/GID to permissions on the mount; check NFS root-squash and SMB ownership mapping. Files are created with mode 0600 (adjust downstream access through the host). The app speaks filesystem operations, not NFS/SMB/Aspera/Signiant protocols. Atomic mode uses a sibling temporary file and a no-replace rename, never a cross-device copy.
