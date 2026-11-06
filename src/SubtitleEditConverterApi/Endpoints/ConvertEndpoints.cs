@@ -271,6 +271,20 @@ public static class ConvertEndpoints
         {
             var o = r.Outputs.Single();
             await storage.WriteAsync(output, o.Bytes, o.Format.MediaType, ct, replace);
+            if (!sidecar && output.Scheme != "https")
+            {
+                // The subtitle at this location is new, so a companion {output}.json left from an earlier job describes a file
+                // that no longer exists: delete it (Wauter, 2026-11-06). Never fails the conversion.
+                try
+                {
+                    await storage.DeleteAsync(StorageLocation.Parse(output.Value + ".json"), ct);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+                {
+                    r.Warnings.Add(new("sidecar-delete-failed", "The subtitle was written, but an older JSON sidecar next to it ({output}.json) could not be deleted; it describes a previous file.",
+                        Hint: "Delete or ignore the stale sidecar (check permissions on that path); the subtitle was kept. Or send sidecar:true to replace it."));
+                }
+            }
             if (sidecar)
             {
                 if (output.Scheme == "https") r.Warnings.Add(new("sidecar-skipped", "HTTPS output names one object; no second signed sidecar URL can be derived."));

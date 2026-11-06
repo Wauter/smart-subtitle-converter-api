@@ -109,7 +109,9 @@ Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs
 
 Set `STORAGE_FILE_ROOTS` to allowlisted absolute roots (OS path separator, or a JSON array); empty disables file URIs. `STORAGE_FILE_ATOMIC=false` writes directly with exclusive creation, removing its own incomplete file after a failed write. With `true`, stage a sibling temporary file, flush it, then rename without replacing an existing destination. Consumers may see a growing file with direct writes; use atomic writes for scanning directories. Network mounts still need suitable rename semantics.
 
-`sidecar:true` writes `{output}.json` with verification, warnings, effective profile and the job id, never converted subtitle content. No output means no sidecar. Subtitle success plus sidecar failure keeps the subtitle and adds `sidecar-write-failed`; receivers must inspect warnings.
+`sidecar:true` writes `{output}.json` with verification, warnings, effective profile and the job id, never converted subtitle content. No output means no sidecar. Subtitle success plus sidecar failure keeps the subtitle and adds `sidecar-write-failed`; receivers must inspect warnings. Without `sidecar:true`, a successful write deletes an existing `{output}.json` (filesystem and S3): it describes a file that is no longer there. If that delete fails the subtitle is kept and `sidecar-delete-failed` is added.
+
+Filesystem outputs are created with mode `0644` (owner read/write, everyone else read; the process umask can narrow it), so MAM and playout accounts on a shared mount can read deliveries.
 
 ## HTTPS input and output
 
@@ -131,7 +133,7 @@ Inputs and outputs are independent; all enabled schemes can be mixed. S3 require
 
 `S3_ENDPOINT` selects one server-configured compatible endpoint; unset uses the AWS endpoint for `S3_REGION` (default `us-east-1`). Set `S3_FORCE_PATH_STYLE=true` for MinIO. Credentials come from the SDK's default environment/role chain. Custom endpoints are trusted operator configuration and may be internal; never let untrusted callers configure them. No Azure/GCS support or tests.
 
-Outputs use one object PUT with `If-None-Match: *` by default; existing keys yield 409 `output-exists`. Explicit `ifExists:"replace"` omits the condition and permits replacement; no temporary object, rename, copy or delete. Use a unique output key if replacement is unwanted. The subtitle and `{key}.json` sidecar are two independent writes, not a transaction. S3 and HTTPS use the same attempt timeout/retry count; SDK retries are disabled so attempts do not multiply.
+Outputs use one object PUT with `If-None-Match: *` by default; existing keys yield 409 `output-exists`. Explicit `ifExists:"replace"` omits the condition and permits replacement; no temporary object, rename or copy. The only delete is a stale `{key}.json` sidecar after a write without `sidecar:true`. Use a unique output key if replacement is unwanted. The subtitle and `{key}.json` sidecar are two independent writes, not a transaction. S3 and HTTPS use the same attempt timeout/retry count; SDK retries are disabled so attempts do not multiply.
 
 ## URI and polling examples
 

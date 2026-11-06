@@ -40,7 +40,7 @@ public static class OpenApiContract
         schemas["ApiProblem"] = new OpenApiSchema
         {
             Type = JsonSchemaType.Object,
-            Description = "RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `phase` (conversion-timeout: queue|running), `candidates` (ambiguous-format).",
+            Description = "RFC 7807 problem details with a stable `code` (docs/errors.md). Extra members may appear: `phase` (conversion-timeout: queue|running), `candidates` (ambiguous-format, ambiguous-encoding), `probe` (ambiguous-encoding: pac-code-page|text-encoding).",
             Required = new HashSet<string> { "type", "title", "status", "code", "detail", "hint" },
             Properties = new Dictionary<string, IOpenApiSchema>
             {
@@ -56,9 +56,10 @@ public static class OpenApiContract
                 ["phase"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["queue", "running"], Description = "conversion-timeout only: queue is retryable like 503." },
                 ["candidates"] = new OpenApiSchema
                 {
-                    Type = JsonSchemaType.Array, Description = "ambiguous-format only: the format ids the bytes match; set profile.source.format to one of them.",
+                    Type = JsonSchemaType.Array, Description = "ambiguous-format: the format ids the bytes match; set profile.source.format to one of them. ambiguous-encoding: the PAC code pages or text encodings that remain possible (may be empty); set formatOptions.pac.inputCodePage or encoding.input.",
                     Items = new OpenApiSchema { Type = JsonSchemaType.String },
                 },
+                ["probe"] = new OpenApiSchema { Type = JsonSchemaType.String, Enum = ["pac-code-page", "text-encoding"], Description = "ambiguous-encoding only: which probe could not decide." },
             },
             AdditionalPropertiesAllowed = true,
         };

@@ -79,6 +79,9 @@ public sealed class HttpStorage : IStorage, IDisposable
         try { await Transfer(location, HttpMethod.Head, null, null, ct); return true; }
         catch (ApiException ex) when (ex.Code == "storage-not-found") { return false; }
     }
+    /// <summary>Signed HTTPS locations name one object; no delete is ever derived or attempted.</summary>
+    public Task<bool> DeleteAsync(StorageLocation location, CancellationToken ct) =>
+        throw new NotSupportedException("HTTPS storage never deletes; no sidecar location is derived from a signed URL.");
     private sealed class Transient(int status, int retryAfter = 0) : Exception { public int Status = status; public int RetryAfter = retryAfter; }
     private async Task<byte[]> Transfer(StorageLocation location, HttpMethod method, byte[]? bytes, string? contentType, CancellationToken ct)
     {

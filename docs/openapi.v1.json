@@ -2225,6 +2225,7 @@
               "format-option-invalid",
               "invalid-binary-input",
               "ambiguous-format",
+              "ambiguous-encoding",
               "encoding-error",
               "unsafe-xml",
               "input-limits-exceeded",
@@ -2270,10 +2271,18 @@
             "items": {
               "type": "string"
             },
-            "description": "ambiguous-format only: the format ids the bytes match; set profile.source.format to one of them."
+            "description": "ambiguous-format: the format ids the bytes match; set profile.source.format to one of them. ambiguous-encoding: the PAC code pages or text encodings that remain possible (may be empty); set formatOptions.pac.inputCodePage or encoding.input."
+          },
+          "probe": {
+            "enum": [
+              "pac-code-page",
+              "text-encoding"
+            ],
+            "type": "string",
+            "description": "ambiguous-encoding only: which probe could not decide."
           }
         },
-        "description": "RFC 7807 problem details with a stable \u0060code\u0060 (docs/errors.md). Extra members may appear: \u0060phase\u0060 (conversion-timeout: queue|running), \u0060candidates\u0060 (ambiguous-format)."
+        "description": "RFC 7807 problem details with a stable \u0060code\u0060 (docs/errors.md). Extra members may appear: \u0060phase\u0060 (conversion-timeout: queue|running), \u0060candidates\u0060 (ambiguous-format, ambiguous-encoding), \u0060probe\u0060 (ambiguous-encoding: pac-code-page|text-encoding)."
       },
       "CodePointCount": {
         "required": [
@@ -2414,6 +2423,31 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "CueDuration": {
+        "required": [
+          "cue",
+          "durationMs"
+        ],
+        "type": "object",
+        "properties": {
+          "cue": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         }
       },
@@ -3631,6 +3665,39 @@
                 "$ref": "#/components/schemas/RemedyInfo"
               }
             ]
+          },
+          "durations": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CueDuration"
+            }
+          },
+          "fields": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "timecode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "frameRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         }
       }

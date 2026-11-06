@@ -49,4 +49,44 @@ public sealed class FileStorageTests : IDisposable
         Assert.Equal(404, (int)(await c.PostAsJsonAsync("/v1/detect", new { input = Path.Combine(root, "absent.srt") })).StatusCode);
         Assert.Equal(422, (int)(await c.PostAsJsonAsync("/v1/convert/json", new { input = Path.Combine(root, "in.srt"), content = Samples.Srt, target = "vtt" })).StatusCode);
     }
+    [Fact]
+    public async Task Writing_without_sidecar_deletes_a_stale_sidecar_and_sidecar_replace_refreshes_it()
+    {
+        using var f = ApiFactory.With(new() { ["STORAGE_FILE_ROOTS"] = root }); var c = f.CreateClient();
+        var output = Path.Combine(root, "out.vtt");
+        var first = await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, output, target = "vtt", sidecar = true });
+        Assert.Equal(200, (int)first.StatusCode); Assert.True(File.Exists(output + ".json"));
+        var again = await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, output, target = "vtt", sidecar = true, ifExists = "replace" });
+        Assert.Equal(200, (int)again.StatusCode);
+        Assert.Contains((string)(await again.Json())["id"]!, File.ReadAllText(output + ".json"));
+        var plain = await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, output, target = "vtt", ifExists = "replace" });
+        Assert.Equal(200, (int)plain.StatusCode);
+        Assert.True(File.Exists(output)); Assert.False(File.Exists(output + ".json"));
+        Assert.DoesNotContain("sidecar", (await plain.Json())["warnings"]!.ToJsonString());
+    }
+    [Fact]
+    public async Task Sidecar_that_cannot_be_deleted_keeps_subtitle_with_warning()
+    {
+        var output = Path.Combine(root, "dir.vtt"); Directory.CreateDirectory(output + ".json");
+        using var f = ApiFactory.With(new() { ["STORAGE_FILE_ROOTS"] = root }); var c = f.CreateClient();
+        var res = await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, output, target = "vtt" });
+        Assert.Equal(200, (int)res.StatusCode); Assert.True(File.Exists(output));
+        Assert.Contains("sidecar-delete-failed", (await res.Json())["warnings"]!.ToJsonString());
+        Assert.True(Directory.Exists(output + ".json"));
+    }
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Outputs_are_created_0644_subject_to_umask(bool atomic)
+    {
+        using var f = ApiFactory.With(new() { ["STORAGE_FILE_ROOTS"] = root, ["STORAGE_FILE_ATOMIC"] = atomic.ToString() }); var c = f.CreateClient();
+        var output = Path.Combine(root, "mode.vtt");
+        Assert.Equal(200, (int)(await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, output, target = "vtt", sidecar = true })).StatusCode);
+        // A file created with 0644 by this process shows the same umask.
+        var reference = Path.Combine(root, "reference");
+        using (File.Create(reference)) { }
+        File.Delete(reference);
+        using (new FileStream(reference, new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, UnixCreateMode = (UnixFileMode)0x1A4 })) { }
+        Assert.Equal(File.GetUnixFileMode(reference), File.GetUnixFileMode(output));
+        Assert.Equal(File.GetUnixFileMode(reference), File.GetUnixFileMode(output + ".json"));
+        Assert.True(File.GetUnixFileMode(output).HasFlag(UnixFileMode.UserRead | UnixFileMode.UserWrite));
+    }
 }

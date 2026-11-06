@@ -119,7 +119,9 @@ public sealed class ProfileResolver(PresetStore store, FormatRegistry formats)
         }
         if (resolved["target"]?["fps"] != null && resolved["source"]?["fps"] == null)
         {
-            warnings.Add(new("/target/fps", "target.fps without source.fps converts from the default 23.976 fps.", "Set source.fps explicitly."));
+            warnings.Add(new("/target/fps",
+                "target.fps without source.fps only sets the output frame rate: time-based sources (SRT, WebVTT, ...) keep their times, and frame-based sources are rescaled only from a rate the file states or implies (EBU STL header, SCC timecodes).",
+                "Set source.fps too if the times should be rescaled from one frame rate to the other (e.g. 25 -> 23.976)."));
         }
         // Checks the JSON Schema can't express (plan §2): only once the shape is valid.
         var semantic = 0;

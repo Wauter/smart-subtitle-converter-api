@@ -17,9 +17,12 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     private readonly HttpClient _c;
     public BinaryFormatTests(ApiFactory f) => _c = f.CreateClient();
 
-    /// <summary>Latin text every Tier 1 table can hold (accents, two-line cues).</summary>
+    /// <summary>
+    /// Latin text every Tier 1 table can hold (accents, two-line cues). The second line has common English words so
+    /// PAC's code-page probe can recognise the language (a file without any dictionary word needs inputCodePage).
+    /// </summary>
     internal static readonly string Srt = string.Join("\r\n", Enumerable.Range(0, 8).Select(i =>
-        $"{i + 1}\r\n00:00:{1 + i * 3:00},000 --> 00:00:{3 + i * 3:00},000\r\n" + (i % 2 == 0 ? $"Café número {i}" : $"Line {i} first\r\nsecond à la carte") + "\r\n"));
+        $"{i + 1}\r\n00:00:{1 + i * 3:00},000 --> 00:00:{3 + i * 3:00},000\r\n" + (i % 2 == 0 ? $"Café número {i}" : $"Line {i}: you know what we are\r\nsecond à la carte") + "\r\n"));
 
     public static TheoryData<string, string, bool> Writable => new()
     {
@@ -368,7 +371,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
                     var r = await _c.PostAsync("/v1/convert", Samples.Form(bytes, "x" + ext, ("target", "srt"), ("profile", profile)));
                     Assert.True(r.StatusCode is HttpStatusCode.OK or HttpStatusCode.UnprocessableEntity, $"{id} {(int)r.StatusCode} {await r.Content.ReadAsStringAsync()}");
                     if (r.StatusCode != HttpStatusCode.OK)
-                        Assert.Contains((string)(await r.Json())["code"]!, new[] { "invalid-binary-input", "format-not-detected", "input-limits-exceeded" });
+                        Assert.Contains((string)(await r.Json())["code"]!, new[] { "invalid-binary-input", "format-not-detected", "input-limits-exceeded", "ambiguous-encoding" });
                 }
             }
         }

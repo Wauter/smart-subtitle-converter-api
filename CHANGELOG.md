@@ -8,6 +8,17 @@ the version of the `main` commit it was built from.
 
 ## 1.3.0 — Unreleased
 
+Broadcast-tester follow-ups:
+
+- PAC input code page `auto` now probes all 13 code pages and keeps one only when it yields words of a language that page serves (`codePageConfidence: "probed"`, `probedLanguage`). No match or several different texts: new `422 ambiguous-encoding` with `candidates` and `probe: "pac-code-page"` instead of a silent Latin read. An explicit `inputCodePage` is `"forced"`. A `.pac` name or `source.format: pac` loads PAC even when libse's header check fails. Word-poor PAC files need `inputCodePage`.
+- Non-UTF-8 text is probed over the common Windows, ISO-8859 and CJK encodings the same way (`encodingConfidence: "probed"`); conflicting readings give `422 ambiguous-encoding` (`probe: "text-encoding"`); with no recognisable words libse's heuristic is used with a new `encoding-guessed` warning. `encoding.input` still forces.
+- Breaking (timing): `target.fps` no longer rescales time-based sources (SRT, WebVTT, ...). Rescaling uses `source.fps` or a rate the file states/implies (EBU header, SCC timecodes); `formatDetails.frameRate`/`frameRateSource` report it. New `frame-rate-assumed` warning when a frame-based source is read at libse's default.
+- SCC with drop-frame (`;`) timecodes, or frame numbers of 25 and above, is read at 29.97.
+- New source warnings `overlapping-cues`, `long-cue` (over 30 s, with durations) and `programme-start-not-applied` (EBU STL with a non-zero TCP; times unchanged).
+- New `format-defaults-applied` warning lists EBU STL / Cavena 890 identity fields filled in although the request didn't set them (libse's `No Title`, `USA`, fallback language, Cavena file-name title).
+- Writing an output without `sidecar` deletes a stale `{output}.json` (filesystem, S3); failure keeps the subtitle and adds `sidecar-delete-failed`.
+- Filesystem outputs are created `0644` (was `0600`).
+
 - Add input/output job-file routes that re-read storage without retaining bytes; any valid key knowing an unguessable id can read job metadata/files. Distinguish not-ready, not-found, unstored, gone and non-replayable locations, with redacted locations where applicable.
 - Add request-level ifExists error | replace for filesystem/S3. S3 default PUT is conditional; explicit filesystem replacement stages before rename. HTTPS PUT retains signer/receiver semantics. Report the documented maximum wait through limits.
 

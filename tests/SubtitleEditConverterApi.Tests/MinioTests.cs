@@ -82,6 +82,14 @@ public class MinioTests
             Assert.Contains("error | replace", (string)(await again.Json())["hint"]!);
             var replace = await c.PostAsJsonAsync("/v1/convert/json", new { input = output, output = "s3://subs/out/show.srt", target = "srt", ifExists = "replace", sidecar = true });
             Assert.Equal(200, (int)replace.StatusCode);
+            Assert.True((await client.GetObjectMetadataAsync("subs", "out/show.srt.json")).ContentLength > 0);
+            var noSidecar = await c.PostAsJsonAsync("/v1/convert/json", new { input = output, output = "s3://subs/out/show.srt", target = "srt", ifExists = "replace" });
+            Assert.Equal(200, (int)noSidecar.StatusCode);
+            Assert.DoesNotContain("sidecar", (await noSidecar.Json())["warnings"]!.ToJsonString());
+            var stale = await Assert.ThrowsAsync<AmazonS3Exception>(() => client.GetObjectMetadataAsync("subs", "out/show.srt.json"));
+            Assert.Equal(HttpStatusCode.NotFound, stale.StatusCode);
+            var replace2 = await c.PostAsJsonAsync("/v1/convert/json", new { input = output, output = "s3://subs/out/show.srt", target = "srt", ifExists = "replace", sidecar = true });
+            Assert.Equal(200, (int)replace2.StatusCode);
             var reread = await c.GetAsync("/v1/jobs/" + b.Header("X-Job-Id") + "/output");
             Assert.Equal(200, (int)reread.StatusCode); Assert.Contains("Hello", await reread.Content.ReadAsStringAsync());
             var inputRead = await c.GetAsync("/v1/jobs/" + a.Header("X-Job-Id") + "/input");

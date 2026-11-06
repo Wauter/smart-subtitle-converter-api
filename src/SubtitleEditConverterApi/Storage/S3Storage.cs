@@ -68,7 +68,7 @@ public sealed class S3Storage : IStorage, IDisposable
         }, ct); }
         catch (ApiException ex) when (!replace && ex.Extensions.TryGetValue("upstreamStatus", out var status) && status is int code && code is 412 or 409)
         { throw StorageLocation.OutputExists(); }
-        // a single PUT; no staging, multipart upload, copy, delete or pretend rename
+        // a single PUT; no staging, multipart upload, copy or pretend rename (the only delete is a stale {output}.json sidecar)
     }
     public async Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct)
     {
@@ -78,6 +78,13 @@ public sealed class S3Storage : IStorage, IDisposable
             return await Attempt(async token => { await _client.Value.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = bucket, Key = key }, token); return true; }, ct);
         }
         catch (ApiException ex) when (ex.Code == "storage-not-found") { return false; }
+    }
+    public async Task<bool> DeleteAsync(StorageLocation location, CancellationToken ct)
+    {
+        var (bucket, key) = Checked(location);
+        if (!await ExistsAsync(location, ct)) return false;
+        await Attempt(async token => { await _client.Value.DeleteObjectAsync(new DeleteObjectRequest { BucketName = bucket, Key = key }, token); return true; }, ct);
+        return true;
     }
     private static bool Transient(Exception ex) => ex is AmazonS3Exception s && (int)s.StatusCode is 408 or 429 or 500 or 502 or 503 or 504
         || (ex is AmazonS3Exception { StatusCode: 0, InnerException: { } inner } && Transient(inner))

@@ -13,7 +13,9 @@ Extension members:
 - `phase`: on `conversion-timeout`, either `queue` (the job never started; retry like a 503) or
   `running` (the conversion itself was too slow; split the file or simplify operations).
 - `candidates`: on `ambiguous-format`, the format ids the bytes match (`pacscreenelectronics`,
-  `pacunicodeunipac`).
+  `pacunicodeunipac`); on `ambiguous-encoding`, the PAC code pages or text encodings that remain possible
+  (can be empty).
+- `probe`: on `ambiguous-encoding`, which decision failed: `pac-code-page` or `text-encoding`.
 
 | Status | code | Meaning / what to do |
 |---|---|---|
@@ -33,6 +35,7 @@ Extension members:
 | 422 | <a id="encoding-error"></a>`encoding-error` | Reserved: the input could not be decoded; set `encoding.input`. |
 | 422 | <a id="unsafe-xml"></a>`unsafe-xml` | DTD / entity declarations are not allowed. |
 | 422 | <a id="ambiguous-format"></a>`ambiguous-format` | Auto-detection found bytes that are valid as both PAC (Screen Electronics) and PAC Unicode (FPC): the two formats share their header, so only a `.pac` / `.fpc` file name decides. Without one (no file name, `.bin`, inline content) the input is rejected instead of guessed. `candidates` lists both ids; `errors[0].pointer` is `/source/format`. Set `profile.source.format` to `pac` or `fpc`, or send the file under its real extension (for `/v1/detect`: `fileName`). |
+| 422 | <a id="ambiguous-encoding"></a>`ambiguous-encoding` | The input's character set could not be decided from its content, and is not guessed. `probe: "pac-code-page"`: a PAC file read with `formatOptions.pac.inputCodePage` auto (the default); every code page decoded it, and either none produced words of a language it serves, or several did with different text. `errors[0].pointer` is `/formatOptions/pac/inputCodePage`. `probe: "text-encoding"`: a text file that is neither BOM-marked nor valid UTF-8 reads as words in more than one encoding with different text (e.g. windows-1256 Arabic and windows-1252); `errors[0].pointer` is `/encoding/input`. `candidates` lists what is still possible; `debug.scores` has the word counts. Set the named option (for `/v1/detect`: `encoding`), or save text as UTF-8. Very short PAC files without any common word need `inputCodePage`. |
 | 422 | <a id="input-limits-exceeded"></a>`input-limits-exceeded` | More than `MAX_CUES` cues or a line over `MAX_LINE_CHARS`. |
 | 422 | <a id="conversion-failed"></a>`conversion-failed` | An operation or writer threw; `debug.operation` names it. |
 | 429 | <a id="rate-limited"></a>`rate-limited` | Over `RATE_LIMIT_PER_MINUTE`; see `Retry-After`. |
@@ -60,11 +63,13 @@ Extension members:
 Warnings are not errors: the conversion succeeded. They appear in `warnings[]`, sidecars, retained job metadata and
 `X-Warnings`/`X-Warnings-Count`. Each warning has `code` and `message`, and may have `count`, `hint` (what
 to do) and `details` (`cueCount`, `cues` (1-based cue numbers, at most 20 listed),
-`distinctCodePoints`, `codePoints` (`[{codePoint: "U+039A", count}]`, at most 20)). `X-Warnings` carries only
+`distinctCodePoints`, `codePoints` (`[{codePoint: "U+039A", count}]`, at most 20), `durations`
+(`[{cue, durationMs}]`, `long-cue`), `fields` (header field → value written, `format-defaults-applied`),
+`timecode` (`programme-start-not-applied`), `frameRate` (`frame-rate-assumed`)). `X-Warnings` carries only
 `code`, `message` and `count`; `hint` and `details` are in the JSON body and requested sidecar. Details never
 contain subtitle text, only positions and code points.
 
-Cue numbers in source warnings (`zero-length-cue`, `source-replacement-chars`) are positions in the
+Cue numbers in source warnings (`zero-length-cue`, `overlapping-cues`, `long-cue`, `source-replacement-chars`) are positions in the
 source; in read-back warnings (`characters-replaced`, `text-truncated`, `lossy-format`) they are positions
 in the written output (after operations).
 
@@ -73,6 +78,12 @@ in the written output (after operations).
 | `characters-replaced` | Read back from a binary output, characters the target's character table can't hold were replaced or dropped. `count` = characters; `details` = cues, code points and `remedy`, the facts needed to choose a fix (see [Remedy](#remedy-characters-replaced)); `hint` says the same in words, with code points, never text. Nothing is switched automatically. U+FFFD already in the source is not counted here (see `source-replacement-chars`). |
 | `text-truncated` | The binary writer cut cues short (Cavena 890 and Cheetah CAP Old cut long lines and drop extra lines). `count` = characters lost; `details.cues`. |
 | `zero-length-cue` | Source cues with zero or negative duration (often metadata cues). `details.cues`. EBU STL can't store them (they read back as 99:59:59,999, reported as `lossy-format` with the cue numbers) and CapMaker Plus drops them. |
+| `overlapping-cues` | Source cues that start before an earlier cue has ended. `details.cues` = the later cue of each overlap. Often a timing error, sometimes intended (two speakers); formats and players that show one cue at a time may hide or cut one. Times are not changed. |
+| `long-cue` | Source cues longer than 30 seconds, which usually means a broken or merged cue (a wrong end time). `details.cues` and `details.durations`. Times are not changed. |
+| `encoding-guessed` | The text input is not UTF-8 and no probed encoding produced recognisable words, so libse's heuristic chose one (`detected.encodingConfidence: "heuristic"`). Check the text; set `encoding.input` if it is wrong. |
+| `programme-start-not-applied` | EBU STL source whose header Time Code Start of Programme (TCP) is not zero (often `10:00:00:00`). Cue times are left as stored; the programme start is not subtracted. `details.timecode`; the hint gives the `timing.offsetMs` that would subtract it. |
+| `frame-rate-assumed` | A frame-based source (PAC, Cavena 890, Cheetah, CapMaker, SCC without telling timecodes, MicroDVD, ...) that doesn't state its frame rate was read at libse's default (`details.frameRate`, 23.976) because `source.fps` was not set. Not raised when the output is the same kind of frame-based file written at the same rate (frame numbers survive unchanged). Set `source.fps`. |
+| `format-defaults-applied` | A binary writer filled identity/delivery header fields the request left unset, read back from the written file: a fresh EBU STL header's `originalProgrammeTitle` (libse: `No Title`), `countryOfOrigin` (`USA`), `language` (unset: detected or a fallback code; `auto`: only a fallback) and any other non-empty title, translator or publisher field; Cavena 890's `title` (the output file name) and `language` (libse's detection, English when unrecognised). `count` = fields; `details.fields` = name → value written. Not raised for fields copied from an EBU source header (`headerFromSource`). Set the matching `formatOptions`. |
 | `source-replacement-chars` | The source already contains U+FFFD replacement characters (damaged by an earlier wrong decoding). `count` = characters; `details.cues`. |
 | `verification-failed` | The written binary output couldn't be read back; the file was written but not checked (`verification.verdict` = `unverified` with `reason`). |
 | `frame-quantised` | Times were rounded to the target frame rate (at most one frame). |
@@ -80,6 +91,7 @@ in the written output (after operations).
 | `lossy-format` | The target format can't keep everything: Cheetah styling, cues missing on read-back (`details.cues`, matched by start time), zero-length cues the target can't store, or timing moved by more than one frame (`details.cues`). |
 | `encoding-ignored` | `encoding.output` / `responseEncoding=text` doesn't apply to binary output (always base64 in JSON). |
 | `sidecar-write-failed` | Subtitle was written; sidecar failed. Keep the subtitle and inspect the warning; there is no rollback. |
+| `sidecar-delete-failed` | The subtitle was written without `sidecar`, but an older `{output}.json` beside it (from an earlier job) could not be deleted. The subtitle is kept; the stale sidecar describes a previous file. |
 | `sidecar-skipped` | HTTPS output cannot supply a second signed URL. No sidecar was attempted. |
 | `format-option-ignored` | A `formatOptions` block doesn't apply to this source or target. |
 

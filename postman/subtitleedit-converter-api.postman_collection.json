@@ -1303,7 +1303,7 @@
                 "json"
               ]
             },
-            "description": "A zero-length cue (often metadata) can't be stored in EBU STL: it reads back as 99:59:59,999. zero-length-cue names the source cue; lossy-format says what happened and how to fix it (ApplyDurationLimits, or remove the cue).",
+            "description": "A zero-length cue (often metadata) can't be stored in EBU STL: it reads back as 99:59:59,999. zero-length-cue names the source cue; lossy-format says what happened and how to fix it (ApplyDurationLimits, or remove the cue). A fresh EBU header also gets format-defaults-applied (No Title / USA / language) because no formatOptions.ebuStl fields were set.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"content\": \"1\\n00:00:00,000 --> 00:00:00,000\\nMETADATA title=x\\n\\n2\\n00:00:01,000 --> 00:00:02,000\\nHello\\n\",\n  \"fileName\": \"zero.srt\",\n  \"target\": \"ebustl\"\n}",
@@ -1325,7 +1325,8 @@
                   "pm.test(\"zero-length-cue for cue 1\", () => pm.expect(j.warnings.find(x => x.code === \"zero-length-cue\").details.cues).to.eql([1]));",
                   "const l = j.warnings.find(x => x.code === \"lossy-format\");",
                   "pm.test(\"lossy-format names the cue and 99:59:59,999\", () => { pm.expect(l.message).to.include(\"zero-length cue(s) 1\"); pm.expect(l.message).to.include(\"99:59:59,999\"); });",
-                  "pm.test(\"verdict lossy\", () => pm.expect(j.outputs[0].verification.verdict).to.eql(\"lossy\"));"
+                  "pm.test(\"verdict lossy\", () => pm.expect(j.outputs[0].verification.verdict).to.eql(\"lossy\"));",
+                  "pm.test(\"format-defaults-applied lists the header fields libse filled in\", () => { const f = j.warnings.find(x => x.code === \"format-defaults-applied\").details.fields; pm.expect(f.originalProgrammeTitle).to.eql(\"No Title\"); pm.expect(f.countryOfOrigin).to.eql(\"USA\"); });"
                 ]
               }
             }

@@ -56,6 +56,7 @@ public static class ErrorCodes
     public const string FormatOptionInvalid = "format-option-invalid";
     public const string InvalidBinaryInput = "invalid-binary-input";
     public const string AmbiguousFormat = "ambiguous-format";
+    public const string AmbiguousEncoding = "ambiguous-encoding";
     public const string EncodingError = "encoding-error";
     public const string UnsafeXml = "unsafe-xml";
     public const string InputLimitsExceeded = "input-limits-exceeded";
@@ -81,6 +82,7 @@ public static class ErrorCodes
         FormatOptionInvalid => "Invalid format option",
         InvalidBinaryInput => "Invalid binary input",
         AmbiguousFormat => "Ambiguous format",
+        AmbiguousEncoding => "Ambiguous encoding",
         EncodingError => "Encoding error",
         UnsafeXml => "Unsafe XML",
         InputLimitsExceeded => "Input limits exceeded",

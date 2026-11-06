@@ -34,6 +34,8 @@ public interface IStorage
     Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct);
     Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false);
     Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct);
+    /// <summary>Delete the object if it exists. True when something was deleted, false when there was nothing to delete.</summary>
+    Task<bool> DeleteAsync(StorageLocation location, CancellationToken ct);
 }
 
 public sealed class StorageRouter(FileStorage files, HttpStorage http, S3Storage s3) : IStorage
@@ -48,6 +50,7 @@ public sealed class StorageRouter(FileStorage files, HttpStorage http, S3Storage
     public Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct) => For(location).ReadAsync(location, ct);
     public Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false) => For(location).WriteAsync(location, bytes, contentType, ct, replace);
     public Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct) => For(location).ExistsAsync(location, ct);
+    public Task<bool> DeleteAsync(StorageLocation location, CancellationToken ct) => For(location).DeleteAsync(location, ct);
     public static async Task<byte[]> ReadCapped(Stream stream, long max, CancellationToken ct)
     {
         using var buffer = new MemoryStream();

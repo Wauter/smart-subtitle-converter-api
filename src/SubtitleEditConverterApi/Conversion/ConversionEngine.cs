@@ -53,10 +53,17 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             var paragraphsIn = subtitle.Paragraphs.Count;
             var language = Language.DetectOrNull(subtitle);
             warnings.AddRange(SourceChecks.Check(subtitle, decoded, loaded.IsBinary));
+            warnings.AddRange(FormatSourceChecks(loaded, bytes));
             if (loaded.IsBinary && (profile.Encoding?.Input != null || profile.Encoding?.InputFallback != null))
                 warnings.Add(new("encoding-ignored", $"encoding.input/inputFallback don't apply to binary source '{sourceInfo.Id}'; its character set comes from the file."));
 
-            ApplyTiming(subtitle, profile);
+            var targetIds = new List<string> { profile.Target!.Format! };
+            targetIds.AddRange(profile.Target.Additional ?? []);
+            var (knownFps, fpsSource) = SourceFrameRate(loaded, profile);
+            loaded = loaded with { Details = WithFrameRate(loaded.Details, knownFps ?? Configuration.Settings.General.CurrentFrameRate, fpsSource) };
+            if (fpsSource == FpsAssumed && !FrameExactRoundTrip(targetIds, profile))
+                warnings.Add(FrameRateAssumed(sourceInfo, Configuration.Settings.General.CurrentFrameRate, profile.Target.Fps));
+            ApplyTiming(subtitle, profile, fpsSource == FpsTimeBased ? null : knownFps);
             foreach (var op in profile.Operations ?? [])
             {
                 var before = subtitle.Paragraphs.Count;
@@ -101,7 +108,19 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
                     if (loaded.IsBinary && string.Equals(profile.Encoding?.Output, "source", StringComparison.OrdinalIgnoreCase))
                         warnings.Add(new("encoding-ignored", "encoding.output=source has no text encoding to reuse for a binary source; wrote UTF-8."));
                     ApplyFormatOptions(copy, info, profile, warnings);
-                    var text = format.ToText(copy, stem);
+                    var g = Configuration.Settings.General;
+                    var savedFps = g.CurrentFrameRate;
+                    string text;
+                    try
+                    {
+                        // target.fps is the rate frame-based text writers (SCC, MicroDVD, ...) write at.
+                        if (profile.Target.Fps is > 0 and { } wfps) g.CurrentFrameRate = wfps;
+                        text = format.ToText(copy, stem);
+                    }
+                    finally
+                    {
+                        g.CurrentFrameRate = savedFps;
+                    }
                     var (enc, encName2) = Encodings.ForOutput(profile.Encoding?.Output, decoded);
                     outputs.Add(new ConvertedOutput(name, info, Encodings.Encode(text, enc), encName2, Encodings.IsUnicode(enc), copy.Paragraphs.Count));
                 }
@@ -142,6 +161,9 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         {
             var l = Load(bytes, fileName, new Profile { Encoding = new EncodingOptions(forcedEncoding, null, null) }, temp, collectCandidates: true);
             var warnings = SourceChecks.Check(l.Subtitle, l.Decoded, l.IsBinary);
+            warnings.AddRange(FormatSourceChecks(l, bytes));
+            var (knownFps, fpsSource) = SourceFrameRate(l, new Profile());
+            l = l with { Details = WithFrameRate(l.Details, knownFps ?? Configuration.Settings.General.CurrentFrameRate, fpsSource) };
             return new DetectedInfo(l.Info.Name, l.Info.Id, l.Decoded.EncodingName, l.Decoded.Confidence, Language.DetectOrNull(l.Subtitle), l.Subtitle.Paragraphs.Count,
                 l.Candidates, l.Info.Kind, l.CodePage, l.Details,
                 Bom: l.IsBinary ? null : l.Decoded.HadBom, LineEndings: l.IsBinary ? null : SourceChecks.LineEndings(l.Decoded.Text),
@@ -224,7 +246,17 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             }
             if (loaded == null) throw NotDetected(decoded, lines, "No subtitle format recognised the input.", null);
         }
-        return CheckCues(new Loaded(loaded, format!, info!, decoded, null, null, candidates));
+        Dictionary<string, object?>? details = null;
+        if (format is ScenaristClosedCaptions && profile.Source?.Fps == null && InferSccFrameRate(lines) is { } scc)
+        {
+            // libse reads SCC frames at the global frame rate (default 23.976); read again at the rate the timecodes imply.
+            Configuration.Settings.General.CurrentFrameRate = scc.Fps;
+            var again = new Subtitle();
+            format!.LoadSubtitle(again, lines, name);
+            if (again.Paragraphs.Count > 0) loaded = again;
+            details = new() { ["frameRate"] = scc.Fps, ["frameRateSource"] = FpsInferred, ["frameRateBasis"] = scc.Basis };
+        }
+        return CheckCues(new Loaded(loaded, format!, info!, decoded, null, details, candidates));
     }
 
     private Loaded CheckCues(Loaded l)
@@ -266,19 +298,28 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         Loaded? first = null;
         var candidates = new List<string>();
         using var file = new TempFile(temp, bytes, ".bin");
+        ApiException? firstDeferred = null;
         foreach (var (ci, cf) in formats.BinaryCandidates(callerExt))
         {
             try
             {
                 file.WithExtension(ci.Extension);
-                if (!cf.IsMine([], file.Path)) continue;
-                var (s, cp, details) = ReadWith(cf, ci, bytes, file.Path, profile);
-                if (s.Paragraphs.Count == 0 || !Plausible(s)) continue;
-                first ??= new Loaded(s, cf, ci, BinaryDecoded(), cp, details, []);
+                bool mine;
+                try { mine = cf.IsMine([], file.Path); } catch { mine = false; }
+                // libse's PAC IsMine misses some real files; a .pac name is enough to try the PAC reader (and its code-page probe).
+                if (!mine && !(IsPac8Bit(cf) && callerExt == ".pac")) continue;
+                var (s, cp, details) = ReadWithProbe(cf, ci, bytes, file.Path, profile, out var deferred);
+                if (s.Paragraphs.Count == 0) continue;
+                if (deferred == null ? !Plausible(s) : !DeferredReadable(deferred)) continue;
+                if (first == null)
+                {
+                    first = new Loaded(s, cf, ci, BinaryDecoded(), cp, details, []);
+                    firstDeferred = deferred;
+                }
                 candidates.Add(ci.Name);
                 if (!collect || candidates.Count >= 5) break;
             }
-            catch
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // A reader that throws on foreign bytes simply isn't this format.
             }
@@ -286,6 +327,7 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         if (first != null)
         {
             CheckPacAmbiguity(first, bytes, callerExt, file, profile);
+            if (firstDeferred != null) throw firstDeferred;
             RestoreAfterProbes(first, bytes, file, profile);
         }
         return (first, candidates);
@@ -307,7 +349,12 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         try
         {
             file.WithExtension(otherInfo.Extension);
-            both = other.IsMine([], file.Path) && ReadWith(other, otherInfo, bytes, file.Path, profile).Subtitle is { Paragraphs.Count: > 0 } s && Plausible(s);
+            if (!other.IsMine([], file.Path)) both = false;
+            else
+            {
+                var (s, _, _) = ReadWithProbe(other, otherInfo, bytes, file.Path, profile, out var deferred);
+                both = s.Paragraphs.Count > 0 && (deferred == null ? Plausible(s) : DeferredReadable(deferred));
+            }
         }
         catch
         {
@@ -349,7 +396,12 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         {
             (s, cp, details) = ReadWith(formats.Resolve(info.Id, "/source/format").Format, info, bytes, file.Path, profile);
         }
-        catch (Exception ex)
+        catch (ApiException ex) when (ex.Code == ErrorCodes.AmbiguousEncoding && !DeferredReadable(ex))
+        {
+            // No PAC code page gives readable text: these bytes aren't a PAC file, whatever the code page.
+            throw InvalidBinary(info, bytes, isMine, $"The bytes don't decode as {info.Name} text in any code page.", ex);
+        }
+        catch (Exception ex) when (ex is not ApiException)
         {
             throw InvalidBinary(info, bytes, isMine, $"libse's {info.Name} reader failed: {ex.GetType().Name}.", ex);
         }
@@ -374,7 +426,37 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
     /// </summary>
     private static (Subtitle Subtitle, string? CodePage, Dictionary<string, object?>? Details) ReadWith(SubtitleFormat f, FormatInfo info, byte[] bytes, string path, Profile profile)
     {
+        var r = ReadWithProbe(f, info, bytes, path, profile, out var deferred);
+        if (deferred != null) throw deferred;
+        return r;
+    }
+
+    private static bool IsPac8Bit(SubtitleFormat f) => f is Pac and not PacUnicode;
+
+    /// <summary>A deferred PAC code-page problem still proves the bytes read as PAC when some code page gave text.</summary>
+    private static bool DeferredReadable(ApiException deferred) => deferred.Extensions.GetValueOrDefault("candidates") is string[] { Length: > 0 };
+
+    /// <summary>
+    /// <see cref="ReadWith"/>, but a PAC code page that the probe can't decide comes back in <paramref name="deferred"/>
+    /// (the subtitle is then the first readable decoding, only good for format detection) instead of being thrown,
+    /// so detection can still weigh the PAC/FPC ambiguity first.
+    /// </summary>
+    private static (Subtitle Subtitle, string? CodePage, Dictionary<string, object?>? Details) ReadWithProbe(SubtitleFormat f, FormatInfo info, byte[] bytes, string path, Profile profile, out ApiException? deferred)
+    {
+        deferred = null;
         var inputCp = BinaryOptions.PacCodePage(profile.FormatOptions?.Pac?.InputCodePage, allowAuto: true);
+        if (f is Pac pac8 && IsPac8Bit(f) && inputCp is not >= 0)
+        {
+            var probe = PacProbe.Run(bytes, path);
+            if (probe.Problem != null)
+            {
+                deferred = probe.Problem;
+                return (probe.Fallback ?? new Subtitle(), null, null);
+            }
+            pac8.CodePage = probe.CodePage;
+            return (probe.Subtitle!, "pac-" + BinaryOptions.PacCodePageName(probe.CodePage),
+                new Dictionary<string, object?> { ["codePageConfidence"] = "probed", ["probedLanguage"] = probe.Language });
+        }
         if (f is Pac pac) pac.CodePage = inputCp is >= 0 ? inputCp.Value : -1;
         var s = BinaryIO.Load(f, bytes, path);
         switch (f)
@@ -389,7 +471,7 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             case PacUnicode:
                 return (s, "pac-unicode", new Dictionary<string, object?> { ["codePageConfidence"] = "format" });
             case Pac p:
-                return (s, "pac-" + BinaryOptions.PacCodePageName(p.CodePage), new Dictionary<string, object?> { ["codePageConfidence"] = inputCp is >= 0 ? "forced" : "auto" });
+                return (s, "pac-" + BinaryOptions.PacCodePageName(p.CodePage), new Dictionary<string, object?> { ["codePageConfidence"] = "forced" });
             case Cavena890:
                 var id = Configuration.Settings.SubtitleSettings.CurrentCavena890LanguageIdLine1;
                 return (s, null, new Dictionary<string, object?> { ["languageId"] = id, ["characterSet"] = BinaryOptions.CavenaScript(id) });
@@ -427,11 +509,13 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         {
             if (profile.Target?.Fps is { } tfps) g.CurrentFrameRate = tfps;
             Ebu.EbuGeneralSubtitleInformation? header = null;
+            var freshEbuHeader = false;
             string encName;
             var expected = new Subtitle(copy, false);
             switch (format)
             {
                 case Ebu:
+                    freshEbuHeader = !(BinaryOptions.IsStlHeader(copy.Header) && fo?.EbuStl?.HeaderFromSource != false);
                     header = BinaryOptions.BuildEbuHeader(copy, fo?.EbuStl, profile.Target?.Fps, warnings);
                     var sourceFps = source.Format is Ebu
                         ? fo?.EbuStl?.ReadFrameRate is > 20 and { } rfr ? rfr : source.Details?.GetValueOrDefault("frameRate") as double?
@@ -459,6 +543,8 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             }
             var frame = 1000.0 / (g.CurrentFrameRate > 1 ? g.CurrentFrameRate : 25);
             var bytes = BinaryIO.Save(format, copy, fileName, header);
+            if (format is Ebu && freshEbuHeader && FormatDefaults.Ebu(bytes, fo?.EbuStl, copy) is { } ebuDefaults) warnings.Add(ebuDefaults);
+            if (format is Cavena890 && FormatDefaults.Cavena(bytes, fo?.Cavena890, fileName, temp) is { } cavenaDefaults) warnings.Add(cavenaDefaults);
             if (info.Lossy)
                 warnings.Add(new("lossy-format", $"{info.Name} can't store everything: characters outside its table are dropped or replaced, and timing may shift."));
             var remedyCtx = format switch
@@ -610,12 +696,114 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         return new string(s.Select(c => char.IsLetter(c) ? 'x' : c is >= ' ' and <= '~' ? c : '?').ToArray());
     }
 
-    private static void ApplyTiming(Subtitle s, Profile p)
+    internal const string FpsProfile = "profile", FpsHeader = "header", FpsInferred = "inferred", FpsAssumed = "assumed", FpsTimeBased = "time-based";
+
+    /// <summary>
+    /// Frame-based sources store frames (timecodes with a frame part, frame counts): their times depend on a frame rate.
+    /// Binary formats, SCC and libse's frame-based text formats (MicroDVD, ...). SubRip, WebVTT, TTML, ASS store time.
+    /// </summary>
+    internal static bool IsFrameBasedSource(FormatInfo info, SubtitleFormat f) =>
+        info.Kind == FormatKinds.Binary || f.IsFrameBased || f is ScenaristClosedCaptions;
+
+    /// <summary>
+    /// The source frame rate and where it came from: profile (source.fps), header (EBU DFC or readFrameRate),
+    /// inferred (SCC timecodes), assumed (a frame-based source that states no rate: libse's current rate) or
+    /// time-based (no frame rate involved).
+    /// </summary>
+    internal static (double? Fps, string Source) SourceFrameRate(Loaded l, Profile p)
+    {
+        if (p.Source?.Fps is > 0 and { } sfps) return (sfps, FpsProfile);
+        if (!IsFrameBasedSource(l.Info, l.Format)) return (null, FpsTimeBased);
+        if (l.Format is Ebu)
+        {
+            if (p.FormatOptions?.EbuStl?.ReadFrameRate is > 20 and { } rfr) return (rfr, FpsProfile);
+            if (l.Details?.GetValueOrDefault("frameRate") is double hf && hf > 0) return (hf, FpsHeader);
+        }
+        if (l.Details?.GetValueOrDefault("frameRateSource") as string == FpsInferred && l.Details["frameRate"] is double inf) return (inf, FpsInferred);
+        return (null, FpsAssumed);
+    }
+
+    private static Dictionary<string, object?>? WithFrameRate(Dictionary<string, object?>? details, double fps, string source)
+    {
+        if (source == FpsTimeBased) return details;
+        var d = details == null ? new Dictionary<string, object?>() : new Dictionary<string, object?>(details);
+        var rounded = Math.Round(fps, 3);
+        // An EBU header's own frameRate stays as declared; a different read rate (source.fps, readFrameRate) is added beside it.
+        if (d.GetValueOrDefault("frameRate") is double declared) { if (Math.Abs(declared - rounded) > 0.001) d["readFrameRate"] = rounded; }
+        else d["frameRate"] = rounded;
+        d["frameRateSource"] = source;
+        return d;
+    }
+
+    /// <summary>Reading and writing the same frame-based format at the same (assumed) rate keeps every frame number: nothing to warn about.</summary>
+    /// <remarks>EBU STL targets are excluded: their writer uses the header's rate (default 25), not the rate the source was read at.</remarks>
+    private bool FrameExactRoundTrip(List<string> targets, Profile p) =>
+        p.Target?.Fps == null && targets.All(t => formats.Find(t) is { } ti && formats.Resolve(ti.Id, "/target/format").Format is var tf && IsFrameBasedSource(ti, tf) && tf is not Ebu);
+
+    internal const string FrameRateAssumedCode = "frame-rate-assumed";
+
+    private static Warning FrameRateAssumed(FormatInfo source, double assumed, double? targetFps) =>
+        new(FrameRateAssumedCode,
+            $"{source.Name} stores times as frames, and the file doesn't say its frame rate; it was read at {assumed.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} fps (libse's default)." +
+            (targetFps is > 0 ? " target.fps was applied as the output rate only, without rescaling, because the source rate is unknown." : ""),
+            null,
+            "Set profile.source.fps to the file's frame rate (e.g. 25 for PAL, 29.97 for NTSC); cue times are wrong if the assumption is.",
+            new WarningDetails(FrameRate: Math.Round(assumed, 3)));
+
+    /// <summary>
+    /// SCC timecodes: a ';' (drop-frame) separator means 29.97 fps; a frame number of 24 or more rules out 23.976/24/25
+    /// and means NTSC 29.97 non-drop. Otherwise the rate can't be told (null).
+    /// </summary>
+    internal static (double Fps, string Basis)? InferSccFrameRate(List<string> lines)
+    {
+        var maxFrame = -1;
+        foreach (var line in lines)
+        {
+            var m = SccTimecode().Match(line.TrimStart());
+            if (!m.Success) continue;
+            if (m.Groups[1].Value == ";") return (29.97, "drop-frame timecodes (;)");
+            maxFrame = Math.Max(maxFrame, int.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture));
+        }
+        return maxFrame >= 25 ? (29.97, $"non-drop timecodes with frame numbers up to {maxFrame}") : null;
+    }
+
+    [GeneratedRegex(@"^\d+:\d\d:\d\d([:;,.])(\d\d)\s")]
+    private static partial Regex SccTimecode();
+
+    internal const string ProgrammeStartNotApplied = "programme-start-not-applied";
+
+    /// <summary>Source checks that need the format: EBU STL with a non-zero Time Code Start of Programme.</summary>
+    private static List<Warning> FormatSourceChecks(Loaded l, byte[] bytes)
+    {
+        var warnings = new List<Warning>();
+        if (l.Format is Ebu && bytes.Length >= 1024)
+        {
+            string tcp;
+            try { tcp = Ebu.ReadHeader(bytes).TimeCodeStartOfProgramme ?? ""; } catch { tcp = ""; }
+            if (tcp.Length == 8 && tcp.All(char.IsAsciiDigit) && tcp != "00000000")
+            {
+                var tc = $"{tcp[..2]}:{tcp[2..4]}:{tcp[4..6]}:{tcp[6..]}";
+                warnings.Add(new(ProgrammeStartNotApplied,
+                    $"The EBU STL header's Time Code Start of Programme is {tc}. Cue times were left as stored in the file; the programme start was not subtracted.",
+                    null,
+                    $"If the output should start at 00:00:00, subtract the programme start yourself (timing.offsetMs, e.g. -{(int.Parse(tcp[..2]) * 3600 + int.Parse(tcp[2..4]) * 60 + int.Parse(tcp[4..6])) * 1000} for {tc[..8]}); if the target is timecode-based, keeping it is usually right.",
+                    new WarningDetails(Timecode: tc)));
+            }
+        }
+        return warnings;
+    }
+
+    /// <summary>
+    /// target.fps is the output rate. Times are rescaled (ChangeFrameRate) only from a known source rate: source.fps,
+    /// or the rate a frame-based source states or implies (<paramref name="knownSourceFps"/>). Time-based sources and
+    /// frame-based sources of unknown rate keep their wall-clock times.
+    /// </summary>
+    private static void ApplyTiming(Subtitle s, Profile p, double? knownSourceFps)
     {
         var t = p.Timing;
         if (t?.OffsetMs is { } off && off != 0) s.AddTimeToAllParagraphs(TimeSpan.FromMilliseconds(off));
-        if (p.Target?.Fps is > 0 && p.Target.Fps is { } tfps)
-            s.ChangeFrameRate(p.Source?.Fps ?? Configuration.Settings.General.CurrentFrameRate, tfps);
+        if (p.Target?.Fps is > 0 and { } tfps && (p.Source?.Fps ?? knownSourceFps) is > 0 and { } from && Math.Abs(from - tfps) > 0.0001)
+            s.ChangeFrameRate(from, tfps);
         if (t?.ChangeSpeedPercent is { } pct && Math.Abs(pct - 100) > 0.0001)
         {
             var factor = 100.0 / pct;

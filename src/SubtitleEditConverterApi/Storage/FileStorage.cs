@@ -70,7 +70,7 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
         var created = false;
         try
         {
-            using (var handle = Open(fd, staged, WriteOnly | Create | Exclusive, 0x180)) // 0600; no overwrite
+            using (var handle = Open(fd, staged, WriteOnly | Create | Exclusive, 0x1A4)) // 0644 (subject to the process umask) so MAM/playout users can read deliveries; no overwrite
             {
                 created = true;
                 using var stream = new FileStream(handle, FileAccess.Write);
@@ -105,6 +105,20 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
         using var parent = Parent(path);
         try { using var handle = Open((int)parent.DangerousGetHandle(), Path.GetFileName(path), 0 | NonBlock); return Task.FromResult(true); }
         catch (ApiException ex) when (ex.Code == "storage-not-found") { return Task.FromResult(false); }
+    }
+    public Task<bool> DeleteAsync(StorageLocation location, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var path = CheckedPath(location);
+        using var parent = Parent(path);
+        var fd = (int)parent.DangerousGetHandle();
+        var name = Path.GetFileName(path);
+        try { EnsureReplaceable(fd, name); } // regular files only: never a symlink, directory or device
+        catch (ApiException ex) when (ex.Code == "storage-not-found") { return Task.FromResult(false); }
+        if (unlinkat(fd, name, 0) == 0) return Task.FromResult(true);
+        var errno = Marshal.GetLastPInvokeError();
+        if (errno == 2) return Task.FromResult(false);
+        throw IoError(errno, true);
     }
     [StructLayout(LayoutKind.Explicit, Size = 256)]
     private struct Statx { [FieldOffset(28)] public ushort Mode; }
