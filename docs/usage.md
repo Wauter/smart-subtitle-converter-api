@@ -66,3 +66,15 @@ Set `STORAGE_FILE_ROOTS` to allowlisted absolute roots (OS path separator, or a 
 Set `HTTP_ALLOWED_HOSTS=mam.example.com,store.example.com` (exact hostnames, no wildcards). Input uses GET, output uses PUT of the raw converted bytes, without bearer credentials from this API. Both use the same host/IP policy; Content-Type is not used for detection. Redirects, encoded response bodies and partial GET responses are rejected. No URL-derived second sidecar is attempted for HTTPS output: `sidecar:true` adds `sidecar-skipped` instead. Signed queries are excluded from job metadata.
 
 `IO_TIMEOUT_SECONDS=10` covers each transfer attempt including reading the body. `IO_RETRIES=3` means three extra attempts, with backoff for connection resets, timeouts and HTTP 408/429/500/502/503/504. 403/404, certificate failures and validation rejections are not retried. A timed-out PUT may have reached the receiver: retries target the same URL and object; receiving systems must make repeated PUTs safe. There is no rollback of an external receiver.
+
+## S3-compatible and hybrid locations
+
+```json
+{"input":"s3://subs/in/show.stl","output":"/data/out/show.pac","target":"pac","sidecar":true}
+```
+
+Inputs and outputs are independent; all enabled schemes can be mixed. S3 requires `S3_ALLOWED_BUCKETS` (comma-separated, empty disables it) and optionally `S3_ALLOWED_PREFIXES` (comma-separated exact key prefixes, e.g. `in/,out/`). A prefix ending in `/` scopes a directory-like namespace; `in` also permits `incoming` by ordinary string-prefix rules. URI keys are percent-decoded once and cannot contain dot segments, backslashes or control characters. Query credentials are not accepted on `s3://` URIs.
+
+`S3_ENDPOINT` selects one server-configured compatible endpoint; unset uses the AWS endpoint for `S3_REGION` (default `us-east-1`). Set `S3_FORCE_PATH_STYLE=true` for MinIO. Credentials come from the SDK's default environment/role chain. Custom endpoints are trusted operator configuration and may be internal; never let untrusted callers configure them. No Azure/GCS support or tests.
+
+Outputs use a single object PUT, replacing an existing object at that key; no temporary object, rename, copy or delete. Use a unique output key if replacement is unwanted. The subtitle and `{key}.json` sidecar are two independent writes, not a transaction. S3 and HTTPS use the same attempt timeout/retry count; SDK retries are disabled so attempts do not multiply.

@@ -19,7 +19,7 @@ public sealed record StorageLocation(string Scheme, string Value, Uri? Uri, stri
             var raw = System.Uri.UnescapeDataString(value[7..]);
             return new("file", raw, uri, Path.GetFileName(raw));
         }
-        if (uri.Scheme is not ("https" or "s3") || uri.AbsolutePath is "" or "/" || uri.AbsolutePath.EndsWith('/'))
+        if (uri.Host.Length == 0 || !value.StartsWith(uri.Scheme + "://", StringComparison.OrdinalIgnoreCase) || uri.Scheme is not ("https" or "s3") || uri.AbsolutePath is "" or "/" || uri.AbsolutePath.EndsWith('/'))
             throw Rejected("Only file, s3 and https locations naming a complete file are supported.");
         return new(uri.Scheme, value, uri, Path.GetFileName(System.Uri.UnescapeDataString(uri.AbsolutePath)));
     }
@@ -34,12 +34,13 @@ public interface IStorage
     Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct);
 }
 
-public sealed class StorageRouter(FileStorage files, HttpStorage http) : IStorage
+public sealed class StorageRouter(FileStorage files, HttpStorage http, S3Storage s3) : IStorage
 {
     private IStorage For(StorageLocation location) => location.Scheme switch
     {
         "file" => files,
         "https" => http,
+        "s3" => s3,
         _ => throw StorageLocation.Rejected($"The {location.Scheme} storage scheme is not enabled."),
     };
     public Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct) => For(location).ReadAsync(location, ct);

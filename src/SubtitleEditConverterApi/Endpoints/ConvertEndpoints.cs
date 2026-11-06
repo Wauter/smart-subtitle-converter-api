@@ -131,7 +131,7 @@ public static class ConvertEndpoints
         try
         {
             var (r, wait) = await work(id, stopping);
-            var metadata = ToJson(r, resolved, wait, null, output);
+            var metadata = ToJson(r, resolved, wait, null, output, includeContent: false);
             metadata = metadata with { Outputs = metadata.Outputs.Select(o => o with { Content = null }).ToList(), Id = id };
             jobs.Finish(id, JsonSerializer.SerializeToNode(metadata, Json.Options)!.AsObject());
             return new(r, wait);
@@ -162,7 +162,7 @@ public static class ConvertEndpoints
         return Results.Json(new { id, status = "running", location = $"/v1/jobs/{id}" }, Json.Options, statusCode: 202);
     }
 
-    internal static ConvertJsonResponse ToJson(ConversionResult r, JsonObject resolved, long waitMs, string? responseEncoding, string? output = null)
+    internal static ConvertJsonResponse ToJson(ConversionResult r, JsonObject resolved, long waitMs, string? responseEncoding, string? output = null, bool includeContent = true)
     {
         var warnings = r.Warnings.ToList();
         var outputs = new List<OutputDto>();
@@ -173,7 +173,7 @@ public static class ConvertEndpoints
             if (binary && string.Equals(responseEncoding, "text", StringComparison.OrdinalIgnoreCase) && !warnings.Any(w => w.Code == "encoding-ignored"))
                 warnings.Add(new("encoding-ignored", "responseEncoding=text is ignored for binary targets; their content is always base64."));
             outputs.Add(new(o.FileName, o.Format.Name, o.Format.Id, o.Format.MediaType,
-                output != null ? null : asText ? DecodeUnicode(o.Bytes) : Convert.ToBase64String(o.Bytes), asText ? "text" : "base64", o.EncodingName, o.Cues,
+                output != null || !includeContent ? null : asText ? DecodeUnicode(o.Bytes) : Convert.ToBase64String(o.Bytes), asText ? "text" : "base64", o.EncodingName, o.Cues,
                 Kind: o.Format.Kind, Verification: o.Verification, Output: JobStore.Redact(output), Bytes: o.Bytes.Length));
         }
         return new(outputs, r.Detected, new(r.ParagraphsIn, r.Outputs[0].Cues, r.ElapsedMs, waitMs), warnings, resolved);

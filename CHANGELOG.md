@@ -2,6 +2,8 @@
 
 ## 1.3.0 — Unreleased
 
+- Add S3-compatible storage through AWSSDK.S3, configured endpoint/path-style, bucket/prefix allowlists and independent hybrid source/destination schemes.
+
 - Add allowlisted HTTPS GET/PUT with connection-time IP checks, capped streaming, separate I/O budgets and transient retries. Skip HTTPS sidecars with a warning.
 
 - Add allowlisted Linux filesystem inputs/outputs, optional sibling staging and per-request metadata sidecars. Existing files and symlinks are rejected.

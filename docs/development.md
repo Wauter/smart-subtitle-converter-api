@@ -51,3 +51,7 @@ When all of that is green:
 
 Both are multi-arch with SBOM and provenance. PRs never push. Tags and releases are cut only on the owner's
 go-ahead. Image tags for users: [deployment.md](deployment.md#image-tags).
+
+## Isolated S3-compatible tests
+
+Set `MINIO_BIN` to a local MinIO server executable when running `dotnet test`. CI builds its pinned test dependency from public source. The test starts a loopback-only process on a temporary port with generated throwaway credentials, writes only into a temporary directory, and stops only that process afterwards. No personal S3 key or external bucket is needed. HTTPS-to-S3 uses an injected deterministic HTTPS transport; S3 traffic goes to real MinIO. Without `MINIO_BIN`, the integration test is explicitly skipped; policy/retry tests still run.

@@ -18,6 +18,11 @@ public sealed class ApiOptions
     public int MaxLineChars { get; init; } = 10_000;
     public string[] CorsOrigins { get; init; } = [];
     public string[] KnownProxies { get; init; } = [];
+    public string? S3Endpoint { get; init; }
+    public string S3Region { get; init; } = "us-east-1";
+    public bool S3ForcePathStyle { get; init; }
+    public string[] S3AllowedBuckets { get; init; } = [];
+    public string[] S3AllowedPrefixes { get; init; } = [];
     public string[] HttpAllowedHosts { get; init; } = [];
     public int IoTimeoutSeconds { get; init; } = 10;
     public int IoRetries { get; init; } = 3;
@@ -62,6 +67,11 @@ public sealed class ApiOptions
             RateLimitPerMinute = c.GetValue("RATE_LIMIT_PER_MINUTE", 0),
             MaxCues = c.GetValue("MAX_CUES", d.MaxCues),
             MaxLineChars = c.GetValue("MAX_LINE_CHARS", d.MaxLineChars),
+            S3Endpoint = c["S3_ENDPOINT"],
+            S3Region = c["S3_REGION"] ?? d.S3Region,
+            S3ForcePathStyle = c.GetValue("S3_FORCE_PATH_STYLE", false),
+            S3AllowedBuckets = List(c["S3_ALLOWED_BUCKETS"]),
+            S3AllowedPrefixes = List(c["S3_ALLOWED_PREFIXES"]),
             HttpAllowedHosts = List(c["HTTP_ALLOWED_HOSTS"]),
             IoTimeoutSeconds = Math.Clamp(c.GetValue("IO_TIMEOUT_SECONDS", d.IoTimeoutSeconds), 1, 300),
             IoRetries = Math.Clamp(c.GetValue("IO_RETRIES", d.IoRetries), 0, 10),
