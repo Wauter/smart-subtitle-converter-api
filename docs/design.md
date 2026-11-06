@@ -1,6 +1,6 @@
-# Subtitle Edit Converter API — Design Doc
+# Smart Subtitle Converter API — Design Doc
 
-Subtitle Edit Converter API is a community wrapper around Subtitle Edit's `libse`. It is not an official Subtitle Edit project.
+Smart Subtitle Converter API is a community wrapper around Subtitle Edit's `libse`. It is not an official Subtitle Edit project.
 
 | | |
 |---|---|
@@ -8,7 +8,7 @@ Subtitle Edit Converter API is a community wrapper around Subtitle Edit's `libse
 | Status | v1 implemented (see §13 for where the code differs from this design) |
 | Date | 2026-10-16 |
 | Upstream | [SubtitleEdit/subtitleedit](https://github.com/SubtitleEdit/subtitleedit) (MIT), reviewed at `main` @ `f9a41e0` |
-| Repos | `subtitleedit-converter-api` (service), `subtitleedit-converter-mcp` (MCP server); formerly `subtitleedit-api` / `subtitleedit-mcp`, see §13 row 12 |
+| Repos | `smart-subtitle-converter-api` (service), `smart-subtitle-converter-mcp` (MCP server); formerly `subtitleedit-api` / `subtitleedit-mcp`, see §13 row 12 |
 
 ## 0. Repo findings that shape this design
 
@@ -48,17 +48,17 @@ These come from reading `/workspace/subtitleedit` (`main` @ `f9a41e0`, 2026-10-1
 ## 2. Architecture
 
 ```
-            ┌───────── subtitleedit-converter-api (ASP.NET Core, .NET 10) ─────────┐
+            ┌───────── smart-subtitle-converter-api (ASP.NET Core, .NET 10) ─────────┐
  HTTP ──►   │ Endpoints (Minimal API) ─► ProfileResolver ─► ConversionEngine       │
             │      │                         │                 │                   │
             │  OpenAPI/Scalar           Presets (built-in  ┌───┴────────────┐      │
             │  ProblemDetails            + /profiles mount)│ FormatRegistry │      │
             │                                              │ libse + plugin │      │
             │                                              └───┬────────────┘      │
-            │             SubtitleEditConverterApi.Pipeline ───┤ (ops adapter)     │
+            │             SmartSubtitleConverterApi.Pipeline ───┤ (ops adapter)     │
             └──────────────────────────────────────────────────┼───────────────────┘
                                                    NuGet: libse (pinned in project)
-                                                   NuGet: SubtitleEditConverterApi.Formats (own plugin)
+                                                   NuGet: SmartSubtitleConverterApi.Formats (own plugin)
 ```
 
 ### 2.1 Dependency strategy: NuGet (recommended)
@@ -78,7 +78,7 @@ The brief asked for "reuse seconv's pipeline in-process, no source copy". With t
 ### 2.2 Components
 - **Endpoints**: Minimal APIs, with `Microsoft.AspNetCore.OpenApi` (`AddOpenApi`/`MapOpenApi`, which serves `/openapi/v1.json`) and `Scalar.AspNetCore` (`MapScalarApiReference("/docs")`).
 - **FormatRegistry**: the union of `SubtitleFormat.AllSubtitleFormats` and our plugin formats. It owns ID normalisation (seconv-style aliases `srt`, `vtt`, `ass`, `ebu`, …, taken from `LibSEIntegration.cs:1318ff`) and detection. Detection uses `IsMine(lines, fileName)` in registry order, with plugin formats ordered first only when they are explicitly marked `Priority`.
-- **Plugin formats**: assembly `SubtitleEditConverterApi.Formats`. Classes subclass `SubtitleFormat` and implement `Extension`, `Name`, `IsMine`, `ToText` and `LoadSubtitle`. They are discovered by reflection at startup, not dynamically from disk, so the set is fixed at build time. Upstream PR: add `SubtitleFormat.RegisterFormat(SubtitleFormat)`. Formats of general value are proposed upstream.
+- **Plugin formats**: assembly `SmartSubtitleConverterApi.Formats`. Classes subclass `SubtitleFormat` and implement `Extension`, `Name`, `IsMine`, `ToText` and `LoadSubtitle`. They are discovered by reflection at startup, not dynamically from disk, so the set is fixed at build time. Upstream PR: add `SubtitleFormat.RegisterFormat(SubtitleFormat)`. Formats of general value are proposed upstream.
 - **ProfileResolver**: merges profile layers (built-in → mounted folder → request overrides) and validates them against the JSON Schema (§5).
 - **ConversionEngine**: decode, load, apply operations, write, encode. All in memory, with no temp files.
 - **Upstream fixes**: bugs found in libse are fixed by PR upstream first. Until the fix ships, we may carry a workaround in our adapter, guarded by a test that turns red once the fix lands.
@@ -393,10 +393,10 @@ Scope: **our layer only**. libse's parsing, writing and operation logic is trust
 
 **CI gates (required for merge):** build with warnings as errors, all of the above, `dotnet list package --vulnerable`, and a Trivy image scan (high or critical findings fail). There are no nightly jobs.
 
-## 10. MCP server: `subtitleedit-converter-mcp`
+## 10. MCP server: `smart-subtitle-converter-mcp`
 
 - **Stack**: TypeScript, Node (see package engines), official SDK `@modelcontextprotocol/sdk`, `zod` schemas. It is a thin client over the HTTP API with no conversion logic of its own.
-- **Transports**: stdio (`npx subtitleedit-converter-mcp`) and Streamable HTTP (`subtitleedit-converter-mcp --http :3000`, endpoint `/mcp`, stateless mode).
+- **Transports**: stdio (`npx smart-subtitle-converter-mcp`) and Streamable HTTP (`smart-subtitle-converter-mcp --http :3000`, endpoint `/mcp`, stateless mode).
 - **Config**: `SUBTITLE_API_URL` (required; also `--api-url`), `SUBTITLE_API_KEY` (optional bearer key, sent as `Authorization: Bearer`), `SUBTITLE_MCP_MAX_BYTES`, `SUBTITLE_MCP_TIMEOUT_MS`. In HTTP mode, an incoming `Authorization` header is passed through to the API unchanged and takes precedence over the configured key. The MCP server stores no keys and logs none. The tool descriptions are regenerated from the API's OpenAPI at build time so they don't drift.
 
 | Tool | Maps to | Input → output |
@@ -416,8 +416,8 @@ Errors are surfaced as `isError: true` with the ProblemDetails `code`, `hint` an
 |---|---|---|
 | **Text API** | §4 endpoints, option A adapter, queue, optional API keys, safeguards, built-in presets, multi-arch image | All CI gates green; smoke corpus passes with the real sample files |
 | **Presets and runtime controls** | Settings-hash fast path (no lock), `MultipleReplace` import of SE `.template`/`.csv`, OpenTelemetry traces, more smoke samples, the upstream PRs (format registration, explicit settings, `libseconv`) | p95 under 50 ms for 1 k cues |
-| **MCP server** | `subtitleedit-converter-mcp`, first release (§10) | Works in Claude Desktop, Cursor and an HTTP client; contract tests green |
-| **MCP follow-ups** | In `subtitleedit-converter-mcp` (no separate roadmap there yet): a full `analyze_subtitle` tool (report-only diagnostics using the profile's own thresholds, with Fix Common Errors in preview mode; needs an API endpoint first); hosted hardening (`--hosted`, which refuses to start today) | Each item ships with tests and is documented in the MCP's `docs/tools.md` |
+| **MCP server** | `smart-subtitle-converter-mcp`, first release (§10) | Works in Claude Desktop, Cursor and an HTTP client; contract tests green |
+| **MCP follow-ups** | In `smart-subtitle-converter-mcp` (no separate roadmap there yet): a full `analyze_subtitle` tool (report-only diagnostics using the profile's own thresholds, with Fix Common Errors in preview mode; needs an API endpoint first); hosted hardening (`--hosted`, which refuses to start today) | Each item ships with tests and is documented in the MCP's `docs/tools.md` |
 | **Agent guidance (AGENTS.md)** | A short `AGENTS.md` in both repos for coding agents: build, test and lint commands; the version-bump and CHANGELOG rule (the MCP's major.minor follows the API); keeping error codes in sync (ErrorCodes, docs/errors.md, OpenAPI, Postman); contract tests against the pinned API image; no cue text, file content or tokens in logs and warnings; no tags, releases or publishing without the owner's go-ahead | A coding agent can build, test and open a correct PR in either repo from AGENTS.md alone |
 | **Public release and Docker Hub** | Contact the Subtitle Edit author (Nikolaj Olsson) before going public, to agree on naming and make it clear this is a community wrapper. Then make the repos and the GHCR package public, and publish the same multi-arch image to Docker Hub as well as GHCR from one build, and the MCP's npm package and image (its `PUBLISH_ENABLED` gate) (Hub account and namespace, access token as a GitHub Actions secret, Hub login plus a second image name in the publish job). README pull instructions for both registries, mentioning Docker Hub's anonymous pull rate limits. | Upstream author contacted; same digest on GHCR and Docker Hub for each release |
 | **OCR (separate image tag)** | `:X.Y-ocr` adds Tesseract and traineddata (about +100–300 MB, depending on languages), plus image inputs (sup, VobSub). AI engines (PaddleOCR, llama.cpp vision) go in `:X.Y-ocr-ai` (GBs, possibly GPU), or are delegated to an external endpoint (Ollama or `llama-server` URL). This needs libuilogic, so either option B or C is a prerequisite. Uses the existing conversion job flow. Persisted history and cached result replay are not implemented. | The text-only image stays unchanged in size |
@@ -443,7 +443,7 @@ Recorded while building v1 (2026-10-16). Where these conflict with earlier secti
 | 4 | Formats (§1, §5.1) | Text formats; `ebu-stl-broadcast` preset | The first version was text only. Since the binary-formats milestone (rows 18–32), binary broadcast formats are read and written. Image-based and container formats still give `422 format-not-supported`; read-only binary targets give `422 format-not-writable`. The `ebu-stl-broadcast` preset still isn't shipped; `srt-to-ass` and `to-ttml` were added. | Images and containers need OCR or extraction (roadmap). |
 | 5 | `formatOptions` (§5) | `assa`, `pac`, `ebuStl`, `plainText` | `assa`, `ebuStl`, `pac`, `cavena890`, `cheetah`; no `plainText` | `plainText` needs libuilogic. Unknown keys are rejected with a hint. |
 | 8 | XML guard (§6.2) | Pre-screen XML-looking input | Any input starting with `<` that contains a DTD/`<!ENTITY` is rejected as `unsafe-xml`, even if libse wouldn't parse it as XML (e.g. a SAMI file with `<!DOCTYPE html>`). | Conservative; relax if real files hit it. |
-| 9 | Plugin formats (§2.2) | `SubtitleEditConverterApi.Formats` assembly | Not created (no format needed yet). `FormatInfo.source` is in the contract (`"libse"`) so `"plugin"` can be added later. | YAGNI. |
+| 9 | Plugin formats (§2.2) | `SmartSubtitleConverterApi.Formats` assembly | Not created (no format needed yet). `FormatInfo.source` is in the contract (`"libse"`) so `"plugin"` can be added later. | YAGNI. |
 | 10 | OpenAPI contract (§9) | `oasdiff` breaking-change gate | xUnit snapshot: generated `/openapi/v1.json` must equal committed `docs/openapi.v1.json` (`UPDATE_OPENAPI=1 dotnet test` to refresh). | Stricter (any drift fails) and needs no extra tool. |
 | 11 | Request bodies in OpenAPI | n/a | Described with an operation transformer, not `.Accepts()` | `.Accepts()` is also a routing constraint: a wrong Content-Type would 404 instead of our `415`. |
 | 12 | Metrics (§4.7) | Prometheus, histograms | Hand-written Prometheus text: queue depth/capacity, completed jobs, sums of run/wait seconds, `rejected_total{reason}` | No extra dependency; histograms/OpenTelemetry are v1.x. |

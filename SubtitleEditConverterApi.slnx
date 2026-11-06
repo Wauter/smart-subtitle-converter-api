@@ -1,8 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/SubtitleEditConverterApi/SubtitleEditConverterApi.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/SubtitleEditConverterApi.Tests/SubtitleEditConverterApi.Tests.csproj" />
-  </Folder>
-</Solution>

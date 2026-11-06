@@ -2,7 +2,7 @@ name: package-visibility
 
 # GitHub's Packages REST API has no working visibility-change endpoint for user container
 # packages (PATCH returns 404). Set public once in the UI:
-#   https://github.com/users/Wauter/packages/container/subtitleedit-converter-api/settings
+#   https://github.com/users/Wauter/packages/container/smart-subtitle-converter-api/settings
 # Danger Zone → Change visibility → Public.
 on:
   workflow_dispatch:
@@ -16,6 +16,6 @@ jobs:
     steps:
       - name: Manual UI step required
         run: |
-          echo "::notice::Open https://github.com/users/Wauter/packages/container/subtitleedit-converter-api/settings"
+          echo "::notice::Open https://github.com/users/Wauter/packages/container/smart-subtitle-converter-api/settings"
           echo "::notice::Danger Zone → Change visibility → Public (type the package name to confirm)."
-          echo "Unauthenticated pull check: docker pull ghcr.io/wauter/subtitleedit-converter-api:1.3.0"
+          echo "Unauthenticated pull check: docker pull ghcr.io/wauter/smart-subtitle-converter-api:1.3.0"
