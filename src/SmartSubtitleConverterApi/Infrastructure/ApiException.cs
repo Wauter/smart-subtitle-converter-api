@@ -41,6 +41,9 @@ public static class ErrorCodes
     public const string StorageLocationRejected = "storage-location-rejected";
     public const string StorageNotFound = "storage-not-found";
     public const string StorageIoFailed = "storage-io-failed";
+    public const string StorageListDisabled = "storage-list-disabled";
+    public const string StorageNotListable = "storage-not-listable";
+    public const string StorageCursorInvalid = "storage-cursor-invalid";
     public const string OutputExists = "output-exists";
     public const string InvalidRequest = "invalid-request";
     public const string InvalidProfile = "invalid-profile";
@@ -77,6 +80,9 @@ public static class ErrorCodes
         StorageLocationRejected => "Storage location rejected",
         StorageNotFound => "Storage file not found",
         StorageIoFailed => "Storage I/O failed",
+        StorageListDisabled => "Storage listing disabled",
+        StorageNotListable => "Storage location not listable",
+        StorageCursorInvalid => "Storage cursor invalid",
         OutputExists => "Output exists",
         InvalidRequest => "Invalid request",
         InvalidProfile => "Invalid profile",

@@ -160,6 +160,46 @@ The [Postman collection](../postman/smart-subtitle-converter-api.postman_collect
 HTTPS GET/PUT and sidecars. Storage requests are skipped until their environment variables are supplied;
 use fresh filesystem output names for repeated runs. ZIP input is rejected: loop over single-file requests.
 
+## Browsing storage and reading by location
+
+Off by default. With `STORAGE_LIST_ENABLED=true` the API lists its allowed file and S3 locations and reads files
+from them, with no wider scope than conversions: the same roots, buckets, prefixes, symlink, traversal and size
+checks. Off, these routes answer `403 storage-list-disabled`; `GET /v1/limits` says which (`storage.list`,
+`storage.listSchemes`).
+
+```bash
+# the allowlists as folders (no credentials, endpoints or queries); HTTPS hosts are listable:false
+curl localhost:8080/v1/storage/locations
+# one folder, a page at a time
+curl 'localhost:8080/v1/storage/list?location=s3://subs/in/&prefix=show_'
+curl 'localhost:8080/v1/storage/list?location=file:///data/in/&cursor=NEXT_FROM_PREVIOUS_PAGE'
+# one file, as stored (no conversion)
+curl -OJ 'localhost:8080/v1/storage/file?location=s3://subs/in/show_001.srt'
+```
+
+A listing has `items` (`name` relative to the folder, `uri`, `type` `file` or `folder`, and `size` and `modified` for
+files), `returned`, `truncated` and, when truncated, `next`. Pass `next` as `cursor` with the same `location` and
+`prefix` for the following page.
+
+- One level per call. Folders end in `/`; list one by passing its `uri`, or put the path in `prefix`
+  (`prefix=season1/ep`).
+- `prefix` matches the start of a name. No globs, no time sorting, no offsets and no total count: a page holds at
+  most 200 items, in name order (UTF-8 byte order, the order S3 uses).
+- Cursors are stateless. Every item that exists for the whole walk appears exactly once; items added or removed
+  during the walk may or may not appear. A listing is not a snapshot.
+- Filesystem listings skip hidden (dot) entries, symlinks, devices and pipes. A filesystem folder is read in full
+  on every page and sorted, so very large folders are slower per page.
+- S3 uses `ListObjectsV2` with the delimiter `/`, and the cursor carries its continuation token. Folder marker
+  objects (keys ending in `/`) are skipped. Listing needs `s3:ListBucket` ([S3 permissions](deployment.md#s3-permissions)).
+  S3-compatible stores that don't list keys in UTF-8 byte order or don't support `ListObjectsV2` continuation
+  tokens may page differently.
+- When `S3_ALLOWED_PREFIXES` is set, a listing must stay inside one of them: list `s3://subs/in/`, not
+  `s3://subs/`. A prefix without a trailing `/` (`out/show`) shows up in the locations as a folder plus `prefix`.
+- HTTPS is never listed or read here (`422 storage-not-listable`); use HTTPS URLs as convert `input`/`output`.
+
+`GET /v1/storage/file` returns the current bytes with a `Content-Disposition` file name. It doesn't detect or
+convert; send the same location as `input` to `/v1/detect` or `/v1/convert/json` for that.
+
 ## Re-reading job files and overwrite policy
 
 ```bash

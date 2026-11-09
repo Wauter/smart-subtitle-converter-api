@@ -103,8 +103,8 @@ an explicitly writable storage mount. Direct writes are the default; atomic mode
 
 ## S3 permissions
 
-The API calls exactly five S3 operations, always on a bucket in `S3_ALLOWED_BUCKETS` and a key inside
-`S3_ALLOWED_PREFIXES`. It never lists keys, copies, starts multipart uploads, sets ACLs or tags, sends
+The API calls exactly six S3 operations, always on a bucket in `S3_ALLOWED_BUCKETS` and a key inside
+`S3_ALLOWED_PREFIXES`. It lists keys only for `GET /v1/storage/list` with `STORAGE_LIST_ENABLED=true`, and never copies, starts multipart uploads, sets ACLs or tags, sends
 server-side-encryption headers, or creates or deletes buckets. Credentials come from the default AWS chain
 (see [startup diagnostics](configuration.md#startup-storage-diagnostics) for which source was used).
 
@@ -115,13 +115,15 @@ server-side-encryption headers, or creates or deletes buckets. Credentials come 
 | `PutObject` (with `ifExists:"replace"`) | `s3:PutObject` | object | Overwriting an existing output or sidecar | Same as above |
 | `HeadObject` | `s3:GetObject` (S3 has no separate HeadObject action) | object | After writing an output without `sidecar:true`, checking whether a stale `{output}.json` is left from an earlier job | The conversion still succeeds, with warning `sidecar-delete-failed` |
 | `DeleteObject` | `s3:DeleteObject` | object | Deleting that stale `{output}.json`. Only called when it exists | Warning `sidecar-delete-failed`; the stale sidecar stays |
+| `ListObjectsV2` (delimiter `/`, 200 keys a page) | `s3:ListBucket` (scope it with an `s3:prefix` condition to the allowed prefixes) | bucket `arn:aws:s3:::subs` | `GET /v1/storage/list` when `STORAGE_LIST_ENABLED=true` | Listing fails with `502 storage-io-failed` (HTTP 403); nothing else is affected |
 | `HeadBucket` | `s3:ListBucket` | bucket `arn:aws:s3:::subs` | The [startup check](configuration.md#startup-storage-diagnostics), once per bucket | Startup warning `storage.s3 bucket=subs warning=Forbidden status=403`; conversions are not affected |
 
 `s3:ListBucket` also changes how S3 reports a missing key. With it, S3 answers 404, so a missing input gives
 `404 storage-not-found`, a deleted job file gives `404 job-file-gone`, and the stale-sidecar check simply finds
 nothing. Without it, S3 answers 403 for every missing key: those become `502 storage-io-failed`, and every
 S3 write without `sidecar:true` carries a `sidecar-delete-failed` warning. `s3:ListBucket` lets the credentials
-list key names in the bucket, not read objects; the API itself never lists.
+list key names in the bucket, not read objects; the API itself lists only for `GET /v1/storage/list`, and only inside
+the allowed prefixes.
 
 ### Per access pattern
 
@@ -130,7 +132,7 @@ list key names in the bucket, not read objects; the API itself never lists.
 | `s3:GetObject` on objects | Required | Recommended (job `/output` download, stale-sidecar check) | Required |
 | `s3:PutObject` on objects | Not needed | Required | Required |
 | `s3:DeleteObject` on objects | Not needed | Optional (stale-sidecar cleanup) | Optional |
-| `s3:ListBucket` on the bucket | Recommended (startup check, 404s) | Recommended | Recommended |
+| `s3:ListBucket` on the bucket | Recommended (startup check, 404s); required for listing | Recommended; required for listing | Recommended; required for listing |
 | `kms:Decrypt` on the key (SSE-KMS only) | Required | Required if `s3:GetObject` is granted | Required |
 | `kms:GenerateDataKey` on the key (SSE-KMS only) | Not needed | Required | Required |
 

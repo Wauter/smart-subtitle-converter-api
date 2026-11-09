@@ -23,6 +23,7 @@ services:
       # LOG_FORMAT: "json"                     # default "text" (plain lines); "json" for log collectors
       # METRICS_ENABLED: "true"
       # RATE_LIMIT_PER_MINUTE: "120"
+      # STORAGE_LIST_ENABLED: "true"         # browse allowed locations and read files by location (GET /v1/storage/*); off by default
     volumes:
       - ./profiles:/profiles:ro                # your own presets (*.json); see GET /v1/profiles
       # - ./api_keys.txt:/run/secrets/api_keys:ro

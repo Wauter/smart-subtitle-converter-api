@@ -96,7 +96,8 @@ Filesystem and S3 outputs are never overwritten unless you send `ifExists: "repl
 not supported.
 
 Every conversion returns a job id. Long requests continue in the background with `202` and a URL to poll, and
-the stored input and output can be re-read through the job while its record lives. Job history is kept in memory
+the stored input and output can be re-read through the job while its record lives. With `STORAGE_LIST_ENABLED=true`
+(off by default) you can also list the allowed file and S3 folders and read a file by its location. Job history is kept in memory
 only, holds metadata (never file bytes), expires, and is cleared on restart: it is not a file archive.
 
 Start with [usage](docs/usage.md#job-metadata), [configuration](docs/configuration.md#jobs-and-storage),

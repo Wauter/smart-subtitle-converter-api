@@ -154,6 +154,7 @@ if (opts.DocsEnabled)
 var v1 = app.MapGroup("/v1");
 ConvertEndpoints.Map(v1);
 InfoEndpoints.Map(v1);
+StorageEndpoints.Map(v1);
 HealthEndpoints.Map(app, opts);
 app.MapGet("/", () => Results.Redirect(opts.DocsEnabled ? "/docs" : "/openapi/v1.json")).ExcludeFromDescription();
 app.MapFallback((HttpContext ctx) =>
@@ -177,6 +178,9 @@ app.Lifetime.ApplicationStarted.Register(() =>
     app.Logger.LogInformation("smart-subtitle-converter-api {version} (libse {libse}) started; formats={formats} binaryFormats={binary} presets valid={valid} invalid={invalid} queueCapacity={cap} timeout={timeout}s verboseErrors={verbose}",
         LibseInfo.AppVersion, LibseInfo.Version, app.Services.GetRequiredService<FormatRegistry>().All.Count(f => f.TextBased), app.Services.GetRequiredService<FormatRegistry>().All.Count(f => f.Kind == FormatKinds.Binary && f.CanRead), valid, invalid, opts.QueueCapacity, opts.ConversionTimeoutSeconds, opts.ErrorsVerbose);
     _ = app.Services.GetRequiredService<ApiKeyStore>();
+    app.Logger.LogInformation("{Line}", opts.StorageListEnabled
+        ? $"storage.list enabled=true locations={StorageEndpoints.Locations(opts).Count(l => l.Listable)} (browse and read by location on GET /v1/storage/*; HTTPS is never listable)"
+        : "storage.list enabled=false (set STORAGE_LIST_ENABLED=true to browse allowed locations and read files by location)");
 });
 
 app.Run();

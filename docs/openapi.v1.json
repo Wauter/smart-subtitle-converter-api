@@ -2174,6 +2174,510 @@
           }
         ]
       }
+    },
+    "/v1/storage/locations": {
+      "get": {
+        "tags": [
+          "storage"
+        ],
+        "summary": "List the allowed storage locations (file roots, S3 buckets and prefixes, HTTPS hosts).",
+        "description": "The existing allowlists, as folders to pass to GET /v1/storage/list. HTTPS hosts are reported as not listable and not readable by location (convert input/output only). Never includes credentials or query strings. Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
+        "operationId": "listStorageLocations",
+        "parameters": [
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageLocationsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/storage/list": {
+      "get": {
+        "tags": [
+          "storage"
+        ],
+        "summary": "List one folder of an allowed file or S3 location, a page at a time.",
+        "description": "\u0060location\u0060 is a folder (file:///root/folder/, /root/folder/ or s3://bucket/prefix/), \u0060prefix\u0060 an optional name prefix (\u0027/\u0027 descends into sub-folders; no globs). Lists one level in backend name order (UTF-8 byte order), at most 200 items per page: files with size and modified time, and folders (ending in \u0027/\u0027). When \u0060truncated\u0060 is true pass \u0060next\u0060 as \u0060cursor\u0060 with the same location and prefix. Stateless: items that exist for the whole walk appear exactly once; items created or deleted during the walk may or may not appear. No total count, time sort or offsets. Filesystem listings skip hidden (dot) entries, symlinks and special files. HTTPS is not listable (422 storage-not-listable). Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
+        "operationId": "listStorage",
+        "parameters": [
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageListResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid-request: a parameter has an invalid value.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/storage/file": {
+      "get": {
+        "tags": [
+          "storage"
+        ],
+        "summary": "Read one file from an allowed file or S3 location (current contents, unconverted).",
+        "description": "The same allowlists, symlink, traversal and size checks as convert input. HTTPS is not readable here (422 storage-not-listable); use it as convert input. Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
+        "operationId": "getStorageFile",
+        "parameters": [
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "description": "Optional client request id, echoed back; replaced by a fresh ULID when it doesn\u0027t match the pattern.",
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (only when RATE_LIMIT_PER_MINUTE \u003E 0).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid-request: a parameter has an invalid value.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -2210,6 +2714,9 @@
               "storage-location-rejected",
               "storage-not-found",
               "storage-io-failed",
+              "storage-list-disabled",
+              "storage-not-listable",
+              "storage-cursor-invalid",
               "output-exists",
               "invalid-request",
               "invalid-profile",
@@ -2945,7 +3452,9 @@
       "LimitsStorage": {
         "required": [
           "inputSchemes",
-          "outputSchemes"
+          "outputSchemes",
+          "list",
+          "listSchemes"
         ],
         "type": "object",
         "properties": {
@@ -2956,6 +3465,15 @@
             }
           },
           "outputSchemes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "list": {
+            "type": "boolean"
+          },
+          "listSchemes": {
             "type": "array",
             "items": {
               "type": "string"
@@ -3403,6 +3921,131 @@
           }
         }
       },
+      "StorageItem": {
+        "required": [
+          "name",
+          "uri",
+          "type"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "uri": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "modified": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "StorageListResponse": {
+        "required": [
+          "location",
+          "prefix",
+          "items",
+          "returned",
+          "truncated"
+        ],
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageItem"
+            }
+          },
+          "returned": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "next": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "StorageLocationInfo": {
+        "required": [
+          "uri",
+          "scheme",
+          "listable",
+          "readable"
+        ],
+        "type": "object",
+        "properties": {
+          "uri": {
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "listable": {
+            "type": "boolean"
+          },
+          "readable": {
+            "type": "boolean"
+          },
+          "prefix": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "StorageLocationsResponse": {
+        "required": [
+          "locations"
+        ],
+        "type": "object",
+        "properties": {
+          "locations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageLocationInfo"
+            }
+          }
+        }
+      },
       "TimingCheck": {
         "required": [
           "maxShiftMs",
@@ -3725,6 +4368,9 @@
     },
     {
       "name": "profiles"
+    },
+    {
+      "name": "storage"
     }
   ]
 }

@@ -6,6 +6,18 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Tagged releases publish multi-arch images to GHCR
 (`ghcr.io/wauter/smart-subtitle-converter-api`); every green push to `main` also publishes `:edge`.
 
+## Unreleased
+
+- New, off by default: browse storage and read files by location with `STORAGE_LIST_ENABLED=true`.
+  `GET /v1/storage/locations` lists the allowed file roots, S3 buckets and prefixes (HTTPS hosts as not listable);
+  `GET /v1/storage/list?location=&prefix=&cursor=` lists one folder, up to 200 items a page in name order, with a
+  stateless `next` cursor; `GET /v1/storage/file?location=` returns one file's current bytes. Same allowlists and
+  checks as conversions. Off, the routes answer `403 storage-list-disabled`. See
+  [browsing storage](docs/usage.md#browsing-storage-and-reading-by-location).
+- New error codes `storage-list-disabled` (403), `storage-not-listable` (422) and `storage-cursor-invalid` (400).
+- `GET /v1/limits` adds `storage.list` and `storage.listSchemes`; the startup log says whether listing is on.
+- Listing S3 uses `ListObjectsV2` and needs `s3:ListBucket` ([S3 permissions](docs/deployment.md#s3-permissions)).
+
 ## 1.3.1 — Unreleased
 
 - Job and storage errors have their own problem `title` instead of the generic "Internal error": `job-not-found`, `job-input-not-stored`, `job-output-not-stored`, `job-not-ready`, `job-file-gone`, `job-location-not-replayable`, `storage-location-rejected`, `storage-not-found`, `storage-io-failed` and `output-exists`. Codes and status codes are unchanged.

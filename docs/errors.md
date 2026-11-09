@@ -46,6 +46,9 @@ Setting names are profile fields, written as a path: `source.format` means
 | [`storage-location-rejected`](#storage-location-rejected) | 422 | The input/output location is not allowed |
 | [`storage-not-found`](#storage-not-found) | 404 | The storage file or folder does not exist |
 | [`storage-io-failed`](#storage-io-failed) | 502 | Reading or writing storage failed |
+| [`storage-list-disabled`](#storage-list-disabled) | 403 | Browsing and reading by location are off |
+| [`storage-not-listable`](#storage-not-listable) | 422 | HTTPS locations can't be listed or read by location |
+| [`storage-cursor-invalid`](#storage-cursor-invalid) | 400 | The listing cursor is malformed or for another folder |
 | [`output-exists`](#output-exists) | 409 | The output file already exists |
 | [`job-not-found`](#job-not-found) | 404 | Job record unknown or expired |
 | [`job-not-ready`](#job-not-ready) | 409 | The job is still running |
@@ -435,6 +438,43 @@ retry: a failed or timed-out write may still have arrived.
 
 _For integrators:_ 502. `detail` has the remote status and attempt count, never a signed query. Timeouts, resets and
 transient statuses are retried (`IO_RETRIES`); policy rejections and 403/404 are not.
+
+### <a id="storage-list-disabled"></a>`storage-list-disabled`
+
+**What:** You asked to list storage or read a file by its location, and this API has that turned off.
+
+**Why:** Browsing is off by default (`STORAGE_LIST_ENABLED=false`), so the API shows nothing about its allowed
+folders and buckets.
+
+**What to do:** Ask the operator to set `STORAGE_LIST_ENABLED=true` and restart the API. Reading a job's stored
+files (`GET /v1/jobs/{id}/input` and `/output`) works either way.
+
+_For integrators:_ 403 on every `/v1/storage/*` route while off, checked on each request. `GET /v1/limits` reports
+`storage.list: false`.
+
+### <a id="storage-not-listable"></a>`storage-not-listable`
+
+**What:** The location is an HTTPS URL, which can't be listed or read by location.
+
+**Why:** HTTPS has no folders to list; the API only reads HTTPS URLs as convert input and writes them as output.
+
+**What to do:** Browse a file or S3 location from `GET /v1/storage/locations`, or use the HTTPS URL as `input` of a
+conversion.
+
+_For integrators:_ 422 from `GET /v1/storage/list` and `/v1/storage/file`. Locations report HTTPS hosts with
+`listable: false` and `readable: false`.
+
+### <a id="storage-cursor-invalid"></a>`storage-cursor-invalid`
+
+**What:** The listing `cursor` wasn't returned by this API for this folder and prefix.
+
+**Why:** The cursor was changed, cut short, or came from a listing of another folder or prefix.
+
+**What to do:** Pass `next` from the previous page unchanged, with the same `location` and `prefix`, or start again
+without a cursor.
+
+_For integrators:_ 400. Cursors are stateless and opaque; they don't expire, but a folder that changed between pages
+is not a snapshot (see [browsing storage](usage.md#browsing-storage-and-reading-by-location)).
 
 ### <a id="output-exists"></a>`output-exists`
 

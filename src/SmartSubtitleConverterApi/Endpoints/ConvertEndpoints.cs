@@ -394,7 +394,7 @@ public static class ConvertEndpoints
 
     private static string CharsetName(string enc) => enc.StartsWith("utf-8") ? "utf-8" : enc;
 
-    private static IResult File(HttpContext ctx, byte[] bytes, string contentType, string fileName)
+    internal static IResult File(HttpContext ctx, byte[] bytes, string contentType, string fileName)
     {
         var cd = new ContentDispositionHeaderValue("attachment");
         cd.SetHttpFileName(fileName); // filename (ASCII fallback) + filename* (RFC 6266) for non-ASCII

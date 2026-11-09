@@ -120,8 +120,63 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
         if (errno == 2) return Task.FromResult(false);
         throw IoError(errno, true);
     }
+    /// <summary>
+    /// One page of a directory listing (STORAGE_LIST_ENABLED): entries whose name starts with <paramref name="namePrefix"/> and sorts after
+    /// <paramref name="after"/> in UTF-8 byte order. The directory is opened component by component without following symlinks, and
+    /// entries are inspected with lstat semantics: regular files and directories are listed, symlinks, devices, pipes and hidden
+    /// (dot) entries are not. Stateless: the cursor is the last name returned.
+    /// </summary>
+    public (List<StorageListing.Entry> Items, bool More) List(string directory, string namePrefix, string? after, int pageSize, CancellationToken ct)
+    {
+        if (!OperatingSystem.IsLinux()) throw StorageLocation.Rejected("Filesystem storage currently requires a Linux server.");
+        CheckedDirectory(directory);
+        using var dir = OpenDirectory(directory);
+        var fd = (int)dir.DangerousGetHandle();
+        IEnumerable<string> names;
+        try { names = Directory.EnumerateFileSystemEntries($"/proc/self/fd/{fd}").Select(Path.GetFileName).OfType<string>().ToList(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { throw new ApiException(502, "storage-io-failed", "Filesystem listing failed.", "Check mount availability, permissions and the container UID/GID.", ex); }
+        var candidates = names.Where(n => n.Length > 0 && n[0] != '.' && !n.Contains('\\') && !n.Contains('\uFFFD') && n.StartsWith(namePrefix, StringComparison.Ordinal)
+                                          && (after == null || StorageListing.Utf8Compare(n, after) > 0))
+            .Order(StorageListing.Utf8Order).ToList();
+        var items = new List<StorageListing.Entry>();
+        foreach (var name in candidates)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (statx(fd, name, 0x100 /* AT_SYMLINK_NOFOLLOW */, 0x7ff, out var st) != 0) continue; // vanished meanwhile
+            var type = st.Mode & 0xf000;
+            if (type is not (0x8000 or 0x4000)) continue;
+            if (items.Count == pageSize) return (items, true);
+            items.Add(type == 0x4000
+                ? new(name + "/", true, null, null)
+                : new(name, false, (long)st.Size, DateTimeOffset.FromUnixTimeSeconds(st.MtimeSeconds).AddTicks(st.MtimeNanos / 100)));
+        }
+        return (items, false);
+    }
+    /// <summary>The directory must be an allowed root or inside one; dot segments and backslashes are rejected.</summary>
+    public void CheckedDirectory(string directory)
+    {
+        if (!directory.StartsWith('/') || !directory.EndsWith('/') || directory.Split('/').Any(s => s is ".." or ".") || directory.Contains('\\') || directory.Any(char.IsControl))
+            throw StorageLocation.Rejected("Filesystem folders must be absolute, without dot segments or backslashes.");
+        if (!opts.StorageFileRoots.Any(root => directory.StartsWith(Path.GetFullPath(root).TrimEnd('/') + "/", StringComparison.Ordinal)))
+            throw StorageLocation.Rejected("Filesystem folder is outside STORAGE_FILE_ROOTS (or filesystem storage is disabled).");
+    }
+    private static SafeFileHandle OpenDirectory(string directory)
+    {
+        var dir = Open(-100, "/", DirectoryFlag);
+        try
+        {
+            foreach (var part in directory.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var next = Open((int)dir.DangerousGetHandle(), part, DirectoryFlag);
+                dir.Dispose(); dir = next;
+            }
+            return dir;
+        }
+        catch { dir.Dispose(); throw; }
+    }
     [StructLayout(LayoutKind.Explicit, Size = 256)]
-    private struct Statx { [FieldOffset(28)] public ushort Mode; }
+    private struct Statx { [FieldOffset(28)] public ushort Mode; [FieldOffset(40)] public ulong Size; [FieldOffset(112)] public long MtimeSeconds; [FieldOffset(120)] public uint MtimeNanos; }
     [DllImport("libc", SetLastError = true)] private static extern int statx(int dirfd, string path, int flags, uint mask, out Statx stat);
     private const int WriteOnly = 1, Create = 64, Exclusive = 128, NonBlock = 2048, DirectoryFlag = 65536, NoFollow = 131072, CloseExec = 524288;
     [DllImport("libc", SetLastError = true)] private static extern int openat(int dirfd, string path, int flags, uint mode);

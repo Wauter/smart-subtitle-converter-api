@@ -42,6 +42,36 @@ public sealed class S3Storage : IStorage, IDisposable
             throw StorageLocation.Rejected("S3 key must name one object inside S3_ALLOWED_PREFIXES, without dot segments or backslashes (maximum 1024 UTF-8 bytes).");
         return (uri.Host, key);
     }
+    /// <summary>The bucket must be allowlisted; the listed key prefix must lie inside S3_ALLOWED_PREFIXES when those are set.</summary>
+    public void CheckedListing(string bucket, string keyPrefix)
+    {
+        if (bucket.Length is < 3 or > 63 || !bucket.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '-' or '.') || !_opts.S3AllowedBuckets.Contains(bucket, StringComparer.Ordinal))
+            throw StorageLocation.Rejected("S3 bucket is not in S3_ALLOWED_BUCKETS (or the bucket name is invalid).");
+        if (keyPrefix.StartsWith('/') || keyPrefix.Contains('\\') || keyPrefix.Split('/').Any(s => s is "." or "..") || keyPrefix.Any(char.IsControl) || Encoding.UTF8.GetByteCount(keyPrefix) > 1024
+            || (_opts.S3AllowedPrefixes.Length != 0 && !_opts.S3AllowedPrefixes.Any(p => keyPrefix.StartsWith(p, StringComparison.Ordinal))))
+            throw StorageLocation.Rejected("The listed S3 key prefix must lie inside S3_ALLOWED_PREFIXES (see GET /v1/storage/locations), without dot segments or backslashes.");
+    }
+    /// <summary>
+    /// One ListObjectsV2 page with delimiter '/': objects and common prefixes ("folders") directly under <paramref name="directory"/>
+    /// whose names start with <paramref name="namePrefix"/>, in the bucket's key order. Folder marker objects (keys ending in '/') are skipped.
+    /// </summary>
+    public async Task<(List<StorageListing.Entry> Items, bool More, string? Token)> ListAsync(string bucket, string directory, string namePrefix, string? token, int pageSize, CancellationToken ct)
+    {
+        CheckedListing(bucket, directory + namePrefix);
+        var response = await Attempt(token2 => _client.Value.ListObjectsV2Async(new ListObjectsV2Request
+        {
+            BucketName = bucket, Prefix = directory + namePrefix, Delimiter = "/", MaxKeys = pageSize, ContinuationToken = token,
+        }, token2), ct);
+        var items = new List<StorageListing.Entry>();
+        foreach (var o in response.S3Objects ?? [])
+            if (o.Key.Length > directory.Length && !o.Key.EndsWith('/') && o.Key.StartsWith(directory, StringComparison.Ordinal))
+                items.Add(new(o.Key[directory.Length..], false, o.Size, o.LastModified is { } m ? new DateTimeOffset(m.Kind == DateTimeKind.Local ? m.ToUniversalTime() : DateTime.SpecifyKind(m, DateTimeKind.Utc)) : null));
+        foreach (var p in response.CommonPrefixes ?? [])
+            if (p.Length > directory.Length && p.StartsWith(directory, StringComparison.Ordinal)) items.Add(new(p[directory.Length..], true, null, null));
+        items.Sort((a, b) => StorageListing.Utf8Compare(a.Name, b.Name));
+        var more = response.IsTruncated == true && !string.IsNullOrEmpty(response.NextContinuationToken);
+        return (items, more, more ? response.NextContinuationToken : null);
+    }
     public async Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct)
     {
         var (bucket, key) = Checked(location);

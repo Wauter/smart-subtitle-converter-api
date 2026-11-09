@@ -1255,7 +1255,7 @@
             "description": "Every binary output is read back (outputs[].verification, since 1.2.0). Greek doesn't fit the default PAC latin code page: verdict lossy, characters-replaced with cue numbers, code points and a hint (formatOptions.pac.codePage=greek or target fpc). Nothing is switched automatically.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"content\": \"1\\n00:00:01,013 --> 00:00:02,500\\n\u039a\u03b1\u03bb\u03b7\u03bc\u03ad\u03c1\u03b1 \u03ba\u03cc\u03c3\u03bc\u03b5\\n\\n2\\n00:00:03,000 --> 00:00:05,000\\n\u0395\u03c5\u03c7\u03b1\u03c1\u03b9\u03c3\u03c4\u03ce \u03c0\u03bf\u03bb\u03cd\\n\",\n  \"fileName\": \"greek.srt\",\n  \"target\": \"pac\"\n}",
+              "raw": "{\n  \"content\": \"1\\n00:00:01,013 --> 00:00:02,500\\nΚαλημέρα κόσμε\\n\\n2\\n00:00:03,000 --> 00:00:05,000\\nΕυχαριστώ πολύ\\n\",\n  \"fileName\": \"greek.srt\",\n  \"target\": \"pac\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3264,6 +3264,251 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('only error or replace', () => { pm.response.to.have.status(422); pm.expect(pm.response.json().code).to.eql('invalid-request'); pm.expect(pm.response.json().hint).to.include('error | replace'); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Browse storage (STORAGE_LIST_ENABLED, off by default)",
+      "description": "Listing and reading by location. With the default STORAGE_LIST_ENABLED=false every request here expects 403 storage-list-disabled.",
+      "item": [
+        {
+          "name": "Storage locations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/storage/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "storage",
+                "locations"
+              ]
+            },
+            "description": "Allowed file roots, S3 buckets/prefixes and HTTPS hosts (listable:false). 403 storage-list-disabled unless STORAGE_LIST_ENABLED=true."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (pm.response.code === 403) {",
+                  "  pm.test('off: storage-list-disabled', () => pm.expect(j.code).to.eql('storage-list-disabled'));",
+                  "  pm.test('off: hint names the setting', () => pm.expect(j.hint).to.include('STORAGE_LIST_ENABLED=true'));",
+                  "} else {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  pm.test('locations', () => pm.expect(j.locations).to.be.an('array'));",
+                  "  pm.test('https never listable', () => j.locations.filter(l => l.scheme === 'https').forEach(l => pm.expect(l.listable).to.eql(false)));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List a folder (opt-in: listLocation)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/storage/list?location={{listLocation}}&prefix={{listPrefix}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "storage",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "location",
+                  "value": "{{listLocation}}"
+                },
+                {
+                  "key": "prefix",
+                  "value": "{{listPrefix}}"
+                }
+              ]
+            },
+            "description": "One folder, at most 200 items a page in name order. Set listLocation (e.g. s3://subs/in/ or file:///data/in/) and optionally listPrefix."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('listLocation')) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (pm.response.code === 403) {",
+                  "  pm.test('off: storage-list-disabled', () => pm.expect(j.code).to.eql('storage-list-disabled'));",
+                  "  pm.test('off: hint names the setting', () => pm.expect(j.hint).to.include('STORAGE_LIST_ENABLED=true'));",
+                  "} else {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  pm.test('returned = items', () => pm.expect(j.returned).to.eql(j.items.length));",
+                  "  pm.test('next only when truncated', () => pm.expect(Boolean(j.next)).to.eql(j.truncated));",
+                  "  pm.environment.set('listNext', j.next || '');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List the next page (cursor)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/storage/list?location={{listLocation}}&prefix={{listPrefix}}&cursor={{listNext}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "storage",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "location",
+                  "value": "{{listLocation}}"
+                },
+                {
+                  "key": "prefix",
+                  "value": "{{listPrefix}}"
+                },
+                {
+                  "key": "cursor",
+                  "value": "{{listNext}}"
+                }
+              ]
+            },
+            "description": "Runs only when the previous page was truncated."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('listLocation') || !pm.environment.get('listNext')) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read a file by location (opt-in: listFile)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/storage/file?location={{listFile}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "storage",
+                "file"
+              ],
+              "query": [
+                {
+                  "key": "location",
+                  "value": "{{listFile}}"
+                }
+              ]
+            },
+            "description": "Current bytes of one file, unconverted. Set listFile to a file uri from a listing."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('listFile')) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 403) { pm.test('off: storage-list-disabled', () => pm.expect(pm.response.json().code).to.eql('storage-list-disabled')) } else {",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('file name', () => pm.expect(pm.response.headers.get('Content-Disposition')).to.include('filename'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "HTTPS is never listable",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/storage/list?location=https://mam.example.com/folder/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "storage",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "location",
+                  "value": "https://mam.example.com/folder/"
+                }
+              ]
+            },
+            "description": "403 when listing is off, otherwise 422 storage-not-listable."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (pm.response.code === 403) {",
+                  "  pm.test('off: storage-list-disabled', () => pm.expect(j.code).to.eql('storage-list-disabled'));",
+                  "  pm.test('off: hint names the setting', () => pm.expect(j.hint).to.include('STORAGE_LIST_ENABLED=true'));",
+                  "} else {",
+                  "  pm.test('422 storage-not-listable', () => { pm.response.to.have.status(422); pm.expect(j.code).to.eql('storage-not-listable'); });",
+                  "}"
                 ]
               }
             }

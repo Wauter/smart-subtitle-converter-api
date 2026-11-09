@@ -64,6 +64,12 @@ next to an output written without `sidecar` (filesystem and S3). With atomic wri
 file while the process is alive. A crash can leave a partial file. Enable atomic writes when consumers scan
 folders, and verify the mount's rename semantics. No filesystem operation crosses into another protocol.
 
+Browsing (`STORAGE_LIST_ENABLED`, off by default) adds no new scope: `GET /v1/storage/locations`, `/list` and
+`/file` work inside the same roots, buckets and prefixes, with the same no-follow, dot-segment, size and allowlist
+checks, before any storage call. With it off, those routes answer `403 storage-list-disabled` and reveal nothing
+about the allowlists. Listings skip hidden entries, symlinks and special files; HTTPS is never listed or read by
+location. Any valid API key can browse when it is on; run a separate instance if some keys must not.
+
 S3 bucket/key-prefix checks precede SDK requests. A custom endpoint is trusted operator configuration,
 not an untrusted request target; scope the role's permissions as well as the API allowlists. S3 defaults to a conditional PUT (`If-None-Match: *`); explicit `ifExists:"replace"` permits replacement. Sidecar and subtitle writes are independent, with warnings on sidecar failure. Removing a stale sidecar
 needs delete permission on the output prefix; without it the subtitle is still written and `sidecar-delete-failed`
