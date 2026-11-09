@@ -8,6 +8,8 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 
 ## 1.3.1 — Unreleased
 
+- Storage outputs report the stored file's name: with `output`, `outputs[].fileName` (in the response, job metadata and sidecar) is now the last path segment of the output location (for example `test2-145152.srt` for `s3://bucket/qa/test2-145152.srt`) instead of the name generated from the source (`show.srt`). Inline results are unchanged.
+
 - Rename the product to **Smart Subtitle Converter** and update repository, container image, assembly and project identifiers. Versions and existing release tags are unchanged.
 
 - Add a GitHub security policy (`SECURITY.md`) pointing at [docs/security.md](docs/security.md).

@@ -223,11 +223,21 @@ public static class ConvertEndpoints
             var asText = !binary && o.Unicode && !string.Equals(responseEncoding, "base64", StringComparison.OrdinalIgnoreCase);
             if (binary && string.Equals(responseEncoding, "text", StringComparison.OrdinalIgnoreCase) && !warnings.Any(w => w.Code == "encoding-ignored"))
                 warnings.Add(new("encoding-ignored", "responseEncoding=text is ignored for binary targets; their content is always base64."));
-            outputs.Add(new(o.FileName, o.Format.Name, o.Format.Id, o.Format.MediaType,
+            // With a storage output, report the name the file was stored under, not the converter's generated name.
+            outputs.Add(new(output != null ? StoredName(output) ?? o.FileName : o.FileName, o.Format.Name, o.Format.Id, o.Format.MediaType,
                 output != null || !includeContent ? null : asText ? DecodeUnicode(o.Bytes) : Convert.ToBase64String(o.Bytes), asText ? "text" : "base64", o.EncodingName, o.Cues,
                 Kind: o.Format.Kind, Verification: o.Verification, Output: JobStore.Redact(output), Bytes: o.Bytes.Length));
         }
         return new(outputs, r.Detected, new(r.ParagraphsIn, r.Outputs[0].Cues, r.ElapsedMs, waitMs), warnings, resolved);
+    }
+
+    /// <summary>Last path segment of an output location (bare path, file:, s3: or https: URI), decoded; null if it has none.</summary>
+    internal static string? StoredName(string output)
+    {
+        string? name;
+        if (output.Contains("://") && Uri.TryCreate(output, UriKind.Absolute, out var u)) name = Uri.UnescapeDataString(u.AbsolutePath.Split('/')[^1]);
+        else name = Path.GetFileName(output);
+        return string.IsNullOrEmpty(name) ? null : name;
     }
 
     internal static void RejectZip(byte[] bytes, string? fileName)

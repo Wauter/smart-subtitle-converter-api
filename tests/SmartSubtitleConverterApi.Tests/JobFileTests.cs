@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SmartSubtitleConverterApi.Endpoints;
 using SmartSubtitleConverterApi.Infrastructure;
 using SmartSubtitleConverterApi.Jobs;
 using SmartSubtitleConverterApi.Storage;
@@ -19,6 +20,28 @@ public sealed class JobFileTests : IDisposable
     private static async Task<string> Code(HttpResponseMessage r, int status) {
         Assert.Equal(status, (int)r.StatusCode); return (string)(await r.Json())["code"]!;
     }
+    [Fact]
+    public async Task Storage_output_reports_the_stored_file_name_not_the_generated_name()
+    {
+        using var f = Factory(); var c = f.CreateClient();
+        var output = Path.Combine(root, "delivery 145152.vtt");
+        var r = await c.PostAsJsonAsync("/v1/convert/json", new { input = Path.Combine(root, "in.srt"), output, target = "vtt" });
+        Assert.Equal(200, (int)r.StatusCode); var body = await r.Json();
+        Assert.Equal("delivery 145152.vtt", (string)body["outputs"]![0]!["fileName"]!);
+        var job = await (await c.GetAsync("/v1/jobs/" + r.Header("X-Job-Id"))).Json();
+        Assert.Equal("delivery 145152.vtt", (string)job["result"]!["outputs"]![0]!["fileName"]!);
+        var inline = await (await c.PostAsJsonAsync("/v1/convert/json", new { input = Path.Combine(root, "in.srt"), target = "vtt" })).Json();
+        Assert.Equal("in.vtt", (string)inline["outputs"]![0]!["fileName"]!);
+    }
+
+    [Theory]
+    [InlineData("s3://subs/qa-p6/test2-145152.srt", "test2-145152.srt")]
+    [InlineData("s3://subs/out/a%20b.srt", "a b.srt")]
+    [InlineData("https://store.example.com/out/show.pac?signature=x", "show.pac")]
+    [InlineData("file:///data/out/show.vtt", "show.vtt")]
+    [InlineData("/data/out/show.vtt", "show.vtt")]
+    public void Stored_name_is_the_last_location_segment(string output, string expected) => Assert.Equal(expected, ConvertEndpoints.StoredName(output));
+
     [Fact]
     public async Task Any_valid_key_reads_metadata_and_current_files_but_auth_still_applies()
     {
