@@ -68,6 +68,16 @@ public static class ErrorCodes
 
     public static string Title(string code) => code switch
     {
+        JobNotFound => "Job not found",
+        JobInputNotStored => "Job input not stored",
+        JobOutputNotStored => "Job output not stored",
+        JobNotReady => "Job not ready",
+        JobFileGone => "Job file gone",
+        JobLocationNotReplayable => "Job location not replayable",
+        StorageLocationRejected => "Storage location rejected",
+        StorageNotFound => "Storage file not found",
+        StorageIoFailed => "Storage I/O failed",
+        OutputExists => "Output exists",
         InvalidRequest => "Invalid request",
         InvalidProfile => "Invalid profile",
         EmptyInput => "Empty input",
@@ -90,6 +100,8 @@ public static class ErrorCodes
         RateLimited => "Rate limited",
         QueueFull => "Queue full",
         ConversionTimeout => "Conversion timeout",
+        InternalError => "Internal error",
+        // Every code above has its own title; anything else is an unexpected server error.
         _ => "Internal error",
     };
 }

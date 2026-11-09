@@ -8,6 +8,9 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 
 ## 1.3.1 — Unreleased
 
+- Job and storage errors have their own problem `title` instead of the generic "Internal error": `job-not-found`, `job-input-not-stored`, `job-output-not-stored`, `job-not-ready`, `job-file-gone`, `job-location-not-replayable`, `storage-location-rejected`, `storage-not-found`, `storage-io-failed` and `output-exists`. Codes and status codes are unchanged.
+- `job-output-not-stored` explains the usual cause: a conversion without an `output` location returns its result in the response and stores nothing, so to read a result later, convert with an `output` location. A failed conversion gets its own detail and hint. `job-input-not-stored` points to the original file or an `input` location. See [errors](docs/errors.md#job-output-not-stored).
+
 - Storage outputs report the stored file's name: with `output`, `outputs[].fileName` (in the response, job metadata and sidecar) is now the last path segment of the output location (for example `test2-145152.srt` for `s3://bucket/qa/test2-145152.srt`) instead of the name generated from the source (`show.srt`). Inline results are unchanged.
 
 - Rename the product to **Smart Subtitle Converter** and update repository, container image, assembly and project identifiers. Versions and existing release tags are unchanged.

@@ -124,7 +124,16 @@ public static class ConvertEndpoints
         var location = (string?)job[which];
         var publicLocation = location?.StartsWith('/') == true ? new Uri(location).AbsoluteUri : location;
         if (location == null || which == "output" && (string?)job["status"] == "failed") throw new ApiException(409, which == "input" ? ErrorCodes.JobInputNotStored : ErrorCodes.JobOutputNotStored,
-            "The job has no stored " + which + " location.", which == "input" ? "The original request used upload/inline content; those bytes are not retained." : "No successful stored output is available (response-only or failed conversion). Inspect the original result/error and destination before retrying; response bytes are not retained.");
+            which == "input"
+                ? "The job has no stored input: its source was uploaded or sent inline, and those bytes are not kept."
+                : (string?)job["status"] == "failed"
+                    ? "The job has no stored output: the conversion failed, so nothing was written."
+                    : "The job has no stored output: it was converted without an output location, so the result was returned in the convert response and not stored.",
+            which == "input"
+                ? "Use your original copy of the file, or convert from an input location to make the source re-readable."
+                : (string?)job["status"] == "failed"
+                    ? "Inspect the job's error (GET /v1/jobs/{id}) and the destination before retrying."
+                    : "Use the result from the original response. To read it later, convert with an output location (file, S3 or HTTPS); response bytes are not kept.");
         if ((bool?)job[which + "Replayable"] != true)
             throw new ApiException(409, ErrorCodes.JobLocationNotReplayable, "This job location cannot be replayed because its HTTPS query was redacted.", "Use a fresh signed URL via input on a new request, or access storage directly. No signed query is retained by the job.") { Extensions = { ["location"] = publicLocation } };
         var parsed = StorageLocation.Parse(location);

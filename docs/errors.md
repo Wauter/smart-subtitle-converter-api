@@ -483,7 +483,8 @@ _For integrators:_ 409.
 
 **Why:** The API doesn't keep uploaded bytes.
 
-**What to do:** Use your original copy of the file.
+**What to do:** Use your original copy of the file, or convert from an `input` location if you need to re-read
+the source through the job later.
 
 _For integrators:_ 409.
 
@@ -491,11 +492,13 @@ _For integrators:_ 409.
 
 **What:** This job has no stored output to re-read.
 
-**Why:** The result was returned in the response only (no `output` location), or the conversion failed. Response
-bytes are not kept.
+**Why:** Usually the conversion had no `output` location: the converted file was returned in the convert response
+itself (inline) and was never stored. The API doesn't keep response bytes. Less often, the conversion failed, so
+nothing was written. The `detail` says which.
 
-**What to do:** Look at the job's original result or error. Use an `output` location for work that may outlive
-the response.
+**What to do:** Use the result from the original response; an MCP client receives it as the file attached to the
+convert result. To read a result again later, convert with an `output` location (file, S3 or HTTPS) and read it
+back from there. For a failed job, look at its error with `GET /v1/jobs/{id}` before retrying.
 
 _For integrators:_ 409.
 

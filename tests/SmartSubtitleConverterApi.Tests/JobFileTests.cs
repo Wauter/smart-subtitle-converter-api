@@ -71,8 +71,16 @@ public sealed class JobFileTests : IDisposable
         using var f = Factory(); var c = f.CreateClient();
         var r = await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, target = "vtt" }); var id = r.Header("X-Job-Id");
         Assert.Equal("job-input-not-stored", await Code(await c.GetAsync($"/v1/jobs/{id}/input"), 409));
-        Assert.Equal("job-output-not-stored", await Code(await c.GetAsync($"/v1/jobs/{id}/output"), 409));
+        var notStored = await c.GetAsync($"/v1/jobs/{id}/output");
+        Assert.Equal("job-output-not-stored", await Code(notStored, 409));
+        var problem = await notStored.Json();
+        Assert.Equal("Job output not stored", (string)problem["title"]!);
+        Assert.Contains("returned in the convert response and not stored", (string)problem["detail"]!);
+        Assert.Contains("convert with an output location", (string)problem["hint"]!);
+        var inputProblem = await (await c.GetAsync($"/v1/jobs/{id}/input")).Json();
+        Assert.Equal("Job input not stored", (string)inputProblem["title"]!);
         Assert.Equal("job-not-found", await Code(await c.GetAsync("/v1/jobs/unknown"), 404));
+        Assert.Equal("Job not found", (string)(await (await c.GetAsync("/v1/jobs/unknown")).Json())["title"]!);
         Assert.Equal("job-not-found", await Code(await c.GetAsync("/v1/jobs/unknown/output"), 404));
     }
     [Fact]
@@ -84,7 +92,9 @@ public sealed class JobFileTests : IDisposable
         Assert.Equal(200, (int)(await c.GetAsync($"/v1/jobs/{id}/input")).StatusCode);
         Assert.Equal("job-not-ready", await Code(await c.GetAsync($"/v1/jobs/{id}/output"), 409));
         jobs.Finish(id, error: new() { ["code"] = "output-exists" });
-        Assert.Equal("job-output-not-stored", await Code(await c.GetAsync($"/v1/jobs/{id}/output"), 409));
+        var failed = await c.GetAsync($"/v1/jobs/{id}/output");
+        Assert.Equal("job-output-not-stored", await Code(failed, 409));
+        Assert.Contains("the conversion failed", (string)(await failed.Json())["detail"]!);
         File.Delete(Path.Combine(root, "in.srt"));
         Assert.Equal("job-file-gone", await Code(await c.GetAsync($"/v1/jobs/{id}/input"), 404));
     }
