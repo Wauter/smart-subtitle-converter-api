@@ -92,17 +92,128 @@ For a read-only input tree and a separate writable output tree, mount each separ
 container roots (a JSON array avoids path-separator confusion). Container read-only-root settings still permit
 an explicitly writable storage mount. Direct writes are the default; atomic mode requires rename support.
 
+## S3 permissions
+
+The API calls exactly five S3 operations, always on a bucket in `S3_ALLOWED_BUCKETS` and a key inside
+`S3_ALLOWED_PREFIXES`. It never lists keys, copies, starts multipart uploads, sets ACLs or tags, sends
+server-side-encryption headers, or creates or deletes buckets. Credentials come from the default AWS chain
+(see [startup diagnostics](configuration.md#startup-storage-diagnostics) for which source was used).
+
+| S3 call | IAM action | Resource | What uses it | What fails without it |
+|---|---|---|---|---|
+| `GetObject` | `s3:GetObject` | object `arn:aws:s3:::subs/in/*` | Reading an `s3://` `input` (`/v1/convert`, `/v1/convert/json`, `/v1/detect`); re-reading the stored file for `GET /v1/jobs/{id}/input` and `/output` | Those requests fail with `502 storage-io-failed` (S3 HTTP 403) |
+| `PutObject` with `If-None-Match: *` (default) | `s3:PutObject` | object `arn:aws:s3:::subs/out/*` | Writing `output`, and `{output}.json` with `sidecar:true`, without overwriting | Writes fail with `502 storage-io-failed` (HTTP 403). An existing key is not a permission problem: S3 answers 412 and the API returns `409 output-exists` |
+| `PutObject` (with `ifExists:"replace"`) | `s3:PutObject` | object | Overwriting an existing output or sidecar | Same as above |
+| `HeadObject` | `s3:GetObject` (S3 has no separate HeadObject action) | object | After writing an output without `sidecar:true`, checking whether a stale `{output}.json` is left from an earlier job | The conversion still succeeds, with warning `sidecar-delete-failed` |
+| `DeleteObject` | `s3:DeleteObject` | object | Deleting that stale `{output}.json`. Only called when it exists | Warning `sidecar-delete-failed`; the stale sidecar stays |
+| `HeadBucket` | `s3:ListBucket` | bucket `arn:aws:s3:::subs` | The [startup check](configuration.md#startup-storage-diagnostics), once per bucket | Startup warning `storage.s3 bucket=subs warning=Forbidden status=403`; conversions are not affected |
+
+`s3:ListBucket` also changes how S3 reports a missing key. With it, S3 answers 404, so a missing input gives
+`404 storage-not-found`, a deleted job file gives `404 job-file-gone`, and the stale-sidecar check simply finds
+nothing. Without it, S3 answers 403 for every missing key: those become `502 storage-io-failed`, and every
+S3 write without `sidecar:true` carries a `sidecar-delete-failed` warning. `s3:ListBucket` lets the credentials
+list key names in the bucket, not read objects; the API itself never lists.
+
+### Per access pattern
+
+| Action | Input-only bucket/prefix | Output-only bucket/prefix | Input and output |
+|---|---|---|---|
+| `s3:GetObject` on objects | Required | Recommended (job `/output` download, stale-sidecar check) | Required |
+| `s3:PutObject` on objects | Not needed | Required | Required |
+| `s3:DeleteObject` on objects | Not needed | Optional (stale-sidecar cleanup) | Optional |
+| `s3:ListBucket` on the bucket | Recommended (startup check, 404s) | Recommended | Recommended |
+| `kms:Decrypt` on the key (SSE-KMS only) | Required | Required if `s3:GetObject` is granted | Required |
+| `kms:GenerateDataKey` on the key (SSE-KMS only) | Not needed | Required | Required |
+
+The strict minimum is `s3:GetObject` for inputs and `s3:PutObject` for outputs. The rest buys clean 404s, the
+job file routes, sidecar cleanup and a quiet startup check.
+
+### ARNs and prefixes
+
+- Object actions (`s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`) take the **object** ARN,
+  `arn:aws:s3:::subs/*` or a prefix such as `arn:aws:s3:::subs/in/*`.
+- `s3:ListBucket` takes the **bucket** ARN, `arn:aws:s3:::subs`, without `/*`. Granting it on `subs/*` has no
+  effect, which is a common cause of `HeadBucket` 403s.
+- Scope object ARNs to the same prefixes as `S3_ALLOWED_PREFIXES`. `S3_ALLOWED_PREFIXES` is a plain string prefix
+  that applies to both input and output: `in` also matches `input/...`, so end prefixes with `/` in both places.
+  IAM is what separates read-only input prefixes from writable output prefixes.
+- You can limit `s3:ListBucket` with an `s3:prefix` condition. `HeadBucket` sends no prefix, so the startup check
+  then reports 403. That warning is harmless.
+- If a bucket policy enforces conditional writes with the `s3:if-none-match` condition key, requests with
+  `ifExists:"replace"` are denied.
+
+### Encryption (SSE-KMS)
+
+SSE-S3, the S3 default, needs no extra permission. With SSE-KMS the API relies on the bucket's default
+encryption: it sends no encryption headers, so a bucket policy that denies `PutObject` without
+`x-amz-server-side-encryption` denies every write. Use default bucket encryption instead. With a customer managed
+KMS key, grant `kms:Decrypt` (reads) and `kms:GenerateDataKey` (writes) on the key ARN, and make sure the key
+policy allows the same principal. The AWS managed key `aws/s3` in the same account usually needs no extra
+statement.
+
+### Minimal policy
+
+For `S3_ALLOWED_BUCKETS=subs` and `S3_ALLOWED_PREFIXES=in/,out/`, with inputs read from `in/` and outputs
+written to `out/`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BucketCheckAnd404s",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::subs"
+    },
+    {
+      "Sid": "ReadInputs",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::subs/in/*"
+    },
+    {
+      "Sid": "WriteOutputs",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::subs/out/*"
+    }
+  ]
+}
+```
+
+For SSE-KMS with a customer managed key, add:
+
+```json
+{
+  "Sid": "UseBucketKmsKey",
+  "Effect": "Allow",
+  "Action": ["kms:Decrypt", "kms:GenerateDataKey"],
+  "Resource": "arn:aws:kms:<region>:<account-id>:key/<key-id>"
+}
+```
+
+### MinIO
+
+MinIO accepts the same policy JSON (same actions and ARNs, without the KMS statement). Create it with
+`mc admin policy create <alias> subtitle-api policy.json` and attach it with
+`mc admin policy attach <alias> subtitle-api --user <access-key>`. Set `S3_ENDPOINT`,
+`S3_FORCE_PATH_STYLE=true` and `S3_REGION` to the server's region (`us-east-1` unless `MINIO_REGION` says
+otherwise). Older MinIO releases may ignore `If-None-Match`, which turns the default no-overwrite write into an
+overwrite: check that writing the same `output` twice returns `409 output-exists`.
+
 ## Compatible object storage
 
 For an internal MinIO service, set `S3_ENDPOINT=http://minio:9000`, `S3_REGION=us-east-1`,
 `S3_FORCE_PATH_STYLE=true` and a narrow `S3_ALLOWED_BUCKETS` / `S3_ALLOWED_PREFIXES` list. Provision buckets
-outside this API. The credentials need read and write access to the allowed prefixes, plus delete if stale
-`{output}.json` sidecars should be removed when an output is rewritten without a sidecar. Inject credentials using your runtime's environment or role configuration; do not bake them
+outside this API. The credentials need the [S3 permissions](#s3-permissions) above (the same policy works on
+MinIO). Inject credentials using your runtime's environment or role configuration; do not bake them
 into an image, Compose file or request. Public HTTPS links instead use `HTTP_ALLOWED_HOSTS`; private IPs
 remain blocked for those links. See [configuration](configuration.md) and [the sample environment](../.env.example).
-After a restart, check the logs for `storage.s3` / `storage.file` lines: the
-[startup storage check](configuration.md#jobs-and-storage) warns about an unreachable bucket, wrong region, missing credentials or
-a missing mount without blocking readiness.
+After a restart, check the logs for `storage.config` / `storage.s3` / `storage.file` lines and the closing
+`storage.check done` line: the [startup diagnostics](configuration.md#startup-storage-diagnostics) print the
+effective settings and warn about malformed values, missing credentials, an unreachable bucket, a wrong region or a
+missing mount, each with a fix, without blocking readiness.
 
 Each replica owns its own job metadata. Restart loses it; poll through sticky routing or a single replica.
 There is no persisted history or cached-result download; job file routes re-read storage. The caller wait does not cancel an admitted job.
