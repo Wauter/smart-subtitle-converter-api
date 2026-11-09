@@ -15,10 +15,21 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - Default published host port is **8080** again (`127.0.0.1:8080:8080` in Compose and the docs). The container still
   listens on 8080; change only the host side if 8080 is taken. Keep the `127.0.0.1` bind by default. No API contract
   change.
-- Startup storage check: after start, a background check runs `HeadBucket` on each `S3_ALLOWED_BUCKETS` entry and
-  checks that each `STORAGE_FILE_ROOTS` entry is an existing, readable, non-symlinked directory. Failures are logged as
-  warnings (`storage.s3 bucket=... warning=<code>`, `storage.file root=... warning=...`); nothing is written,
-  HTTPS hosts are not contacted, and `/readyz` is unchanged.
+- Startup storage diagnostics (warning-only; `/readyz` unchanged, nothing written, HTTPS hosts not contacted): after
+  start the API logs every storage setting as given and as used (`storage.config var=... value=... effective=...`),
+  warns about malformed values with the variable, the value, the problem and a fix (`storage.config warning=<code>`:
+  quotes/whitespace/CRLF, s3:// or paths in bucket names, invalid bucket names, missing or unknown `S3_REGION`,
+  endpoints without scheme or with a path, clamped timeouts, comma-separated file roots, incomplete or mismatched AWS
+  keys and session tokens, missing credential files), reports the credential source the AWS SDK resolved
+  (`storage.s3 credentials ok source=env|profile|web-identity|container-role|instance-role`), runs one `HeadBucket`
+  per allowlisted bucket (with the bucket's real region on a 301), checks each `STORAGE_FILE_ROOTS` entry, and ends
+  with `storage.check done ok=N warnings=M`. AWS key ids, secret keys and session tokens are only printed masked
+  (`AKI***MPLE`).
+- Malformed numeric or boolean settings (for example `IO_TIMEOUT_SECONDS=10s`, `S3_FORCE_PATH_STYLE=yes`) and an
+  invalid `STORAGE_FILE_ROOTS` JSON array still stop startup, now with a message naming the variable, the value and
+  the fix.
+- Docs: [S3 permissions](docs/deployment.md#s3-permissions) lists each S3 call, its IAM action and resource, what
+  fails without it, per input/output access pattern, plus SSE-KMS, a minimal policy and MinIO notes.
 
 ## 1.3.0 — Unreleased
 

@@ -88,44 +88,72 @@ public sealed class S3Storage : IStorage, IDisposable
     }
     /// <summary>
     /// Startup probe: one HeadBucket (metadata only, never creates or writes objects), bounded by IO_TIMEOUT_SECONDS.
-    /// Returns a short warning code (AWS error code, HTTP status or exception type) and a detail hint; never credentials.
+    /// Returns a short warning code (AWS error code, HTTP status or exception type) and a <c>problem=... fix=...</c>
+    /// detail; never credentials. <paramref name="credentialSource"/> only names the source in hints.
     /// </summary>
-    public async Task<(bool Ok, string? Warning, string Detail)> ProbeBucketAsync(string bucket, CancellationToken ct)
+    public async Task<(bool Ok, string? Warning, string Detail)> ProbeBucketAsync(string bucket, CancellationToken ct, string? credentialSource = null)
     {
+        static string D(string problem, string fix) => $"problem={StorageDiagnostics.Q(problem)} fix={StorageDiagnostics.Q(fix)}";
         var timeout = TimeSpan.FromSeconds(_opts.IoTimeoutSeconds);
+        var aws = string.IsNullOrWhiteSpace(_opts.S3Endpoint);
+        var where = aws ? $"AWS S3 in S3_REGION={_opts.S3Region}" : $"S3_ENDPOINT={_opts.S3Endpoint}";
+        var creds = credentialSource == null ? "the credentials" : $"the credentials (source={credentialSource})";
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(timeout);
         try
         {
             // WaitAsync as a backstop in case credential resolution or the SDK ignores the token.
-            await _client.Value.HeadBucketAsync(new HeadBucketRequest { BucketName = bucket }, deadline.Token).WaitAsync(timeout, ct);
+            var response = await _client.Value.HeadBucketAsync(new HeadBucketRequest { BucketName = bucket }, deadline.Token).WaitAsync(timeout, ct);
+            if (aws && response?.BucketRegion is { Length: > 0 } actual && actual != _opts.S3Region)
+                return (false, "region-mismatch", $"bucket_region={actual} " + D($"bucket is in {actual} but S3_REGION={_opts.S3Region}", $"set S3_REGION={actual}"));
             return (true, null, "");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
-        { return (false, "Timeout", $"detail=\"no response within {_opts.IoTimeoutSeconds}s (IO_TIMEOUT_SECONDS); check endpoint and network\""); }
+        { return (false, "Timeout", D($"no response from {where} within {_opts.IoTimeoutSeconds}s (IO_TIMEOUT_SECONDS)", "check S3_ENDPOINT/S3_REGION, DNS, proxy and firewall egress to the endpoint; raise IO_TIMEOUT_SECONDS only for slow links")); }
         catch (AmazonS3Exception ex)
         {
             var status = (int)ex.StatusCode;
             var code = string.IsNullOrWhiteSpace(ex.ErrorCode) ? (status > 0 ? "HTTP" + status : (ex.InnerException ?? ex).GetType().Name) : ex.ErrorCode;
-            var hint = status switch
+            var region = BucketRegion(ex);
+            var regionPart = region != null ? $" bucket_region={region}" : "";
+            var detail = status switch
             {
-                403 => "credentials were rejected or bucket metadata (s3:ListBucket) is not allowed; object get/put may still work",
-                404 => "bucket not found at this endpoint/region",
-                301 or 307 or 400 => "bucket may be in another region than S3_REGION, or the endpoint/path style is wrong",
-                _ => "check endpoint, region, credentials and network",
+                301 or 307 or 400 when region != null && region != _opts.S3Region => D($"bucket is in another region ({region}) than S3_REGION={_opts.S3Region}", $"set S3_REGION={region}"),
+                301 or 307 => D($"bucket is in another region than S3_REGION={_opts.S3Region}, or the endpoint/path style is wrong", aws ? "set S3_REGION to the bucket's region (aws s3api get-bucket-location --bucket " + bucket + ")" : "check S3_ENDPOINT and S3_FORCE_PATH_STYLE=true"),
+                400 => D($"bad request from {where}: bucket may be in another region than S3_REGION={_opts.S3Region}, or the endpoint/path style is wrong", aws ? "check S3_REGION against the bucket's region" : "check S3_ENDPOINT, S3_REGION and S3_FORCE_PATH_STYLE"),
+                403 when code is "InvalidAccessKeyId" => D($"{creds} use an access key id that {where} does not know", "check AWS_ACCESS_KEY_ID; keys for MinIO/another provider do not work on AWS and vice versa"),
+                403 when code is "SignatureDoesNotMatch" => D($"{creds} have a wrong secret key", "check AWS_SECRET_ACCESS_KEY for typos, quotes, whitespace or a trailing \\r"),
+                403 when code is "InvalidToken" or "ExpiredToken" => D($"{creds} have an invalid or expired session token", "refresh AWS_SESSION_TOKEN together with the key pair, or use a role"),
+                403 => D($"{creds} were rejected or bucket metadata (s3:ListBucket on arn:aws:s3:::{bucket}) is not allowed; object get/put may still work",
+                    $"grant s3:ListBucket on arn:aws:s3:::{bucket} (see {StorageDiagnostics.PermissionsDoc}), check the bucket policy, and check the credentials and clock"),
+                404 => D($"bucket not found at this endpoint/region ({where})", "check the bucket name in S3_ALLOWED_BUCKETS and S3_ENDPOINT; create the bucket outside this API"),
+                _ => D($"S3 answered HTTP {status}", "check endpoint, region, credentials and network"),
             };
-            return (false, code, $"status={status} detail=\"{hint}\"");
+            return (false, code, $"status={status}{regionPart} {detail}");
         }
         catch (Amazon.Runtime.AmazonClientException ex) // no credentials in the chain, DNS/connect failures wrapped by the SDK
         {
             var noCredentials = ex.Message.Contains("credentials", StringComparison.OrdinalIgnoreCase);
             return (false, noCredentials ? "NoCredentials" : ex.GetType().Name, noCredentials
-                ? "detail=\"no AWS credentials found in the default chain (environment, shared config, task/instance role)\""
-                : "detail=\"S3 client error; check endpoint and network\"");
+                ? D("no AWS credentials found in the default chain (environment, shared config, task/instance role)", "set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, AWS_PROFILE with a mounted credentials file, or attach an IAM role")
+                : D($"S3 client error talking to {where}", "check S3_ENDPOINT (scheme://host:port), DNS and network"));
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException)
-        { return (false, ex.GetType().Name, "detail=\"could not reach the S3 endpoint; check endpoint, DNS and network\""); }
+        { return (false, ex.GetType().Name, D($"could not reach {where}", "check S3_ENDPOINT, DNS, TLS, proxy and firewall egress")); }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException or InvalidOperationException)
+        { return (false, "client-config", D($"the S3 client could not be created or used ({ex.GetType().Name})", "check S3_ENDPOINT is scheme://host[:port] and S3_REGION is a region code")); }
+    }
+    /// <summary>The bucket's real region from x-amz-bucket-region (SDK Region) or an AuthorizationHeaderMalformed message.</summary>
+    /// <summary>The bucket's real region from the x-amz-bucket-region response header, or an AuthorizationHeaderMalformed message.</summary>
+    public static string? BucketRegion(AmazonS3Exception ex)
+    {
+        for (Exception? inner = ex.InnerException; inner != null; inner = inner.InnerException)
+            if (inner is Amazon.Runtime.Internal.HttpErrorResponseException { Response: { } response } && response.IsHeaderPresent("x-amz-bucket-region")
+                && response.GetHeaderValue("x-amz-bucket-region") is { Length: > 0 } header)
+                return header.Trim();
+        var m = System.Text.RegularExpressions.Regex.Match(ex.Message ?? "", "expecting '([a-z0-9-]+)'");
+        return m.Success ? m.Groups[1].Value : null;
     }
     private static bool Transient(Exception ex) => ex is AmazonS3Exception s && (int)s.StatusCode is 408 or 429 or 500 or 502 or 503 or 504
         || (ex is AmazonS3Exception { StatusCode: 0, InnerException: { } inner } && Transient(inner))

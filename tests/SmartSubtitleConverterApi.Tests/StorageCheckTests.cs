@@ -12,7 +12,7 @@ public sealed class StorageCheckTests : IDisposable
     public StorageCheckTests() => Directory.CreateDirectory(root);
     public void Dispose() => Directory.Delete(root, true);
 
-    private sealed class Head(Func<HeadBucketRequest, Task<HeadBucketResponse>> handler) : AmazonS3Client(new AnonymousAWSCredentials(), new AmazonS3Config { ServiceURL = "http://unused.invalid", AuthenticationRegion = "us-east-1" })
+    internal sealed class Head(Func<HeadBucketRequest, Task<HeadBucketResponse>> handler) : AmazonS3Client(new AnonymousAWSCredentials(), new AmazonS3Config { ServiceURL = "http://unused.invalid", AuthenticationRegion = "us-east-1" })
     {
         public List<string> Buckets = [];
         public int Writes;
@@ -21,7 +21,7 @@ public sealed class StorageCheckTests : IDisposable
         public override Task<PutObjectResponse> PutObjectAsync(PutObjectRequest request, CancellationToken cancellationToken = default)
         { Writes++; throw new InvalidOperationException("startup check must not write"); }
     }
-    private sealed class Capture : ILogger<StorageCheck>
+    internal sealed class Capture : ILogger<StorageCheck>
     {
         public List<(LogLevel Level, string Message)> Lines = [];
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
@@ -29,11 +29,23 @@ public sealed class StorageCheckTests : IDisposable
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
             => Lines.Add((logLevel, formatter(state, exception)));
     }
+    /// <summary>Runs the full check with no environment and fake static credentials; returns only the probe lines.</summary>
     private static async Task<Capture> Run(ApiOptions opts, IAmazonS3 client)
+    {
+        var all = await RunAll(opts, client);
+        var probes = new Capture();
+        probes.Lines.AddRange(all.Lines.Where(l => (l.Message.StartsWith("storage.s3 bucket=") || l.Message.StartsWith("storage.file ")) ));
+        return probes;
+    }
+    internal static async Task<Capture> RunAll(ApiOptions opts, IAmazonS3 client, Dictionary<string, string>? env = null, Func<CancellationToken, Task<AWSCredentials>>? creds = null)
     {
         var log = new Capture();
         using var s3 = new S3Storage(opts, client);
-        await new StorageCheck(opts, s3, log).RunAsync(default);
+        await new StorageCheck(opts, s3, log)
+        {
+            Env = k => env != null && env.TryGetValue(k, out var v) ? v : null,
+            ResolveCredentials = creds ?? (_ => Task.FromResult<AWSCredentials>(new BasicAWSCredentials("AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY"))),
+        }.RunAsync(default);
         return log;
     }
 
@@ -72,12 +84,16 @@ public sealed class StorageCheckTests : IDisposable
     }
 
     [Fact]
-    public async Task Disabled_schemes_are_silent()
+    public async Task Disabled_schemes_are_not_contacted()
     {
         using var fake = new Head(_ => throw new InvalidOperationException());
-        var log = await Run(new() { HttpAllowedHosts = ["example.com"] }, fake);
+        var resolved = false;
+        var log = await RunAll(new() { HttpAllowedHosts = ["example.com"] }, fake, creds: _ => { resolved = true; throw new InvalidOperationException(); });
         Assert.Empty(fake.Buckets);
-        Assert.Empty(log.Lines);
+        Assert.False(resolved);
+        Assert.DoesNotContain(log.Lines, l => l.Message.StartsWith("storage.s3") || l.Message.StartsWith("storage.file"));
+        Assert.Contains(log.Lines, l => l.Message == "storage.config schemes=https");
+        Assert.Equal("storage.check done ok=0 warnings=0", log.Lines[^1].Message);
     }
 
     [Fact]

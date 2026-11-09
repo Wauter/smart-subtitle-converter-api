@@ -58,28 +58,96 @@ S3 uses the default AWS credential chain (environment/shared configuration/task 
 credentials supplied by the request. A trusted S3 endpoint may be internal; HTTPS request URIs may not resolve
 to private addresses. No Azure or GCS adapter is installed.
 
-After start, the API checks each enabled storage backend once in the background and logs a warning if it
-cannot reach it. Startup, `/healthz` and `/readyz` are not affected. Each allowlisted S3 bucket gets one
-`HeadBucket` (metadata only, bounded by `IO_TIMEOUT_SECONDS`). Each `STORAGE_FILE_ROOTS` entry is checked to
-exist, be a readable directory and contain no symlinked path component. The check writes nothing and does not
-contact `HTTP_ALLOWED_HOSTS`. Disabled schemes are skipped. Log lines look like:
-
-```text
-storage.s3 bucket=subs ok
-storage.s3 bucket=subs warning=AccessDenied status=403 detail="..."
-storage.file root=/data ok writable=True
-storage.file root=/data warning=missing detail="..."
-```
-
-The warning is the AWS error code when S3 returns one, otherwise `HTTP<status>`, `Timeout`, `NoCredentials` or
-the exception type. A policy that allows object get/put but not bucket metadata (`s3:ListBucket`) gets
-`AccessDenied` (or `HTTP403`) here although conversions may still work. Credentials, keys and file contents are
-never logged.
+The IAM actions S3 needs, with a copy-pasteable policy, are in [S3 permissions](deployment.md#s3-permissions).
+At startup the API logs its effective storage settings and checks each backend; see
+[startup storage diagnostics](#startup-storage-diagnostics).
 
 Active work is capped at `min(JOB_MAX_ENTRIES, QUEUE_CAPACITY + 1)` independently of history eviction.
 Records keep metadata only, with a 128 KiB result/error budget. Detailed diagnostics above that budget become
 a `metadataTruncated` summary. See [limits](limits.md), [URI usage and polling](usage.md#job-metadata) and
 [mount permissions](deployment.md#mounted-subtitle-storage).
+
+## Startup storage diagnostics
+
+Right after start, a background check logs the effective storage configuration, warns about missing or malformed
+values, resolves the AWS credential source and probes each enabled backend once. It is warning-only: it never
+delays listening, never fails startup and does not affect `/healthz` or `/readyz`. It writes nothing and does not
+contact `HTTP_ALLOWED_HOSTS`.
+
+- **`storage.config`**: one line per setting (`S3_ALLOWED_BUCKETS`, `S3_ALLOWED_PREFIXES`, `S3_REGION`,
+  `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE`, `IO_TIMEOUT_SECONDS`, `IO_RETRIES`, `STORAGE_FILE_ROOTS`,
+  `HTTP_ALLOWED_HOSTS`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE`,
+  `AWS_SHARED_CREDENTIALS_FILE`, `AWS_CONFIG_FILE`) with the value as given and the effective value, then
+  `storage.config schemes=...`.
+- **`storage.s3 credentials`**: the source the AWS SDK's default chain resolved: `env`, `profile` (shared
+  credentials/config file, including SSO, process and assume-role profiles), `web-identity`, `container-role`,
+  `instance-role`, or a warning when nothing was found. Bounded by `IO_TIMEOUT_SECONDS`.
+- **`storage.s3 bucket=`**: one `HeadBucket` per allowlisted bucket (needs `s3:ListBucket`).
+- **`storage.file root=`**: each root must be absolute, exist, be a listable directory and contain no symlink.
+  `writable=` is informational; a read-only input root is fine.
+- **`storage.check done ok=N warnings=M`**: always the last line. `ok` counts passed probes (credentials,
+  buckets, roots), `warnings` counts warning lines.
+
+The access key id, secret key and session token are never printed in full. They show as the first 3
+characters, `***` and the last 4 (`AKI***MPLE`), or as `***` alone when shorter than 10 characters. The same
+masking applies to any of these values inside SDK error text.
+
+Every warning has the same shape, so it can be fixed from the line alone:
+
+```text
+storage.config warning=<code> var=<ENV_VAR> value=<value as seen, masked if secret> problem="..." fix="..."
+storage.s3 bucket=<bucket> warning=<S3 error code|HTTP<status>|Timeout|...> status=<http> [bucket_region=<region>] problem="..." fix="..."
+storage.file root=<path> warning=<code> var=STORAGE_FILE_ROOTS problem="..." fix="..."
+```
+
+Excerpt with a few mistakes:
+
+```text
+storage.config var=S3_ALLOWED_BUCKETS value="subs,s3://tmp/out" effective="subs,s3://tmp/out"
+storage.config warning=bucket-has-scheme var=S3_ALLOWED_BUCKETS value="s3://tmp/out" problem="entries must be bare bucket names, not s3:// URIs" fix="use S3_ALLOWED_BUCKETS=tmp and S3_ALLOWED_PREFIXES=out/"
+storage.config var=S3_REGION value="eu-west-1" effective="eu-west-1"
+storage.config var=S3_ENDPOINT value=<unset> effective="AWS S3 regional endpoint for eu-west-1"
+storage.config var=IO_TIMEOUT_SECONDS value="500" effective=300
+storage.config warning=clamped var=IO_TIMEOUT_SECONDS value="500" problem="outside 1..300; using 300" fix="set IO_TIMEOUT_SECONDS between 1 and 300"
+storage.config var=AWS_ACCESS_KEY_ID value=ASI***MPLE
+storage.config var=AWS_SECRET_ACCESS_KEY value=wJa***EKEY
+storage.config var=AWS_SESSION_TOKEN value=<unset>
+storage.config warning=session-token-missing var=AWS_SESSION_TOKEN value=<unset> problem="AWS_ACCESS_KEY_ID starts with ASIA (temporary credentials) but no session token is set; S3 answers 403 InvalidAccessKeyId/InvalidToken" fix="set AWS_SESSION_TOKEN from the same STS response, or use long-term (AKIA...) keys or a role"
+storage.config schemes=file,s3
+storage.s3 credentials ok source=env access_key_id=ASI***MPLE session_token=no type=EnvironmentVariablesAWSCredentials
+storage.s3 bucket=subs warning=MovedPermanently status=301 bucket_region=eu-north-1 problem="bucket is in another region (eu-north-1) than S3_REGION=eu-west-1" fix="set S3_REGION=eu-north-1"
+storage.s3 bucket=s3://tmp/out skipped reason=invalid-name detail="see the storage.config warning for S3_ALLOWED_BUCKETS"
+storage.file root=/data/in ok writable=False
+storage.file root=data/out warning=not-absolute var=STORAGE_FILE_ROOTS problem="STORAGE_FILE_ROOTS entries must be absolute container paths" fix="use an absolute path such as /data/out that matches the volume mount target"
+storage.check done ok=2 warnings=5
+```
+
+A healthy start ends with lines like:
+
+```text
+storage.s3 credentials ok source=profile profile="subs-rw" credentials_file="/run/secrets/aws" config_file="~/.aws/config" access_key_id=AKI***MPLE session_token=no type=BasicAWSCredentials
+storage.s3 bucket=subs ok
+storage.file root=/data/out ok writable=True
+storage.check done ok=3 warnings=0
+```
+
+`storage.config` warning codes: `quoted`, `whitespace`, `crlf` (values with surrounding quotes, spaces or a
+Windows line ending), `bucket-has-scheme`, `bucket-is-arn`, `bucket-has-path`, `invalid-bucket-name`,
+`prefixes-without-buckets`, `prefix-has-scheme`, `prefix-leading-slash`, `prefix-wildcard`, `region-missing`,
+`region-unknown`, `endpoint-no-scheme`, `endpoint-invalid`, `endpoint-has-path`, `invalid-bool`,
+`invalid-integer`, `clamped`, `root-has-comma`, `host-not-bare`, `host-wildcard`, `host-has-port`,
+`credentials-incomplete`, `session-token-missing`, `session-token-unexpected`, `file-relative`, `file-missing`.
+Lines with `note=` (for example `path-style-off` for a custom endpoint without `S3_FORCE_PATH_STYLE=true`) are
+hints and are not counted as warnings. A `storage.s3 bucket=... warning=Forbidden status=403` from a policy
+without `s3:ListBucket` is expected to be harmless; see [S3 permissions](deployment.md#s3-permissions).
+
+Values that cannot be parsed at all still stop startup, as before, but the error names the variable, the value
+and a fix, for example:
+
+```text
+Invalid configuration: IO_TIMEOUT_SECONDS="10s" is not a whole number. Fix: set IO_TIMEOUT_SECONDS=10 (or unset it for the default); whole seconds, clamped to 1..300.
+Invalid configuration: S3_FORCE_PATH_STYLE="yes" is not true or false. Fix: set S3_FORCE_PATH_STYLE=true (or unset it for the default); true for MinIO/path-style endpoints, false for AWS.
+```
 
 ## Queue
 

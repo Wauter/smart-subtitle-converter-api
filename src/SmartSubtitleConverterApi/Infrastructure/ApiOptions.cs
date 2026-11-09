@@ -48,39 +48,60 @@ public sealed class ApiOptions
         static string[] List(string? v) =>
             (v ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        static string[] Roots(string? value) => string.IsNullOrWhiteSpace(value) ? []
-            : value.TrimStart().StartsWith('[') ? System.Text.Json.JsonSerializer.Deserialize<string[]>(value) ?? []
-            : value.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        static string[] Roots(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return [];
+            if (!value.TrimStart().StartsWith('[')) return value.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            try { return System.Text.Json.JsonSerializer.Deserialize<string[]>(value) ?? []; }
+            catch (System.Text.Json.JsonException ex)
+            {
+                throw new InvalidOperationException($"Invalid configuration: STORAGE_FILE_ROOTS=\"{value}\" starts with '[' but is not a JSON array of strings ({ex.Message}). "
+                    + "Fix: use STORAGE_FILE_ROOTS=[\"/data/in\",\"/data/out\"] or the ':'-separated form STORAGE_FILE_ROOTS=/data/in:/data/out.", ex);
+            }
+        }
+        // Typed values: keep failing startup on malformed input, but name the variable, the value and an example fix.
+        T Get<T>(string key, T fallback)
+        {
+            try { return c.GetValue(key, fallback)!; }
+            catch (InvalidOperationException ex)
+            {
+                var type = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+                var expected = type == typeof(bool) ? "true or false" : "a whole number";
+                var example = type == typeof(bool) ? "true" : (fallback?.ToString() ?? "8080");
+                throw new InvalidOperationException($"Invalid configuration: {key}=\"{c[key]}\" is not {expected}. Fix: set {key}={example} (or unset it for the default)"
+                    + (key == "IO_TIMEOUT_SECONDS" ? "; whole seconds, clamped to 1..300." : key == "S3_FORCE_PATH_STYLE" ? "; true for MinIO/path-style endpoints, false for AWS." : "."), ex);
+            }
+        }
         var d = new ApiOptions();
         return new ApiOptions
         {
-            MaxUploadBytes = c.GetValue("MAX_UPLOAD_BYTES", d.MaxUploadBytes),
-            ConversionTimeoutSeconds = c.GetValue("CONVERSION_TIMEOUT_SECONDS", d.ConversionTimeoutSeconds),
-            QueueCapacity = Math.Max(1, c.GetValue("QUEUE_CAPACITY", d.QueueCapacity)),
+            MaxUploadBytes = Get("MAX_UPLOAD_BYTES", d.MaxUploadBytes),
+            ConversionTimeoutSeconds = Get("CONVERSION_TIMEOUT_SECONDS", d.ConversionTimeoutSeconds),
+            QueueCapacity = Math.Max(1, Get("QUEUE_CAPACITY", d.QueueCapacity)),
             ProfilesDir = c["PROFILES_DIR"] ?? d.ProfilesDir,
             ApiKeys = c["API_KEYS"],
             ApiKeysFile = c["API_KEYS_FILE"],
-            ErrorsVerbose = c.GetValue("ERRORS_VERBOSE", true),
-            DocsEnabled = c.GetValue("DOCS_ENABLED", true),
-            MetricsEnabled = c.GetValue("METRICS_ENABLED", false),
-            MetricsPort = c.GetValue<int?>("METRICS_PORT"),
-            RateLimitPerMinute = c.GetValue("RATE_LIMIT_PER_MINUTE", 0),
-            MaxCues = c.GetValue("MAX_CUES", d.MaxCues),
-            MaxLineChars = c.GetValue("MAX_LINE_CHARS", d.MaxLineChars),
+            ErrorsVerbose = Get("ERRORS_VERBOSE", true),
+            DocsEnabled = Get("DOCS_ENABLED", true),
+            MetricsEnabled = Get("METRICS_ENABLED", false),
+            MetricsPort = Get<int?>("METRICS_PORT", (int?)null),
+            RateLimitPerMinute = Get("RATE_LIMIT_PER_MINUTE", 0),
+            MaxCues = Get("MAX_CUES", d.MaxCues),
+            MaxLineChars = Get("MAX_LINE_CHARS", d.MaxLineChars),
             S3Endpoint = c["S3_ENDPOINT"],
             S3Region = c["S3_REGION"] ?? d.S3Region,
-            S3ForcePathStyle = c.GetValue("S3_FORCE_PATH_STYLE", false),
+            S3ForcePathStyle = Get("S3_FORCE_PATH_STYLE", false),
             S3AllowedBuckets = List(c["S3_ALLOWED_BUCKETS"]),
             S3AllowedPrefixes = List(c["S3_ALLOWED_PREFIXES"]),
             HttpAllowedHosts = List(c["HTTP_ALLOWED_HOSTS"]),
-            IoTimeoutSeconds = Math.Clamp(c.GetValue("IO_TIMEOUT_SECONDS", d.IoTimeoutSeconds), 1, 300),
-            IoRetries = Math.Clamp(c.GetValue("IO_RETRIES", d.IoRetries), 0, 10),
+            IoTimeoutSeconds = Math.Clamp(Get("IO_TIMEOUT_SECONDS", d.IoTimeoutSeconds), 1, 300),
+            IoRetries = Math.Clamp(Get("IO_RETRIES", d.IoRetries), 0, 10),
             StorageFileRoots = Roots(c["STORAGE_FILE_ROOTS"]),
-            StorageFileAtomic = c.GetValue("STORAGE_FILE_ATOMIC", false),
-            RequestWaitSeconds = Math.Clamp(c.GetValue("REQUEST_WAIT_SECONDS", d.RequestWaitSeconds), 0, 60),
-            JobTtlSeconds = Math.Clamp(c.GetValue("JOB_TTL_SECONDS", d.JobTtlSeconds), 1, 86400),
-            JobMaxEntries = Math.Clamp(c.GetValue("JOB_MAX_ENTRIES", d.JobMaxEntries), 1, 10000),
-            ProfileMaxBytes = Math.Max(1024, c.GetValue("PROFILE_MAX_BYTES", d.ProfileMaxBytes)),
+            StorageFileAtomic = Get("STORAGE_FILE_ATOMIC", false),
+            RequestWaitSeconds = Math.Clamp(Get("REQUEST_WAIT_SECONDS", d.RequestWaitSeconds), 0, 60),
+            JobTtlSeconds = Math.Clamp(Get("JOB_TTL_SECONDS", d.JobTtlSeconds), 1, 86400),
+            JobMaxEntries = Math.Clamp(Get("JOB_MAX_ENTRIES", d.JobMaxEntries), 1, 10000),
+            ProfileMaxBytes = Math.Max(1024, Get("PROFILE_MAX_BYTES", d.ProfileMaxBytes)),
             CorsOrigins = List(c["CORS_ORIGINS"]),
             KnownProxies = List(c["KNOWN_PROXIES"]),
         };
