@@ -7,6 +7,13 @@ services:
     build: .                                   # `docker compose up --build` builds locally instead of pulling
     ports:
       - "127.0.0.1:8080:8080"                # host 8080 on localhost only -> container 8080; change the left-hand port if 8080 is taken; use "8080:8080" to expose on all interfaces (README)
+    # Compose's .env next to this file only feeds ${...} interpolation in this file; it does NOT reach the container
+    # by itself. env_file passes every variable in .env (e.g. S3_ALLOWED_BUCKETS, AWS_*) into the container.
+    # required: false keeps `docker compose up` working without a .env (needs Docker Compose 2.24 or later).
+    # Values under `environment:` below win over the same variable in .env.
+    env_file:
+      - path: .env
+        required: false
     environment:
       # API_KEYS_FILE: /run/secrets/api_keys   # enable auth (one key per line, optional name:key)
       ERRORS_VERBOSE: "true"                   # set "false" to hide stack traces/internals

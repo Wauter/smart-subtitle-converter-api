@@ -23,6 +23,15 @@ docker compose up -d           # pull the image
 docker compose up --build -d   # or build it locally from this checkout
 ```
 
+Put settings in a `.env` next to `docker-compose.yml` (start from [`.env.example`](../.env.example)). The
+reference file loads it into the container with `env_file` (`required: false`, so `up` still works without one;
+needs Docker Compose 2.24 or later). Compose's `.env` on its own only feeds `${...}` interpolation and never
+reaches the container: without `env_file` or `environment` entries, `S3_ALLOWED_BUCKETS` set in `.env` is ignored
+and the startup log shows `storage.config var=S3_ALLOWED_BUCKETS value=<unset> effective="(unset — S3 off)"`.
+Variables under `environment:` override the same name from `.env`. To run your own build from a checkout, set
+`image:` to a local tag (for example `smart-subtitle-converter-api:dev` after `docker build -t
+smart-subtitle-converter-api:dev .`).
+
 Environment variables: [configuration.md](configuration.md).
 
 ## Image tags

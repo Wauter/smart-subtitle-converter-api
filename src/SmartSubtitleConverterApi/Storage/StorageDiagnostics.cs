@@ -76,7 +76,7 @@ public static partial class StorageDiagnostics
 
         // S3 allowlists.
         var bucketsRaw = env("S3_ALLOWED_BUCKETS");
-        Info($"storage.config var=S3_ALLOWED_BUCKETS value={Q(bucketsRaw)} effective={(s3 ? Q(string.Join(',', opts.S3AllowedBuckets)) : "\"(s3 off)\"")}");
+        Info($"storage.config var=S3_ALLOWED_BUCKETS value={Q(bucketsRaw)} effective={(s3 ? Q(string.Join(',', opts.S3AllowedBuckets)) : "\"(unset — S3 off)\"")}");
         foreach (var b in opts.S3AllowedBuckets)
         {
             var bare = b.Trim('"', '\'');
@@ -161,11 +161,11 @@ public static partial class StorageDiagnostics
         }
 
         // Filesystem and HTTPS allowlists.
-        Info($"storage.config var=STORAGE_FILE_ROOTS value={Q(env("STORAGE_FILE_ROOTS"))} effective={(opts.StorageFileRoots.Length == 0 ? "\"(file off)\"" : Q(string.Join(':', opts.StorageFileRoots)))}");
+        Info($"storage.config var=STORAGE_FILE_ROOTS value={Q(env("STORAGE_FILE_ROOTS"))} effective={(opts.StorageFileRoots.Length == 0 ? "\"(unset — file off)\"" : Q(string.Join(':', opts.StorageFileRoots)))}");
         foreach (var r in opts.StorageFileRoots.Where(r => r.Contains(',')))
             W("root-has-comma", "STORAGE_FILE_ROOTS", Q(r), "roots are separated by ':' (or given as a JSON array), not ','",
                 $"use STORAGE_FILE_ROOTS={string.Join(':', r.Split(',', StringSplitOptions.TrimEntries))} or [\"{string.Join("\",\"", r.Split(',', StringSplitOptions.TrimEntries))}\"]");
-        Info($"storage.config var=HTTP_ALLOWED_HOSTS value={Q(env("HTTP_ALLOWED_HOSTS"))} effective={(opts.HttpAllowedHosts.Length == 0 ? "\"(https off)\"" : Q(string.Join(',', opts.HttpAllowedHosts)))}");
+        Info($"storage.config var=HTTP_ALLOWED_HOSTS value={Q(env("HTTP_ALLOWED_HOSTS"))} effective={(opts.HttpAllowedHosts.Length == 0 ? "\"(unset — HTTPS off)\"" : Q(string.Join(',', opts.HttpAllowedHosts)))}");
         foreach (var h in opts.HttpAllowedHosts)
         {
             if (h.Contains("://") || h.Contains('/'))

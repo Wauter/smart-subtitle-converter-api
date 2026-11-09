@@ -28,6 +28,9 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - Malformed numeric or boolean settings (for example `IO_TIMEOUT_SECONDS=10s`, `S3_FORCE_PATH_STYLE=yes`) and an
   invalid `STORAGE_FILE_ROOTS` JSON array still stop startup, now with a message naming the variable, the value and
   the fix.
+- `docker-compose.yml` loads `.env` into the container with `env_file` (`required: false`). Compose's `.env` alone
+  only feeds `${...}` interpolation, so settings such as `S3_ALLOWED_BUCKETS` in `.env` never reached the container.
+  The startup log always prints the allowlists, as `(unset — S3 off)` and similar when empty.
 - Docs: [S3 permissions](docs/deployment.md#s3-permissions) lists each S3 call, its IAM action and resource, what
   fails without it, per input/output access pattern, plus SSE-KMS, a minimal policy and MinIO notes.
 

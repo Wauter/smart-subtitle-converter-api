@@ -53,6 +53,18 @@ public sealed class StorageDiagnosticsTests
     }
 
     [Fact]
+    public async Task Empty_allowlists_are_always_logged_as_unset()
+    {
+        using var fake = new StorageCheckTests.Head(_ => throw new InvalidOperationException());
+        var lines = (await StorageCheckTests.RunAll(new(), fake)).Lines.Select(l => l.Message).ToList();
+        Assert.Contains("storage.config var=S3_ALLOWED_BUCKETS value=<unset> effective=\"(unset — S3 off)\"", lines);
+        Assert.Contains("storage.config var=STORAGE_FILE_ROOTS value=<unset> effective=\"(unset — file off)\"", lines);
+        Assert.Contains("storage.config var=HTTP_ALLOWED_HOSTS value=<unset> effective=\"(unset — HTTPS off)\"", lines);
+        Assert.Contains(lines, l => l.StartsWith("storage.config schemes=none") && l.Contains("env_file"));
+        Assert.Equal("storage.check done ok=0 warnings=0", lines[^1]);
+    }
+
+    [Fact]
     public void Scrub_masks_configured_secrets_in_sdk_messages()
     {
         var env = new Dictionary<string, string> { ["AWS_SECRET_ACCESS_KEY"] = Secret, ["AWS_ACCESS_KEY_ID"] = KeyId };

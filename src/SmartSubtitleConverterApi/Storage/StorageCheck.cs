@@ -34,7 +34,7 @@ public sealed class StorageCheck(ApiOptions opts, S3Storage s3, ILogger<StorageC
         {
             foreach (var finding in Inspect(opts, Lookup)) Emit(finding.Warning, finding.Line);
             var schemes = new[] { opts.StorageFileRoots.Length > 0 ? "file" : null, opts.HttpAllowedHosts.Length > 0 ? "https" : null, opts.S3AllowedBuckets.Length > 0 ? "s3" : null }.OfType<string>().ToArray();
-            Emit(false, $"storage.config schemes={(schemes.Length == 0 ? "none" : string.Join(',', schemes))}" + (schemes.Length == 0 ? " detail=\"no storage allowlist is set; only uploads and inline content are accepted\"" : ""));
+            Emit(false, $"storage.config schemes={(schemes.Length == 0 ? "none" : string.Join(',', schemes))}" + (schemes.Length == 0 ? " detail=\"S3_ALLOWED_BUCKETS, STORAGE_FILE_ROOTS and HTTP_ALLOWED_HOSTS are all unset, so only uploads and inline content are accepted\" fix=\"set the allowlist you need; with Docker Compose a .env file reaches the container only through env_file or environment entries\"" : ""));
 
             if (opts.S3AllowedBuckets.Length > 0)
             {

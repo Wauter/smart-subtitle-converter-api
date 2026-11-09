@@ -33,8 +33,14 @@ other machines, see [security.md](security.md#exposing-it-beyond-localhost).
 ## Jobs and storage
 
 Copy selected settings from [`.env.example`](../.env.example); pass it with Docker `--env-file`.
-Compose's `.env` is interpolation input, not automatically the container environment: add `env_file` or
-explicit `environment` entries. Never commit real credentials.
+A `.env` file next to a Compose file is only interpolation input for `${...}` in that file. On its own it does
+**not** put any variable into the container, so `S3_ALLOWED_BUCKETS` in `.env` alone leaves S3 off. The repo's
+[`docker-compose.yml`](../docker-compose.yml) therefore loads it with `env_file: [{ path: .env, required: false }]`
+(Docker Compose 2.24 or later); in your own Compose file add the same `env_file` entry or list the variables under
+`environment`. Values under `environment` override the same variable from `env_file`. The startup log always
+prints `S3_ALLOWED_BUCKETS`, `STORAGE_FILE_ROOTS` and `HTTP_ALLOWED_HOSTS` (as `(unset — S3 off)` and so on), so
+`docker compose logs | grep storage.config` shows what the container actually received. Never commit real
+credentials.
 
 | Env | Default | Behaviour |
 |---|---|---|
@@ -109,6 +115,7 @@ storage.config var=S3_REGION value="eu-west-1" effective="eu-west-1"
 storage.config var=S3_ENDPOINT value=<unset> effective="AWS S3 regional endpoint for eu-west-1"
 storage.config var=IO_TIMEOUT_SECONDS value="500" effective=300
 storage.config warning=clamped var=IO_TIMEOUT_SECONDS value="500" problem="outside 1..300; using 300" fix="set IO_TIMEOUT_SECONDS between 1 and 300"
+storage.config var=HTTP_ALLOWED_HOSTS value=<unset> effective="(unset — HTTPS off)"
 storage.config var=AWS_ACCESS_KEY_ID value=ASI***MPLE
 storage.config var=AWS_SECRET_ACCESS_KEY value=wJa***EKEY
 storage.config var=AWS_SESSION_TOKEN value=<unset>
