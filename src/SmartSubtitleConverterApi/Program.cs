@@ -17,13 +17,21 @@ Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 var builder = WebApplication.CreateBuilder(args);
 var opts = ApiOptions.FromConfiguration(builder.Configuration);
 
+// LOG_FORMAT: text (default, one plain line per entry) or json (the JSON console formatter). Invalid -> text + warning.
+var logFormatRaw = builder.Configuration["LOG_FORMAT"];
+var logFormat = string.IsNullOrWhiteSpace(logFormatRaw) ? "text" : logFormatRaw.Trim().Trim('"', '\'').ToLowerInvariant();
+var logFormatInvalid = logFormat is not ("text" or "json");
 builder.Logging.ClearProviders();
-builder.Logging.AddJsonConsole(o =>
-{
-    o.IncludeScopes = true;
-    o.UseUtcTimestamp = true;
-    o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
-});
+if (logFormat == "json")
+    builder.Logging.AddJsonConsole(o =>
+    {
+        o.IncludeScopes = true;
+        o.UseUtcTimestamp = true;
+        o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
+    });
+else
+    builder.Logging.AddConsole(o => o.FormatterName = LineConsoleFormatter.Name)
+        .AddConsoleFormatter<LineConsoleFormatter, Microsoft.Extensions.Logging.Console.ConsoleFormatterOptions>();
 
 builder.WebHost.ConfigureKestrel(k =>
 {
@@ -101,6 +109,9 @@ if (opts.RateLimitPerMinute > 0)
 }
 
 var app = builder.Build();
+if (logFormatInvalid)
+    app.Logger.LogWarning("{Line}", $"logging.config warning=invalid-log-format var=LOG_FORMAT value={SmartSubtitleConverterApi.Storage.StorageDiagnostics.Q(logFormatRaw)} "
+        + "problem=\"not a supported log format; using text\" fix=\"set LOG_FORMAT=text (plain lines, default) or LOG_FORMAT=json (JSON console)\"");
 
 if (opts.KnownProxies.Length > 0)
 {

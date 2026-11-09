@@ -28,6 +28,10 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - Malformed numeric or boolean settings (for example `IO_TIMEOUT_SECONDS=10s`, `S3_FORCE_PATH_STYLE=yes`) and an
   invalid `STORAGE_FILE_ROOTS` JSON array still stop startup, now with a message naming the variable, the value and
   the fix.
+- **Console log format changed:** the default is now plain text, one line per entry
+  (`2026-11-09T13:40:51.531Z info  Storage.StorageCheck  storage.s3 bucket=subs ok`). Set `LOG_FORMAT=json` to
+  restore the previous JSON console output. An invalid `LOG_FORMAT` falls back to text with a
+  `logging.config warning=invalid-log-format` line.
 - `docker-compose.yml` loads `.env` into the container with `env_file` (`required: false`). Compose's `.env` alone
   only feeds `${...}` interpolation, so settings such as `S3_ALLOWED_BUCKETS` in `.env` never reached the container.
   The startup log always prints the allowlists, as `(unset — S3 off)` and similar when empty.

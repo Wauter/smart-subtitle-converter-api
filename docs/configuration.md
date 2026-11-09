@@ -29,6 +29,7 @@ other machines, see [security.md](security.md#exposing-it-beyond-localhost).
 | `KNOWN_PROXIES` | unset | IPs whose `X-Forwarded-*` headers are trusted |
 | `DOCS_ENABLED` | `true` | `/docs` (Scalar) |
 | `METRICS_ENABLED` / `METRICS_PORT` | off | Prometheus text at `/metrics`, optionally only on that port |
+| `LOG_FORMAT` | `text` | `text`: one plain line per entry (`2026-11-09T13:40:51.531Z info  Storage.StorageCheck  storage.s3 bucket=subs ok`: UTC time, level, category, message; exception details on indented lines below; no colors). `json`: one JSON object per line (`Timestamp`, `LogLevel`, `Category`, `Message`, `State`, `Scopes`). Any other value falls back to `text` and logs `logging.config warning=invalid-log-format var=LOG_FORMAT ...` |
 
 ## Jobs and storage
 
