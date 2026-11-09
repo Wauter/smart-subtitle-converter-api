@@ -50,7 +50,7 @@ credentials.
 | `JOB_MAX_ENTRIES` | `400` | Oldest-first history eviction; clamped to 1..10000 |
 | `IO_TIMEOUT_SECONDS` | `10` | Whole I/O attempt including body, clamped to 1..300 seconds |
 | `IO_RETRIES` | `3` | Extra transient attempts, clamped to 0..10; no retry on 403/404 or validation |
-| `STORAGE_FILE_ROOTS` | empty (off) | Absolute Linux roots separated by `:` or a JSON array; mounts use container paths |
+| `STORAGE_FILE_ROOTS` | empty (off) | Absolute Linux roots separated by `:` or a JSON array; mounts use container paths. A root with a component starting with `.` can be written to but never read or listed ([hidden files](usage.md#hidden-files-and-folders)) |
 | `STORAGE_FILE_ATOMIC` | `false` | Sibling stage/flush/no-replace rename when true; otherwise exclusive direct write |
 | `STORAGE_LIST_ENABLED` | `false` | Browse the allowed file and S3 locations and read files by location (`GET /v1/storage/*`); see [browsing storage](usage.md#browsing-storage-and-reading-by-location). Off: those routes answer `403 storage-list-disabled` |
 | `HTTP_ALLOWED_HOSTS` | empty (off) | Exact hostnames, comma-separated, same for HTTPS GET and PUT; no wildcards |

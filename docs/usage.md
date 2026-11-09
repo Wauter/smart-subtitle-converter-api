@@ -105,7 +105,7 @@ Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs
 {"input":"file:///data/in/show.srt","output":"/data/out/show.pac","target":"pac","sidecar":true}
 ```
 
-`input` is mutually exclusive with JSON `content` or multipart `file`. `output` is optional; with it the response contains output metadata and verification, not file bytes. With `output`, `outputs[].fileName` is the name the file was stored under (the last path segment of `output`), not the name the converter would generate from the source. An explicit `output` requires exactly one target; `target.additional` remains available for inline results. `detect` accepts `input` too. A path must name a file: no trailing slash, dot segments or symlinks. Only Linux server filesystem storage is supported; directory handles and no-follow opens prevent path-component symlink swaps. Pre-create parent directories. Existing filesystem and S3 outputs are rejected by default; `ifExists:"replace"` explicitly permits replacement.
+`input` is mutually exclusive with JSON `content` or multipart `file`. `output` is optional; with it the response contains output metadata and verification, not file bytes. With `output`, `outputs[].fileName` is the name the file was stored under (the last path segment of `output`), not the name the converter would generate from the source. An explicit `output` requires exactly one target; `target.additional` remains available for inline results. `detect` accepts `input` too. A path must name a file: no trailing slash, dot segments, symlinks or control characters (also when percent-encoded, such as `%00`). Hidden files and folders are never read as input ([hidden files](#hidden-files-and-folders)). Only Linux server filesystem storage is supported; directory handles and no-follow opens prevent path-component symlink swaps. Pre-create parent directories. Existing filesystem and S3 outputs are rejected by default; `ifExists:"replace"` explicitly permits replacement.
 
 Set `STORAGE_FILE_ROOTS` to allowlisted absolute roots (OS path separator, or a JSON array); empty disables file URIs. `STORAGE_FILE_ATOMIC=false` writes directly with exclusive creation, removing its own incomplete file after a failed write. With `true`, stage a sibling temporary file, flush it, then rename without replacing an existing destination. Consumers may see a growing file with direct writes; use atomic writes for scanning directories. Network mounts still need suitable rename semantics.
 
@@ -129,7 +129,7 @@ Set `HTTP_ALLOWED_HOSTS=mam.example.com,store.example.com` (exact hostnames, no 
 {"input":"s3://subs/in/show.stl","output":"/data/out/show.pac","target":"pac","sidecar":true}
 ```
 
-Inputs and outputs are independent; all enabled schemes can be mixed. S3 requires `S3_ALLOWED_BUCKETS` (comma-separated, empty disables it) and optionally `S3_ALLOWED_PREFIXES` (comma-separated exact key prefixes, e.g. `in/,out/`). A prefix ending in `/` scopes a directory-like namespace; `in` also permits `incoming` by ordinary string-prefix rules. URI keys are percent-decoded once and cannot contain dot segments, backslashes or control characters. Query credentials are not accepted on `s3://` URIs.
+Inputs and outputs are independent; all enabled schemes can be mixed. S3 requires `S3_ALLOWED_BUCKETS` (comma-separated, empty disables it) and optionally `S3_ALLOWED_PREFIXES` (comma-separated exact key prefixes, e.g. `in/,out/`). A prefix ending in `/` scopes a directory-like namespace; `in` also permits `incoming` by ordinary string-prefix rules. URI keys are percent-decoded once and cannot contain dot segments, backslashes or control characters (an encoded `%00` included). Hidden keys (a segment starting with `.`) are not read as input ([hidden files](#hidden-files-and-folders)). Query credentials are not accepted on `s3://` URIs.
 
 `S3_ENDPOINT` selects one server-configured compatible endpoint; unset uses the AWS endpoint for `S3_REGION` (default `us-east-1`). Set `S3_FORCE_PATH_STYLE=true` for MinIO. Credentials come from the SDK's default environment/role chain. Custom endpoints are trusted operator configuration and may be internal; never let untrusted callers configure them. No Azure/GCS support or tests.
 
@@ -187,7 +187,7 @@ files), `returned`, `truncated` and, when truncated, `next`. Pass `next` as `cur
   most 200 items, in name order (UTF-8 byte order, the order S3 uses).
 - Cursors are stateless. Every item that exists for the whole walk appears exactly once; items added or removed
   during the walk may or may not appear. A listing is not a snapshot.
-- Filesystem listings skip hidden (dot) entries, symlinks, devices and pipes. A filesystem folder is read in full
+- Listings skip hidden (dot) entries ([hidden files](#hidden-files-and-folders)); filesystem listings also skip symlinks, devices and pipes. A filesystem folder is read in full
   on every page and sorted, so very large folders are slower per page.
 - S3 uses `ListObjectsV2` with the delimiter `/`, and the cursor carries its continuation token. Folder marker
   objects (keys ending in `/`) are skipped. Listing needs `s3:ListBucket` ([S3 permissions](deployment.md#s3-permissions)).
@@ -196,6 +196,28 @@ files), `returned`, `truncated` and, when truncated, `next`. Pass `next` as `cur
 - When `S3_ALLOWED_PREFIXES` is set, a listing must stay inside one of them: list `s3://subs/in/`, not
   `s3://subs/`. A prefix without a trailing `/` (`out/show`) shows up in the locations as a folder plus `prefix`.
 - HTTPS is never listed or read here (`422 storage-not-listable`); use HTTPS URLs as convert `input`/`output`.
+
+### Hidden files and folders
+
+Hidden files and folders are never read, listed or used as a conversion source, whether listing is on or off. A
+path or object key is hidden when any of its `/`-separated components starts with `.`: a dotfile (`.env`,
+`.hidden.srt`), anything inside a dot-named folder at any depth (`.git/config`, `.cache/x/y.srt`), and everything
+under an allowed root or `S3_ALLOWED_PREFIXES` entry that is itself hidden or sits inside a hidden folder
+(`/srv/.subtitles`, `/home/app/.cache/subs`, `tmp/.cache/`). Dots inside names are fine: `show.en.v2.srt`,
+`v1.2/ep.srt` and `a..b.srt` are ordinary files.
+
+- **Where it applies:** `GET /v1/storage/file`, `GET /v1/storage/list` (a hidden folder, directly or through
+  `prefix`), convert and detect `input` (JSON and multipart), and `GET /v1/jobs/{id}/input|output`. Filesystem
+  roots and S3 keys alike. Listings leave hidden entries out, and `GET /v1/storage/locations` leaves out hidden
+  roots and prefixes, so their names aren't revealed; the startup log warns about them (`storage.hidden`).
+- **How it's checked:** on the decoded location (percent-encoding is decoded once, so `%2Eenv` is `.env`) before any
+  filesystem or S3 call, with the same `422 storage-location-rejected` for an existing and a missing hidden name.
+  The filesystem never follows symlinks, so a link can't alias a hidden file.
+- **Writes** keep their rules: a conversion may still write a dot-named `output`, but nothing reads it back, not even
+  that job's `GET /v1/jobs/{id}/output`. HTTPS URLs are not affected (`/.well-known/…` still works as input).
+- **Limits:** the rule is name-based. It doesn't look at other hidden markers (Windows hidden attributes, macOS
+  `UF_HIDDEN`), and filesystem storage runs on Linux only. Hidden S3 entries are dropped after `ListObjectsV2`
+  returns them, so a page can hold fewer than 200 items (even none) while `truncated` is still true.
 
 `GET /v1/storage/file` returns the current bytes with a `Content-Disposition` file name. It doesn't detect or
 convert; send the same location as `input` to `/v1/detect` or `/v1/convert/json` for that.

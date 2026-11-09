@@ -408,7 +408,9 @@ and downloading. Setup: [usage.md](usage.md#filesystem-locations-and-sidecars).
 
 **Why:** Storage access is limited to what the operator allowlisted, and some paths are refused for safety: a
 scheme that isn't enabled, a path outside the allowed roots, buckets, prefixes or hosts, a directory instead of a
-file, dot segments, symlinks, an HTTPS redirect, or an HTTPS host that resolves to a private address.
+file, dot segments, symlinks, a hidden file or folder (a path or key component starting with `.`; see
+[hidden files](usage.md#hidden-files-and-folders)), control characters in the decoded location (an encoded NUL,
+`%00`), an HTTPS redirect, or an HTTPS host that resolves to a private address.
 
 **What to do:** Name a complete file inside an allowed location. If the location is right, ask the operator to
 add it to the allowlist (`STORAGE_FILE_ROOTS`, `S3_ALLOWED_BUCKETS`, `S3_ALLOWED_PREFIXES`, `HTTP_ALLOWED_HOSTS`).

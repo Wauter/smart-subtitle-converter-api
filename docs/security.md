@@ -67,8 +67,14 @@ folders, and verify the mount's rename semantics. No filesystem operation crosse
 Browsing (`STORAGE_LIST_ENABLED`, off by default) adds no new scope: `GET /v1/storage/locations`, `/list` and
 `/file` work inside the same roots, buckets and prefixes, with the same no-follow, dot-segment, size and allowlist
 checks, before any storage call. With it off, those routes answer `403 storage-list-disabled` and reveal nothing
-about the allowlists. Listings skip hidden entries, symlinks and special files; HTTPS is never listed or read by
-location. Any valid API key can browse when it is on; run a separate instance if some keys must not.
+about the allowlists. Listings skip symlinks and special files; HTTPS is never listed or read by location.
+
+Hidden files and folders (any path or key component starting with `.`, including inside a hidden allowed root) are
+never read, listed or used as a conversion source, with listing on or off, on every route: storage reads and
+listings, convert and detect `input`, and job file reads. The check runs on the decoded path before any storage
+call and answers the same for existing and missing names; hidden roots and prefixes are left out of the locations.
+Writes are unchanged. Decoded control characters (an encoded NUL, `%00`) are rejected as
+`422 storage-location-rejected` before any filesystem call. Details: [usage.md](usage.md#hidden-files-and-folders). Any valid API key can browse when it is on; run a separate instance if some keys must not.
 
 S3 bucket/key-prefix checks precede SDK requests. A custom endpoint is trusted operator configuration,
 not an untrusted request target; scope the role's permissions as well as the API allowlists. S3 defaults to a conditional PUT (`If-None-Match: *`); explicit `ifExists:"replace"` permits replacement. Sidecar and subtitle writes are independent, with warnings on sidecar failure. Removing a stale sidecar

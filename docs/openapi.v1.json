@@ -2288,7 +2288,7 @@
           "storage"
         ],
         "summary": "List one folder of an allowed file or S3 location, a page at a time.",
-        "description": "\u0060location\u0060 is a folder (file:///root/folder/, /root/folder/ or s3://bucket/prefix/), \u0060prefix\u0060 an optional name prefix (\u0027/\u0027 descends into sub-folders; no globs). Lists one level in backend name order (UTF-8 byte order), at most 200 items per page: files with size and modified time, and folders (ending in \u0027/\u0027). When \u0060truncated\u0060 is true pass \u0060next\u0060 as \u0060cursor\u0060 with the same location and prefix. Stateless: items that exist for the whole walk appear exactly once; items created or deleted during the walk may or may not appear. No total count, time sort or offsets. Filesystem listings skip hidden (dot) entries, symlinks and special files. HTTPS is not listable (422 storage-not-listable). Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
+        "description": "\u0060location\u0060 is a folder (file:///root/folder/, /root/folder/ or s3://bucket/prefix/), \u0060prefix\u0060 an optional name prefix (\u0027/\u0027 descends into sub-folders; no globs). Lists one level in backend name order (UTF-8 byte order), at most 200 items per page: files with size and modified time, and folders (ending in \u0027/\u0027). When \u0060truncated\u0060 is true pass \u0060next\u0060 as \u0060cursor\u0060 with the same location and prefix. Stateless: items that exist for the whole walk appear exactly once; items created or deleted during the walk may or may not appear. No total count, time sort or offsets. Hidden entries (names starting with \u0027.\u0027) are skipped, and hidden folders are refused (422); filesystem listings also skip symlinks and special files. HTTPS is not listable (422 storage-not-listable). Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
         "operationId": "listStorage",
         "parameters": [
           {
@@ -2488,7 +2488,7 @@
           "storage"
         ],
         "summary": "Read one file from an allowed file or S3 location (current contents, unconverted).",
-        "description": "The same allowlists, symlink, traversal and size checks as convert input. HTTPS is not readable here (422 storage-not-listable); use it as convert input. Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
+        "description": "The same allowlists, symlink, traversal, hidden-file and size checks as convert input: a path or key with a component starting with \u0027.\u0027 is 422 storage-location-rejected. HTTPS is not readable here (422 storage-not-listable); use it as convert input. Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
         "operationId": "getStorageFile",
         "parameters": [
           {

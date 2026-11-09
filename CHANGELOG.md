@@ -17,6 +17,15 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - New error codes `storage-list-disabled` (403), `storage-not-listable` (422) and `storage-cursor-invalid` (400).
 - `GET /v1/limits` adds `storage.list` and `storage.listSchemes`; the startup log says whether listing is on.
 - Listing S3 uses `ListObjectsV2` and needs `s3:ListBucket` ([S3 permissions](docs/deployment.md#s3-permissions)).
+- **Breaking:** hidden files and folders are never read, listed or used as a conversion source, with listing on or
+  off: any path or S3 key component starting with `.` (a dotfile, anything inside a dot-named folder, or anything
+  under a hidden allowed root or prefix) is `422 storage-location-rejected` on `GET /v1/storage/file`,
+  `GET /v1/storage/list`, convert and detect `input`, and job file reads. Before, hidden entries were only left out
+  of listings and could still be read directly. Checked on the decoded location, before any storage call. Hidden
+  roots and prefixes are left out of `GET /v1/storage/locations`. Dotted names (`show.en.srt`) and writes are
+  unaffected. See [hidden files](docs/usage.md#hidden-files-and-folders).
+- Fix: a percent-encoded control character in a file or S3 location (for example `file:///data/a.srt%00.txt`) is
+  `422 storage-location-rejected` before any filesystem call, instead of `500 internal-error`.
 
 ## 1.3.1 — Unreleased
 
