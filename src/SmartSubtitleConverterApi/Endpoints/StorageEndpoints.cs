@@ -56,7 +56,7 @@ public static class StorageEndpoints
           .WithDescription("`location` is a folder (file:///root/folder/, /root/folder/ or s3://bucket/prefix/), `prefix` an optional name prefix ('/' descends into sub-folders; no globs). "
               + $"Lists one level in backend name order (UTF-8 byte order), at most {StorageListing.PageSize} items per page: files with size and modified time, and folders (ending in '/'). "
               + "When `truncated` is true pass `next` as `cursor` with the same location and prefix. Stateless: items that exist for the whole walk appear exactly once; items created or deleted during the walk may or may not appear. "
-              + "No total count, time sort or offsets. Filesystem listings skip hidden (dot) entries, symlinks and special files. HTTPS is not listable (422 storage-not-listable)." + Gate)
+              + "No total count, time sort or offsets. Hidden entries (names starting with '.') are skipped, and hidden folders are refused (422); filesystem listings also skip symlinks and special files. HTTPS is not listable (422 storage-not-listable)." + Gate)
           .Produces<StorageListResponse>().ProducesProblem(403).ProducesProblem(404).ProducesProblem(422).ProducesProblem(502);
 
         v1.MapGet("/storage/file", async (HttpContext ctx, ApiOptions opts, StorageRouter storage, Formats.FormatRegistry formats, string? location) =>
@@ -71,21 +71,24 @@ public static class StorageEndpoints
             return ConvertEndpoints.File(ctx, bytes, format?.MediaType ?? "application/octet-stream", parsed.FileName);
         }).WithName("getStorageFile").WithTags("storage")
           .WithSummary("Read one file from an allowed file or S3 location (current contents, unconverted).")
-          .WithDescription("The same allowlists, symlink, traversal and size checks as convert input. HTTPS is not readable here (422 storage-not-listable); use it as convert input." + Gate)
+          .WithDescription("The same allowlists, symlink, traversal, hidden-file and size checks as convert input: a path or key with a component starting with '.' is 422 storage-location-rejected. HTTPS is not readable here (422 storage-not-listable); use it as convert input." + Gate)
           .Produces(200, contentType: "application/octet-stream").ProducesProblem(403).ProducesProblem(404).ProducesProblem(413).ProducesProblem(422).ProducesProblem(502);
     }
 
-    /// <summary>File roots (Linux only), S3 buckets × allowed prefixes, then HTTPS hosts (not listable).</summary>
+    /// <summary>
+    /// File roots (Linux only), S3 buckets × allowed prefixes, then HTTPS hosts (not listable). Roots and prefixes with a hidden
+    /// component (see <see cref="HiddenPaths"/>) are left out: nothing in them can be read or listed, and their names stay unrevealed.
+    /// </summary>
     public static List<StorageLocationInfo> Locations(ApiOptions opts)
     {
         var list = new List<StorageLocationInfo>();
         if (OperatingSystem.IsLinux())
-            foreach (var root in opts.StorageFileRoots)
+            foreach (var root in opts.StorageFileRoots.Where(r => !HiddenPaths.IsHidden(Path.GetFullPath(r))))
                 list.Add(new(StorageListing.FileUri(Path.GetFullPath(root).TrimEnd('/') + "/"), "file", true, true));
         foreach (var bucket in opts.S3AllowedBuckets)
         {
             if (opts.S3AllowedPrefixes.Length == 0) { list.Add(new(StorageListing.S3Uri(bucket, ""), "s3", true, true)); continue; }
-            foreach (var p in opts.S3AllowedPrefixes)
+            foreach (var p in opts.S3AllowedPrefixes.Where(p => !HiddenPaths.IsHidden(p)))
             {
                 var cut = p.LastIndexOf('/') + 1;
                 list.Add(new(StorageListing.S3Uri(bucket, p[..cut]), "s3", true, true, cut < p.Length ? p[cut..] : null));

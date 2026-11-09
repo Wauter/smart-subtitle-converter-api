@@ -49,6 +49,7 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
     public async Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct)
     {
         var path = CheckedPath(location);
+        HiddenPaths.Check(path); // before any filesystem call: no existence oracle for hidden names
         using var parent = Parent(path);
         using var file = Open((int)parent.DangerousGetHandle(), Path.GetFileName(path), 0 | NonBlock);
         if (statx((int)file.DangerousGetHandle(), "", 0x1000, 1, out var stat) != 0 || (stat.Mode & 0xf000) != 0x8000)
@@ -130,6 +131,7 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
     {
         if (!OperatingSystem.IsLinux()) throw StorageLocation.Rejected("Filesystem storage currently requires a Linux server.");
         CheckedDirectory(directory);
+        HiddenPaths.Check(directory);
         using var dir = OpenDirectory(directory);
         var fd = (int)dir.DangerousGetHandle();
         IEnumerable<string> names;

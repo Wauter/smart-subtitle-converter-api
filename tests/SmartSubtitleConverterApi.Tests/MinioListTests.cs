@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http.Json;
 using System.Net;
 using System.Net.Sockets;
 using Amazon.Runtime;
@@ -28,7 +29,7 @@ public class MinioListTests
         try
         {
             using var health = new HttpClient(); var ready = false;
-            for (var i = 0; i < 100 && !ready; i++)
+            for (var i = 0; i < 300 && !ready; i++) // up to 30 s: MinIO starts slowly while the rest of the suite runs in parallel
             {
                 try { ready = (await health.GetAsync(endpoint + "/minio/health/ready")).IsSuccessStatusCode; } catch (HttpRequestException) { }
                 if (!ready) await Task.Delay(100);
@@ -42,6 +43,9 @@ public class MinioListTests
             foreach (var i in Enumerable.Range(0, 420)) { var k = $"in/show_{i:000}.srt"; await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = k, ContentBody = Samples.Srt, UseChunkEncoding = false }); expected.Add($"show_{i:000}.srt"); }
             await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "in/season1/ep1.srt", ContentBody = Samples.Srt, UseChunkEncoding = false }); expected.Add("season1/");
             await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "private/secret.srt", ContentBody = "secret", UseChunkEncoding = false });
+            // Hidden keys (a segment starting with '.') are never listed or read; ordinary dotted names are.
+            foreach (var k in new[] { "in/.env", "in/.cache/x.srt" }) await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = k, ContentBody = "HIDDEN_SENTINEL", UseChunkEncoding = false });
+            await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "in/show.v2.final.srt", ContentBody = Samples.Srt, UseChunkEncoding = false }); expected.Add("show.v2.final.srt");
             expected.Sort(StorageListing.Utf8Order);
             using var factory = ApiFactory.With(new() { ["S3_ALLOWED_BUCKETS"] = "subs", ["S3_ALLOWED_PREFIXES"] = "in/", ["S3_ENDPOINT"] = endpoint, ["S3_FORCE_PATH_STYLE"] = "true", ["STORAGE_LIST_ENABLED"] = "true" },
                 services => { services.RemoveAll<S3Storage>(); services.AddSingleton(new S3Storage(opts, new AmazonS3Client(credentials, S3Storage.Configuration(opts)))); });
@@ -62,6 +66,15 @@ public class MinioListTests
             Assert.Equal(422, (int)denied.StatusCode);
             var root2 = await c.GetAsync("/v1/storage/list?location=" + Uri.EscapeDataString("s3://subs/"));
             Assert.Equal(422, (int)root2.StatusCode);
+            Assert.Equal(Samples.Srt, await (await c.GetAsync("/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/show.v2.final.srt"))).Content.ReadAsStringAsync());
+            foreach (var url in new[] { "/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/.env"), "/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/%2Ecache/x.srt"),
+                                        "/v1/storage/list?location=" + Uri.EscapeDataString("s3://subs/in/.cache/"), "/v1/storage/list?location=" + Uri.EscapeDataString("s3://subs/in/") + "&prefix=.cache/" })
+            {
+                var r = await c.GetAsync(url); var body = await r.Content.ReadAsStringAsync();
+                Assert.True((int)r.StatusCode == 422 && body.Contains("storage-location-rejected"), url + " " + body); Assert.DoesNotContain("HIDDEN_SENTINEL", body);
+            }
+            var conv = await c.PostAsJsonAsync("/v1/convert/json", new { input = "s3://subs/in/.env", target = "vtt" });
+            Assert.Equal(422, (int)conv.StatusCode); Assert.DoesNotContain("HIDDEN_SENTINEL", await conv.Content.ReadAsStringAsync());
         }
         finally
         {

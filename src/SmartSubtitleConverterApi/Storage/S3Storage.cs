@@ -58,16 +58,17 @@ public sealed class S3Storage : IStorage, IDisposable
     public async Task<(List<StorageListing.Entry> Items, bool More, string? Token)> ListAsync(string bucket, string directory, string namePrefix, string? token, int pageSize, CancellationToken ct)
     {
         CheckedListing(bucket, directory + namePrefix);
+        HiddenPaths.Check(directory);
         var response = await Attempt(token2 => _client.Value.ListObjectsV2Async(new ListObjectsV2Request
         {
             BucketName = bucket, Prefix = directory + namePrefix, Delimiter = "/", MaxKeys = pageSize, ContinuationToken = token,
         }, token2), ct);
         var items = new List<StorageListing.Entry>();
         foreach (var o in response.S3Objects ?? [])
-            if (o.Key.Length > directory.Length && !o.Key.EndsWith('/') && o.Key.StartsWith(directory, StringComparison.Ordinal))
+            if (o.Key.Length > directory.Length && !o.Key.EndsWith('/') && o.Key.StartsWith(directory, StringComparison.Ordinal) && o.Key[directory.Length] != '.')
                 items.Add(new(o.Key[directory.Length..], false, o.Size, o.LastModified is { } m ? new DateTimeOffset(m.Kind == DateTimeKind.Local ? m.ToUniversalTime() : DateTime.SpecifyKind(m, DateTimeKind.Utc)) : null));
         foreach (var p in response.CommonPrefixes ?? [])
-            if (p.Length > directory.Length && p.StartsWith(directory, StringComparison.Ordinal)) items.Add(new(p[directory.Length..], true, null, null));
+            if (p.Length > directory.Length && p.StartsWith(directory, StringComparison.Ordinal) && p[directory.Length] != '.') items.Add(new(p[directory.Length..], true, null, null));
         items.Sort((a, b) => StorageListing.Utf8Compare(a.Name, b.Name));
         var more = response.IsTruncated == true && !string.IsNullOrEmpty(response.NextContinuationToken);
         return (items, more, more ? response.NextContinuationToken : null);
@@ -75,6 +76,7 @@ public sealed class S3Storage : IStorage, IDisposable
     public async Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct)
     {
         var (bucket, key) = Checked(location);
+        HiddenPaths.Check(key); // before any network call
         return await Attempt(async token =>
         {
             using var response = await _client.Value.GetObjectAsync(new GetObjectRequest { BucketName = bucket, Key = key }, token);
