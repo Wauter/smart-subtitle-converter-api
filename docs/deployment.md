@@ -100,6 +100,9 @@ outside this API. The credentials need read and write access to the allowed pref
 `{output}.json` sidecars should be removed when an output is rewritten without a sidecar. Inject credentials using your runtime's environment or role configuration; do not bake them
 into an image, Compose file or request. Public HTTPS links instead use `HTTP_ALLOWED_HOSTS`; private IPs
 remain blocked for those links. See [configuration](configuration.md) and [the sample environment](../.env.example).
+After a restart, check the logs for `storage.s3` / `storage.file` lines: the
+[startup storage check](configuration.md#jobs-and-storage) warns about an unreachable bucket, wrong region, missing credentials or
+a missing mount without blocking readiness.
 
 Each replica owns its own job metadata. Restart loses it; poll through sticky routing or a single replica.
 There is no persisted history or cached-result download; job file routes re-read storage. The caller wait does not cancel an admitted job.

@@ -60,6 +60,8 @@ builder.Services.AddSingleton<ApiKeyStore>();
 builder.Services.AddSingleton<SelfTest>();
 builder.Services.AddSingleton<Metrics>();
 builder.Services.AddHostedService<SelfTestService>();
+builder.Services.AddSingleton<SmartSubtitleConverterApi.Storage.StorageCheck>();
+builder.Services.AddHostedService<SmartSubtitleConverterApi.Storage.StorageCheckService>(); // warning-only, does not gate /readyz
 builder.Services.AddOpenApi("v1", o =>
 {
     o.AddDocumentTransformer((doc, _, _) =>

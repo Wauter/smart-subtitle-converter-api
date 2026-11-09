@@ -86,6 +86,47 @@ public sealed class S3Storage : IStorage, IDisposable
         await Attempt(async token => { await _client.Value.DeleteObjectAsync(new DeleteObjectRequest { BucketName = bucket, Key = key }, token); return true; }, ct);
         return true;
     }
+    /// <summary>
+    /// Startup probe: one HeadBucket (metadata only, never creates or writes objects), bounded by IO_TIMEOUT_SECONDS.
+    /// Returns a short warning code (AWS error code, HTTP status or exception type) and a detail hint; never credentials.
+    /// </summary>
+    public async Task<(bool Ok, string? Warning, string Detail)> ProbeBucketAsync(string bucket, CancellationToken ct)
+    {
+        var timeout = TimeSpan.FromSeconds(_opts.IoTimeoutSeconds);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(timeout);
+        try
+        {
+            // WaitAsync as a backstop in case credential resolution or the SDK ignores the token.
+            await _client.Value.HeadBucketAsync(new HeadBucketRequest { BucketName = bucket }, deadline.Token).WaitAsync(timeout, ct);
+            return (true, null, "");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
+        { return (false, "Timeout", $"detail=\"no response within {_opts.IoTimeoutSeconds}s (IO_TIMEOUT_SECONDS); check endpoint and network\""); }
+        catch (AmazonS3Exception ex)
+        {
+            var status = (int)ex.StatusCode;
+            var code = string.IsNullOrWhiteSpace(ex.ErrorCode) ? (status > 0 ? "HTTP" + status : (ex.InnerException ?? ex).GetType().Name) : ex.ErrorCode;
+            var hint = status switch
+            {
+                403 => "credentials were rejected or bucket metadata (s3:ListBucket) is not allowed; object get/put may still work",
+                404 => "bucket not found at this endpoint/region",
+                301 or 307 or 400 => "bucket may be in another region than S3_REGION, or the endpoint/path style is wrong",
+                _ => "check endpoint, region, credentials and network",
+            };
+            return (false, code, $"status={status} detail=\"{hint}\"");
+        }
+        catch (Amazon.Runtime.AmazonClientException ex) // no credentials in the chain, DNS/connect failures wrapped by the SDK
+        {
+            var noCredentials = ex.Message.Contains("credentials", StringComparison.OrdinalIgnoreCase);
+            return (false, noCredentials ? "NoCredentials" : ex.GetType().Name, noCredentials
+                ? "detail=\"no AWS credentials found in the default chain (environment, shared config, task/instance role)\""
+                : "detail=\"S3 client error; check endpoint and network\"");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        { return (false, ex.GetType().Name, "detail=\"could not reach the S3 endpoint; check endpoint, DNS and network\""); }
+    }
     private static bool Transient(Exception ex) => ex is AmazonS3Exception s && (int)s.StatusCode is 408 or 429 or 500 or 502 or 503 or 504
         || (ex is AmazonS3Exception { StatusCode: 0, InnerException: { } inner } && Transient(inner))
         || ex is HttpRequestException { HttpRequestError: not HttpRequestError.SecureConnectionError } or IOException or OperationCanceledException;

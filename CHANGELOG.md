@@ -15,6 +15,10 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - Default published host port is **8080** again (`127.0.0.1:8080:8080` in Compose and the docs). The container still
   listens on 8080; change only the host side if 8080 is taken. Keep the `127.0.0.1` bind by default. No API contract
   change.
+- Startup storage check: after start, a background check runs `HeadBucket` on each `S3_ALLOWED_BUCKETS` entry and
+  checks that each `STORAGE_FILE_ROOTS` entry is an existing, readable, non-symlinked directory. Failures are logged as
+  warnings (`storage.s3 bucket=... warning=<code>`, `storage.file root=... warning=...`); nothing is written,
+  HTTPS hosts are not contacted, and `/readyz` is unchanged.
 
 ## 1.3.0 — Unreleased
 

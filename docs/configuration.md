@@ -58,6 +58,24 @@ S3 uses the default AWS credential chain (environment/shared configuration/task 
 credentials supplied by the request. A trusted S3 endpoint may be internal; HTTPS request URIs may not resolve
 to private addresses. No Azure or GCS adapter is installed.
 
+After start, the API checks each enabled storage backend once in the background and logs a warning if it
+cannot reach it. Startup, `/healthz` and `/readyz` are not affected. Each allowlisted S3 bucket gets one
+`HeadBucket` (metadata only, bounded by `IO_TIMEOUT_SECONDS`). Each `STORAGE_FILE_ROOTS` entry is checked to
+exist, be a readable directory and contain no symlinked path component. The check writes nothing and does not
+contact `HTTP_ALLOWED_HOSTS`. Disabled schemes are skipped. Log lines look like:
+
+```text
+storage.s3 bucket=subs ok
+storage.s3 bucket=subs warning=AccessDenied status=403 detail="..."
+storage.file root=/data ok writable=True
+storage.file root=/data warning=missing detail="..."
+```
+
+The warning is the AWS error code when S3 returns one, otherwise `HTTP<status>`, `Timeout`, `NoCredentials` or
+the exception type. A policy that allows object get/put but not bucket metadata (`s3:ListBucket`) gets
+`AccessDenied` (or `HTTP403`) here although conversions may still work. Credentials, keys and file contents are
+never logged.
+
 Active work is capped at `min(JOB_MAX_ENTRIES, QUEUE_CAPACITY + 1)` independently of history eviction.
 Records keep metadata only, with a 128 KiB result/error budget. Detailed diagnostics above that budget become
 a `metadataTruncated` summary. See [limits](limits.md), [URI usage and polling](usage.md#job-metadata) and
@@ -74,7 +92,8 @@ Details: [design.md §2.4](design.md#24-conversion-queue-global-state-hazard).
 
 - `GET /healthz`: liveness, `{"status":"ok","version":"…","libse":"…"}` (the API version and the libse package
   version).
-- `GET /readyz`: self-test, worker health, queue.
+- `GET /readyz`: self-test, worker health, queue. Storage reachability is not part of readiness; see the
+  startup storage check under [Jobs and storage](#jobs-and-storage).
 - Both stay open when auth is on.
 - `GET /v1/limits` reports the effective limits. It's under `/v1`, so it needs a key when auth is on, and it only
   says whether auth is required, never anything about keys.

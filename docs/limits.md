@@ -13,7 +13,9 @@ as other API routes. It exposes whether auth is enabled, not keys, roots, bucket
 - `jobs.maxActive`: cap on work, including transfers, unaffected by history eviction.
 - `jobs.maxMetadataBytes`: result/error metadata budget; exceeding it replaces detail with a summary.
 - `storage.inputSchemes`, `storage.outputSchemes`: configured `file`, `https`, `s3` schemes. Filesystem
-  support is Linux-only. An enabled scheme still needs working permissions/credentials/network access.
+  support is Linux-only. An enabled scheme still needs working permissions/credentials/network access;
+  the scheme list is configuration only. A warning-only startup check logs unreachable S3 buckets and
+  missing filesystem roots (see [configuration](configuration.md#jobs-and-storage)).
 - `rateLimitPerMinute`, `auth.required`, `binary.ebuStlMaxBytes`: request rate, bearer requirement and
   the reader's EBU STL size bound.
 
