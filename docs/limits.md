@@ -12,6 +12,8 @@ as other API routes. It exposes whether auth is enabled, not keys, roots, bucket
 - `jobs.maxEntries`, `jobs.ttlSeconds`: history cap and TTL from creation, not from completion.
 - `jobs.maxActive`: cap on work, including transfers, unaffected by history eviction.
 - `jobs.maxMetadataBytes`: result/error metadata budget; exceeding it replaces detail with a summary.
+- `storage.list`: `STORAGE_LIST_ENABLED` (browse and read by location on `GET /v1/storage/*`); `storage.listSchemes`:
+  the enabled schemes that can be listed (`file`, `s3`; never `https`), empty when listing is off.
 - `storage.inputSchemes`, `storage.outputSchemes`: configured `file`, `https`, `s3` schemes. Filesystem
   support is Linux-only. An enabled scheme still needs working permissions/credentials/network access;
   the scheme list is configuration only. Warning-only startup diagnostics log the effective settings,
