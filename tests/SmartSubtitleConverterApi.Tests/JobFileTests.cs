@@ -18,7 +18,10 @@ public sealed class JobFileTests : IDisposable
         var settings = extra ?? new(); settings["STORAGE_FILE_ROOTS"] = root; return ApiFactory.With(settings);
     }
     private static async Task<string> Code(HttpResponseMessage r, int status) {
-        Assert.Equal(status, (int)r.StatusCode); return (string)(await r.Json())["code"]!;
+        Assert.Equal(status, (int)r.StatusCode); var p = await r.Json(); var code = (string)p["code"]!;
+        // QA p7: job/storage problems used to fall back to the generic "Internal error" title.
+        Assert.NotEqual("Internal error", (string)p["title"]!); Assert.Equal(ErrorCodes.Title(code), (string)p["title"]!);
+        return code;
     }
     [Fact]
     public async Task Storage_output_reports_the_stored_file_name_not_the_generated_name()
