@@ -9,7 +9,22 @@ public sealed class ApiOptions
     public string? ProfilesDir { get; init; } = "/profiles";
     public string? ApiKeys { get; init; }
     public string? ApiKeysFile { get; init; }
-    public bool ErrorsVerbose { get; init; } = true;
+    /// <summary>API_AUTH_DISABLED=true turns bearer keys off (local experiments only; loud startup warning).</summary>
+    public bool ApiAuthDisabled { get; init; }
+    /// <summary>ALLOWED_HOSTS: extra Host names accepted besides localhost, 127.0.0.1 and [::1]; "*" accepts any Host.</summary>
+    public string[] AllowedHosts { get; init; } = [];
+    /// <summary>ERRORS_VERBOSE: stack traces and internals in error responses. Off by default; details always go to the server log.</summary>
+    public bool ErrorsVerbose { get; init; }
+    /// <summary>Browse queue (listing, read by location, job file reads): concurrent slots, waiting line and wait budget.</summary>
+    public int BrowseConcurrency { get; init; } = 4;
+    public int BrowseQueueCapacity { get; init; } = 32;
+    public int BrowseWaitSeconds { get; init; } = 30;
+    /// <summary>
+    /// CONVERSION_STUCK_GRACE_SECONDS: how long a timed-out conversion may keep running before the process exits on purpose
+    /// (so the restart policy brings up a clean one). 0 = 2 x CONVERSION_TIMEOUT_SECONDS.
+    /// </summary>
+    public int ConversionStuckGraceSeconds { get; init; }
+    public int EffectiveStuckGraceSeconds => ConversionStuckGraceSeconds > 0 ? ConversionStuckGraceSeconds : 2 * ConversionTimeoutSeconds;
     public bool DocsEnabled { get; init; } = true;
     public bool MetricsEnabled { get; init; }
     public int? MetricsPort { get; init; }
@@ -83,7 +98,13 @@ public sealed class ApiOptions
             ProfilesDir = c["PROFILES_DIR"] ?? d.ProfilesDir,
             ApiKeys = c["API_KEYS"],
             ApiKeysFile = c["API_KEYS_FILE"],
-            ErrorsVerbose = Get("ERRORS_VERBOSE", true),
+            ErrorsVerbose = Get("ERRORS_VERBOSE", false),
+            ApiAuthDisabled = Get("API_AUTH_DISABLED", false),
+            AllowedHosts = (c["ALLOWED_HOSTS"] ?? "").Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            BrowseConcurrency = Math.Clamp(Get("BROWSE_CONCURRENCY", d.BrowseConcurrency), 1, 64),
+            BrowseQueueCapacity = Math.Clamp(Get("BROWSE_QUEUE_CAPACITY", d.BrowseQueueCapacity), 0, 1000),
+            BrowseWaitSeconds = Math.Clamp(Get("BROWSE_WAIT_SECONDS", d.BrowseWaitSeconds), 1, 300),
+            ConversionStuckGraceSeconds = Math.Clamp(Get("CONVERSION_STUCK_GRACE_SECONDS", 0), 0, 86400),
             DocsEnabled = Get("DOCS_ENABLED", true),
             MetricsEnabled = Get("METRICS_ENABLED", false),
             MetricsPort = Get<int?>("METRICS_PORT", (int?)null),

@@ -68,6 +68,13 @@ public static class ErrorCodes
     public const string QueueFull = "queue-full";
     public const string ConversionTimeout = "conversion-timeout";
     public const string InternalError = "internal-error";
+    public const string HiddenPath = "hidden-path";
+    public const string ExtensionNotAllowed = "extension-not-allowed";
+    public const string HostNotAllowed = "host-not-allowed";
+    public const string OriginNotAllowed = "origin-not-allowed";
+    public const string FolderTooLarge = "folder-too-large";
+    public const string BrowseBusy = "browse-busy";
+    public const string ConversionEngineStuck = "conversion-engine-stuck";
 
     public static string Title(string code) => code switch
     {
@@ -107,6 +114,13 @@ public static class ErrorCodes
         QueueFull => "Queue full",
         ConversionTimeout => "Conversion timeout",
         InternalError => "Internal error",
+        HiddenPath => "Hidden path",
+        ExtensionNotAllowed => "Extension not allowed",
+        HostNotAllowed => "Host not allowed",
+        OriginNotAllowed => "Origin not allowed",
+        FolderTooLarge => "Folder too large",
+        BrowseBusy => "Browse busy",
+        ConversionEngineStuck => "Conversion engine stuck",
         // Every code above has its own title; anything else is an unexpected server error.
         _ => "Internal error",
     };

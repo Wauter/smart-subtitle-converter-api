@@ -42,6 +42,14 @@ public sealed class S3Storage : IStorage, IDisposable
             throw StorageLocation.Rejected("S3 key must name one object inside S3_ALLOWED_PREFIXES, without dot segments or backslashes (maximum 1024 UTF-8 bytes).");
         return (uri.Host, key);
     }
+    /// <summary>Allowlist, then hidden (H2), then extension (H3) checks, before any network call.</summary>
+    public (string Bucket, string Key) Validate(StorageLocation location)
+    {
+        var (bucket, key) = Checked(location);
+        HiddenPaths.Check(key);
+        ExtensionAllowlist.Shared.Check(location);
+        return (bucket, key);
+    }
     /// <summary>The bucket must be allowlisted; the listed key prefix must lie inside S3_ALLOWED_PREFIXES when those are set.</summary>
     public void CheckedListing(string bucket, string keyPrefix)
     {
@@ -59,24 +67,25 @@ public sealed class S3Storage : IStorage, IDisposable
     {
         CheckedListing(bucket, directory + namePrefix);
         HiddenPaths.Check(directory);
+        if (namePrefix.StartsWith('.')) throw HiddenPaths.Rejected(); // S3 would return only hidden names: empty pages that still say truncated
         var response = await Attempt(token2 => _client.Value.ListObjectsV2Async(new ListObjectsV2Request
         {
             BucketName = bucket, Prefix = directory + namePrefix, Delimiter = "/", MaxKeys = pageSize, ContinuationToken = token,
         }, token2), ct);
         var items = new List<StorageListing.Entry>();
         foreach (var o in response.S3Objects ?? [])
-            if (o.Key.Length > directory.Length && !o.Key.EndsWith('/') && o.Key.StartsWith(directory, StringComparison.Ordinal) && o.Key[directory.Length] != '.')
+            if (o.Key.Length > directory.Length && !o.Key.EndsWith('/') && o.Key.StartsWith(directory, StringComparison.Ordinal) && o.Key[directory.Length] != '.'
+                && ExtensionAllowlist.Shared.Allowed(o.Key[directory.Length..]))
                 items.Add(new(o.Key[directory.Length..], false, o.Size, o.LastModified is { } m ? new DateTimeOffset(m.Kind == DateTimeKind.Local ? m.ToUniversalTime() : DateTime.SpecifyKind(m, DateTimeKind.Utc)) : null));
         foreach (var p in response.CommonPrefixes ?? [])
             if (p.Length > directory.Length && p.StartsWith(directory, StringComparison.Ordinal) && p[directory.Length] != '.') items.Add(new(p[directory.Length..], true, null, null));
-        items.Sort((a, b) => StorageListing.Utf8Compare(a.Name, b.Name));
+        items = items.Select(i => (Key: StorageListing.Utf8Key(i.Name), Item: i)).OrderBy(x => x.Key, Comparer<byte[]>.Create((a, b) => a.AsSpan().SequenceCompareTo(b))).Select(x => x.Item).ToList();
         var more = response.IsTruncated == true && !string.IsNullOrEmpty(response.NextContinuationToken);
         return (items, more, more ? response.NextContinuationToken : null);
     }
     public async Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct)
     {
-        var (bucket, key) = Checked(location);
-        HiddenPaths.Check(key); // before any network call
+        var (bucket, key) = Validate(location);
         return await Attempt(async token =>
         {
             using var response = await _client.Value.GetObjectAsync(new GetObjectRequest { BucketName = bucket, Key = key }, token);
@@ -86,7 +95,7 @@ public sealed class S3Storage : IStorage, IDisposable
     }
     public async Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false)
     {
-        var (bucket, key) = Checked(location);
+        var (bucket, key) = Validate(location);
         if (bytes.LongLength > _opts.MaxUploadBytes) throw Problems.TooLarge(_opts);
         try { await Attempt(async token =>
         {
@@ -104,7 +113,7 @@ public sealed class S3Storage : IStorage, IDisposable
     }
     public async Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct)
     {
-        var (bucket, key) = Checked(location);
+        var (bucket, key) = Validate(location);
         try
         {
             return await Attempt(async token => { await _client.Value.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = bucket, Key = key }, token); return true; }, ct);
@@ -113,7 +122,7 @@ public sealed class S3Storage : IStorage, IDisposable
     }
     public async Task<bool> DeleteAsync(StorageLocation location, CancellationToken ct)
     {
-        var (bucket, key) = Checked(location);
+        var (bucket, key) = Validate(location);
         if (!await ExistsAsync(location, ct)) return false;
         await Attempt(async token => { await _client.Value.DeleteObjectAsync(new DeleteObjectRequest { BucketName = bucket, Key = key }, token); return true; }, ct);
         return true;

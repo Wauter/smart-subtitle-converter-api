@@ -22,7 +22,13 @@ public sealed record LimitsBinary(long EbuStlMaxBytes);
 public sealed record LimitsIo(int TimeoutSeconds, int Retries);
 public sealed record LimitsJobs(int MaxEntries, int TtlSeconds, int MaxActive, int MaxMetadataBytes);
 /// <summary>`list`: STORAGE_LIST_ENABLED (browse and read by location on /v1/storage/*); `listSchemes`: the enabled schemes that can be listed (file, s3; never https).</summary>
-public sealed record LimitsStorage(string[] InputSchemes, string[] OutputSchemes, bool List, string[] ListSchemes);
+/// <summary>
+/// `extensions`: the subtitle file extensions that may be listed, read and written in file and S3 locations (derived from libse;
+/// HTTPS URLs are exempt). `listMaxEntries`: the most entries a listed filesystem folder (after the prefix) may have.
+/// `browse`: the queue shared by listings, reads by location and job file reads.
+/// </summary>
+public sealed record LimitsStorage(string[] InputSchemes, string[] OutputSchemes, bool List, string[] ListSchemes, IReadOnlyList<string>? Extensions = null, int? ListMaxEntries = null, LimitsBrowse? Browse = null);
+public sealed record LimitsBrowse(int Concurrency, int QueueCapacity, int WaitSeconds, int Running, int Waiting);
 public sealed record LimitsResponse(long MaxUploadBytes, LimitsBodyBytes MaxRequestBodyBytes, LimitsJson Json, int MaxProfileBytes, int MaxCues, int MaxLineChars,
     int ConversionTimeoutSeconds, LimitsQueue Queue, int RateLimitPerMinute, LimitsAuth Auth, LimitsBinary Binary, int RequestWaitSeconds, int RequestMaxWaitSeconds, LimitsIo Io, LimitsJobs Jobs, LimitsStorage Storage)
 {
@@ -35,14 +41,16 @@ public sealed record LimitsResponse(long MaxUploadBytes, LimitsBodyBytes MaxRequ
         o.S3AllowedBuckets.Length > 0 ? "s3" : null,
     }.OfType<string>().ToArray();
 
-    public static LimitsResponse From(ApiOptions o, ConversionQueue q, ApiKeyStore keys) =>
+    public static LimitsResponse From(ApiOptions o, ConversionQueue q, ApiKeyStore keys, BrowseQueue? browse = null) =>
         new(o.MaxUploadBytes, new LimitsBodyBytes(o.MaxMultipartBodyBytes, o.MaxJsonBodyBytes),
             new LimitsJson(o.MaxUploadBytes, "encoded length = 4*ceil(n/3); already included in maxRequestBodyBytes.json"),
             o.ProfileMaxBytes, o.MaxCues, o.MaxLineChars,
             o.ConversionTimeoutSeconds, new LimitsQueue(q.Capacity, q.Depth), o.RateLimitPerMinute, new LimitsAuth(keys.Enabled), new LimitsBinary(EbuStlMaxBytes),
             o.RequestWaitSeconds, 60, new(o.IoTimeoutSeconds, o.IoRetries),
             new(o.JobMaxEntries, o.JobTtlSeconds, Math.Min(o.JobMaxEntries, o.QueueCapacity + 1), JobStore.MaxMetadataBytes),
-            new(Schemes(o), Schemes(o), o.StorageListEnabled, o.StorageListEnabled ? Schemes(o).Where(s => s != "https").ToArray() : []));
+            new(Schemes(o), Schemes(o), o.StorageListEnabled, o.StorageListEnabled ? Schemes(o).Where(s => s != "https").ToArray() : [],
+                ExtensionAllowlist.Shared.Sorted, StorageListing.MaxEntries,
+                new LimitsBrowse(o.BrowseConcurrency, o.BrowseQueueCapacity, o.BrowseWaitSeconds, browse?.Running ?? 0, browse?.Waiting ?? 0)));
 }
 
 public static class InfoEndpoints
@@ -73,13 +81,13 @@ public static class InfoEndpoints
           .WithDescription("Use `id` or an alias as source/target format. `textOnly` defaults to true (text formats only, as in earlier versions). `kind` is a comma list of text|binary|image|container and wins over `textOnly`; image/container formats are listed only via `kind` and can't be converted. `writable=true` keeps formats that can be a target.")
           .Produces<List<FormatInfo>>().ProducesProblem(400);
 
-        v1.MapGet("/limits", (HttpContext ctx, ApiOptions opts, ConversionQueue queue, ApiKeyStore keys) =>
+        v1.MapGet("/limits", (HttpContext ctx, ApiOptions opts, ConversionQueue queue, ApiKeyStore keys, BrowseQueue browse) =>
         {
             ctx.Response.Headers.CacheControl = "no-store";
-            return Results.Json(LimitsResponse.From(opts, queue, keys), Json.Options);
+            return Results.Json(LimitsResponse.From(opts, queue, keys, browse), Json.Options);
         }).WithName("getLimits").WithTags("info")
           .WithSummary("Effective upload, queue, wait, I/O, job and storage-scheme limits.")
-          .WithDescription("Lets clients pre-check inputs. `queue.depth` is a live value. `auth.required` says whether a bearer key is needed; keys are never exposed.")
+          .WithDescription("Lets clients pre-check inputs. `queue.depth` and `storage.browse.running|waiting` are live values. `auth.required` says whether a bearer key is needed; keys are never exposed. `storage.extensions` lists the subtitle extensions that can be listed, read and written by file/S3 location.")
           .Produces<LimitsResponse>();
 
         v1.MapPost("/detect", Detect).WithName("detect").WithTags("formats")
@@ -190,7 +198,8 @@ public static class InfoEndpoints
         }
         if (bytes.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
         ConvertEndpoints.RejectZip(bytes, fileName);
-        var (info, wait) = await queue.RunAsync(() => engine.Detect(bytes, fileName, encoding), ctx.RequestAborted);
+        var (info, wait) = await queue.RunAsync(() => engine.Detect(bytes, fileName, encoding), ctx.RequestAborted,
+            new ConversionJobInfo(RequestId: RequestIdMiddleware.Get(ctx), FileName: fileName == null ? null : Path.GetFileName(fileName), Bytes: bytes.LongLength, Profile: "detect"));
         ctx.Items["queueWaitMs"] = wait;
         ctx.Items["format"] = info.Id;
         return Results.Json(info, Json.Options);

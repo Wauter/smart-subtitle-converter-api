@@ -12,6 +12,16 @@ namespace SmartSubtitleConverterApi.Storage;
 public static class StorageListing
 {
     public const int PageSize = 200;
+    /// <summary>Most entries a listed filesystem folder (after the name prefix) may have; more is 422 folder-too-large (H6).</summary>
+    public const int MaxEntries = 5000;
+    /// <summary>Most names read from one filesystem folder per page, whatever the prefix; bounds the cost of a huge folder.</summary>
+    public const int MaxScan = 100_000;
+
+    public static ApiException FolderTooLarge(string directory, int limit, bool prefixed) => new(422, ErrorCodes.FolderTooLarge,
+        prefixed ? $"More than {limit} entries in this folder start with that prefix, so it can't be listed."
+                 : $"This folder has more than {limit} entries, so it can't be listed.",
+        $"Folders are listed only up to {MaxEntries} matching entries (and {MaxScan} names in total). Narrow the listing with a longer `prefix` (the start of the names you want), "
+        + "or organise the files into subfolders.") { Extensions = { ["limit"] = limit } };
 
     public sealed record Entry(string Name, bool Folder, long? Size, DateTimeOffset? Modified);
 
@@ -38,6 +48,8 @@ public static class StorageListing
     private static readonly UTF8Encoding Utf8 = new(false, true);
     /// <summary>UTF-8 byte order, the order S3 lists keys in.</summary>
     public static int Utf8Compare(string a, string b) => Utf8.GetBytes(a).AsSpan().SequenceCompareTo(Utf8.GetBytes(b));
+    /// <summary>The sort key for <see cref="Utf8Compare"/>: compute once per name, compare with SequenceCompareTo.</summary>
+    public static byte[] Utf8Key(string s) => Utf8.GetBytes(s);
     public static readonly IComparer<string> Utf8Order = Comparer<string>.Create(Utf8Compare);
 
     private static string Escape(string path) => string.Join('/', path.Split('/').Select(System.Uri.EscapeDataString));

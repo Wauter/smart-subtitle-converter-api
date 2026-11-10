@@ -46,7 +46,7 @@ public sealed class HiddenPathTests : IDisposable
     private static string Q(string v) => Uri.EscapeDataString(v);
     private static string FileUri(string path) => new Uri(path).AbsoluteUri;
     private static async Task<(int Status, string Body)> Send(Task<HttpResponseMessage> request) { var r = await request; return ((int)r.StatusCode, await r.Content.ReadAsStringAsync()); }
-    private static void Rejected((int Status, string Body) r, string what, string code = "storage-location-rejected", int status = 422)
+    private static void Rejected((int Status, string Body) r, string what, string code = "hidden-path", int status = 422)
     {
         Assert.True(r.Status == status && r.Body.Contains($"\"{code}\""), $"{what}: {r.Status} {r.Body}");
         Assert.DoesNotContain(Sentinel, r.Body);
@@ -69,7 +69,7 @@ public sealed class HiddenPathTests : IDisposable
         using var f = Api(); var c = f.CreateClient();
         foreach (var location in HiddenFiles()) Rejected(await Send(c.GetAsync($"/v1/storage/file?location={Q(location)}")), location);
         // In-root symlink to a hidden target: the API never follows symlinks.
-        Rejected(await Send(c.GetAsync($"/v1/storage/file?location={Q(Path.Combine(root, "alias.srt"))}")), "alias");
+        Rejected(await Send(c.GetAsync($"/v1/storage/file?location={Q(Path.Combine(root, "alias.srt"))}")), "alias", "storage-location-rejected");
         foreach (var ok in new[] { Path.Combine(root, "plain.srt"), Path.Combine(root, "show.en.v2.srt"), Path.Combine(root, "v1.2", "ep.srt"), FileUri(Path.Combine(root, "v1.2", "ep.srt")) })
         {
             var (s, body) = await Send(c.GetAsync($"/v1/storage/file?location={Q(ok)}"));
@@ -94,9 +94,9 @@ public sealed class HiddenPathTests : IDisposable
             (Path.Combine(root, ".secret-root"), null), (hiddenRoot, null), (Path.Combine(root, ".nope"), null),
         })
             Rejected(await Send(c.GetAsync($"/v1/storage/list?location={Q(location)}" + (prefix != null ? $"&prefix={Q(prefix)}" : ""))), $"{location} {prefix}");
-        // A name prefix starting with '.' simply matches nothing.
-        var (ps, dot) = await Send(c.GetAsync($"/v1/storage/list?location={Q(root)}&prefix=.h"));
-        Assert.Equal(200, ps); Assert.Empty(System.Text.Json.Nodes.JsonNode.Parse(dot)!["items"]!.AsArray());
+        // A name prefix starting with '.' is refused up front (it could only ever match hidden names).
+        Rejected(await Send(c.GetAsync($"/v1/storage/list?location={Q(root)}&prefix=.h")), "prefix .h");
+        Rejected(await Send(c.GetAsync($"/v1/storage/list?location={Q(root)}&prefix={Q("sub/.g")}")), "prefix sub/.g");
     }
 
     [Fact]
@@ -116,21 +116,25 @@ public sealed class HiddenPathTests : IDisposable
         using var f = Api(list: false); var c = f.CreateClient();
         foreach (var location in HiddenFiles().Append(Path.Combine(root, "alias.srt")))
         {
-            Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { input = location, target = "vtt" })), "convert/json " + location);
-            Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { input = location, target = "vtt", output = Path.Combine(root, "out-" + Guid.NewGuid().ToString("N") + ".vtt") })), "convert/json+output " + location);
+            var code = location.EndsWith("alias.srt") ? "storage-location-rejected" : "hidden-path";
+            Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { input = location, target = "vtt" })), "convert/json " + location, code);
+            Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { input = location, target = "vtt", output = Path.Combine(root, "out-" + Guid.NewGuid().ToString("N") + ".vtt") })), "convert/json+output " + location, code);
             using var form = new MultipartFormDataContent { { new StringContent(location), "input" }, { new StringContent("vtt"), "target" } };
-            Rejected(await Send(c.PostAsync("/v1/convert", form)), "convert multipart " + location);
-            Rejected(await Send(c.PostAsJsonAsync("/v1/detect", new { input = location })), "detect " + location);
+            Rejected(await Send(c.PostAsync("/v1/convert", form)), "convert multipart " + location, code);
+            Rejected(await Send(c.PostAsJsonAsync("/v1/detect", new { input = location })), "detect " + location, code);
         }
         // Control: an ordinary input still converts, and its job files read back.
         var ok = await c.PostAsJsonAsync("/v1/convert/json", new { input = Path.Combine(root, "show.en.v2.srt"), target = "vtt", output = Path.Combine(root, "show.en.v2.vtt") });
         Assert.Equal(200, (int)ok.StatusCode);
         Assert.Equal(Samples.Srt, await (await c.GetAsync($"/v1/jobs/{ok.Header("X-Job-Id")}/input")).Content.ReadAsStringAsync());
         Assert.Equal(200, (int)(await c.GetAsync($"/v1/jobs/{ok.Header("X-Job-Id")}/output")).StatusCode);
-        // Writes keep their rules: a conversion may write a dot-named output, but nothing reads it back (not even its own job).
-        var hiddenOut = await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, target = "vtt", output = Path.Combine(root, ".written.vtt") });
-        Assert.Equal(200, (int)hiddenOut.StatusCode); Assert.True(File.Exists(Path.Combine(root, ".written.vtt")));
-        Rejected(await Send(c.GetAsync($"/v1/jobs/{hiddenOut.Header("X-Job-Id")}/output")), "job output");
+        // Writes follow the same rule (H2): no dot-named output, nothing inside a dot folder, no replacing .git/config.
+        foreach (var output in new[] { Path.Combine(root, ".written.vtt"), Path.Combine(root, ".hiddendir", "x.vtt"), Path.Combine(root, "sub", ".git", "config.vtt"), FileUri(root) + "/%2Eenc.vtt", Path.Combine(hiddenRoot, "o.vtt") })
+        {
+            Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, target = "vtt", output })), "hidden output " + output);
+            Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, target = "vtt", output, ifExists = "replace", sidecar = true })), "hidden replace " + output);
+        }
+        Assert.False(File.Exists(Path.Combine(root, ".written.vtt"))); Assert.False(File.Exists(Path.Combine(root, ".hiddendir", "x.vtt")));
     }
 
     [Fact]
@@ -141,18 +145,18 @@ public sealed class HiddenPathTests : IDisposable
         var locations = new[] { plain + "%00.txt", plain + "%00", FileUri(root) + "/%00/plain.srt", plain + "%0A.srt", plain + "%1F", "s3://subs/in/a.srt%00.txt", "s3://subs/in%00/a.srt" };
         foreach (var location in locations)
         {
-            Rejected(await Send(c.GetAsync($"/v1/storage/file?location={Q(location)}")), "file " + location);
-            Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { input = location, target = "vtt" })), "convert " + location);
-            Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, target = "vtt", output = location.Replace("plain.srt", "out.vtt") })), "convert output " + location);
+            Rejected(await Send(c.GetAsync($"/v1/storage/file?location={Q(location)}")), "file " + location, "storage-location-rejected");
+            Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { input = location, target = "vtt" })), "convert " + location, "storage-location-rejected");
+            Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, target = "vtt", output = location.Replace("plain.srt", "out.vtt") })), "convert output " + location, "storage-location-rejected");
             using var form = new MultipartFormDataContent { { new StringContent(location), "input" }, { new StringContent("vtt"), "target" } };
-            Rejected(await Send(c.PostAsync("/v1/convert", form)), "multipart " + location);
-            Rejected(await Send(c.PostAsJsonAsync("/v1/detect", new { input = location })), "detect " + location);
+            Rejected(await Send(c.PostAsync("/v1/convert", form)), "multipart " + location, "storage-location-rejected");
+            Rejected(await Send(c.PostAsJsonAsync("/v1/detect", new { input = location })), "detect " + location, "storage-location-rejected");
         }
         // Raw NULs (JSON escapes, query bytes) and NUL in folders and prefixes.
-        Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { input = Path.Combine(root, "plain.srt") + "\0.txt", target = "vtt" })), "raw NUL input");
-        Rejected(await Send(c.GetAsync($"/v1/storage/file?location={Q(Path.Combine(root, "plain.srt") + "\0.txt")}")), "raw NUL file");
+        Rejected(await Send(c.PostAsJsonAsync("/v1/convert/json", new { input = Path.Combine(root, "plain.srt") + "\0.txt", target = "vtt" })), "raw NUL input", "storage-location-rejected");
+        Rejected(await Send(c.GetAsync($"/v1/storage/file?location={Q(Path.Combine(root, "plain.srt") + "\0.txt")}")), "raw NUL file", "storage-location-rejected");
         foreach (var folder in new[] { FileUri(root) + "/%00/", root + "/\0/", "s3://subs/in%00/" })
-            Rejected(await Send(c.GetAsync($"/v1/storage/list?location={Q(folder)}")), "list " + folder);
+            Rejected(await Send(c.GetAsync($"/v1/storage/list?location={Q(folder)}")), "list " + folder, "storage-location-rejected");
         Rejected(await Send(c.GetAsync($"/v1/storage/list?location={Q(root)}&prefix={Q("a\0b")}")), "prefix NUL", "invalid-request", 400);
         Rejected(await Send(c.GetAsync($"/v1/storage/list?location={Q(root)}&prefix=a%00b")), "prefix %00", "invalid-request", 400);
     }

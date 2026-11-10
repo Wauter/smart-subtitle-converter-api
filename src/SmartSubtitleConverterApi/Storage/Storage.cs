@@ -4,6 +4,9 @@ namespace SmartSubtitleConverterApi.Storage;
 
 public sealed record StorageLocation(string Scheme, string Value, Uri? Uri, string FileName)
 {
+    /// <summary>The API's own JSON companion ({output}.json): exempt from the extension allowlist, never from roots or the hidden rule.</summary>
+    public bool Sidecar { get; init; }
+
     public static StorageLocation Parse(string value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 16384 || value.Any(char.IsControl) || value.EndsWith('/') || value.EndsWith('\\'))
@@ -34,17 +37,18 @@ public sealed record StorageLocation(string Scheme, string Value, Uri? Uri, stri
 }
 
 /// <summary>
-/// Hidden-path policy for reads and listings: a path or object key with any '/'-separated component starting with '.' (a dotfile,
-/// anything inside a dot-named folder, or anything under an allowed root that is itself hidden) is never read, listed or used as a
-/// conversion source. Checked on the decoded, canonical path before any storage call. Ordinary names containing dots (show.en.srt)
-/// are unaffected, and writes keep their existing rules.
+/// Hidden-path policy (H2): a path or object key with any '/'-separated component starting with '.' (a dotfile, anything inside a
+/// dot-named folder, or anything under an allowed root that is itself hidden) is never read, listed, written, replaced, deleted or
+/// used as an output or sidecar, for file and S3 locations. Checked on the decoded, canonical path after the allowlist check (so a
+/// path outside the allowed folders still gets the not-allowed error first) and before any storage call. Ordinary names containing
+/// dots (show.en.srt) are unaffected. HTTPS URLs are not subject to this rule. The API's own staging names are created internally.
 /// </summary>
 public static class HiddenPaths
 {
     public static bool IsHidden(string path) => path.Split('/').Any(s => s.Length > 0 && s[0] == '.');
-    public static ApiException Rejected() => new(422, ErrorCodes.StorageLocationRejected,
-        "Hidden files and folders (a path component starting with '.') can't be read, listed or used as a conversion source.",
-        "Use a file or folder whose name and parent folders don't start with '.'. See GET /v1/storage/locations for the browsable locations.");
+    public static ApiException Rejected() => new(422, ErrorCodes.HiddenPath,
+        "Hidden files and folders (a name starting with '.', or anything inside a folder whose name starts with '.') are never read, listed or written by this API.",
+        "The location is inside an allowed folder, but it is hidden. Use a file or folder whose name and parent folders don't start with '.'.");
     public static void Check(string path) { if (IsHidden(path)) throw Rejected(); }
 }
 
@@ -66,6 +70,13 @@ public sealed class StorageRouter(FileStorage files, HttpStorage http, S3Storage
         "s3" => s3,
         _ => throw StorageLocation.Rejected($"The {location.Scheme} storage scheme is not enabled."),
     };
+    /// <summary>Allowlist, hidden-path and extension checks for file and S3 locations, without any I/O (HTTPS is checked when used).</summary>
+    public void Validate(StorageLocation location)
+    {
+        if (location.Scheme == "file") files.Validate(location);
+        else if (location.Scheme == "s3") s3.Validate(location);
+        else _ = For(location);
+    }
     public Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct) => For(location).ReadAsync(location, ct);
     public Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false) => For(location).WriteAsync(location, bytes, contentType, ct, replace);
     public Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct) => For(location).ExistsAsync(location, ct);

@@ -244,7 +244,7 @@ public sealed class StorageListTests : IDisposable
             (root + "/../" + Path.GetFileName(outside) + "/secret.srt", 422, "storage-location-rejected"),
             (Path.Combine(root, "link.srt"), 422, "storage-location-rejected"),
             (Path.Combine(root, "linkdir", "secret.srt"), 422, "storage-location-rejected"),
-            (Path.Combine(root, "dir"), 422, "storage-location-rejected"),
+            (Path.Combine(root, "dir"), 422, "extension-not-allowed"),
             (Path.Combine(root, "dir") + "/", 422, "storage-location-rejected"),
             (Path.Combine(root, "missing.srt"), 404, "storage-not-found"),
             (Path.Combine(root, "big.srt"), 413, "payload-too-large"),

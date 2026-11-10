@@ -65,6 +65,10 @@ builder.Services.AddSingleton<ProfileResolver>();
 builder.Services.AddSingleton<ConversionEngine>();
 builder.Services.AddSingleton<ConversionQueue>();
 builder.Services.AddSingleton<ApiKeyStore>();
+builder.Services.AddSingleton<HostOriginFilter>();
+builder.Services.AddSingleton(_ => SmartSubtitleConverterApi.Storage.ExtensionAllowlist.Shared);
+builder.Services.AddSingleton<SmartSubtitleConverterApi.Storage.BrowseQueue>();
+builder.Services.AddSingleton<ProcessExit>();
 builder.Services.AddSingleton<SelfTest>();
 builder.Services.AddSingleton<Metrics>();
 builder.Services.AddHostedService<SelfTestService>();
@@ -124,6 +128,7 @@ if (opts.KnownProxies.Length > 0)
 
 app.UseMiddleware<RequestIdMiddleware>();
 app.UseMiddleware<ErrorMiddleware>();
+app.UseMiddleware<HostOriginMiddleware>();
 app.Use(async (ctx, next) =>
 {
     // Per-endpoint body caps (/v1/limits maxRequestBodyBytes): JSON carries base64, multipart raw bytes.
@@ -166,6 +171,16 @@ app.MapFallback((HttpContext ctx) =>
     throw new ApiException(404, ErrorCodes.NotFound, $"No endpoint at {ctx.Request.Method} {ctx.Request.Path}.", "See /docs or /openapi/v1.json for the API.");
 }).ExcludeFromDescription();
 
+// API keys are required by default (H1): validate, or generate one into an empty key file, before accepting requests.
+try { ApiKeyBootstrap.Ensure(opts, app.Logger); }
+catch (StartupConfigException ex)
+{
+    foreach (var line in ("auth.startup-failed The API did not start. " + ex.Message).Split('\n')) app.Logger.LogCritical("{Line}", line);
+    await app.DisposeAsync(); // flush the console logger
+    return 78; // EX_CONFIG
+}
+app.Services.GetRequiredService<HostOriginFilter>().Log(app.Logger);
+
 BinaryIO.RegisterEbuHelper();
 BinaryIO.SweepAtStartup(app.Logger);
 var tempLease = BinaryIO.AcquireRoot();
@@ -177,15 +192,26 @@ app.Lifetime.ApplicationStarted.Register(() =>
     var (valid, invalid) = store.Counts();
     app.Logger.LogInformation("smart-subtitle-converter-api {version} (libse {libse}) started; formats={formats} binaryFormats={binary} presets valid={valid} invalid={invalid} queueCapacity={cap} timeout={timeout}s verboseErrors={verbose}",
         LibseInfo.AppVersion, LibseInfo.Version, app.Services.GetRequiredService<FormatRegistry>().All.Count(f => f.TextBased), app.Services.GetRequiredService<FormatRegistry>().All.Count(f => f.Kind == FormatKinds.Binary && f.CanRead), valid, invalid, opts.QueueCapacity, opts.ConversionTimeoutSeconds, opts.ErrorsVerbose);
+    app.Logger.LogInformation("{Line}", opts.ErrorsVerbose
+        ? "errors.verbose enabled=true: error responses include stack traces and internals (ERRORS_VERBOSE=true). Turn it off for anything reachable by other people."
+        : "errors.verbose enabled=false: error responses carry code, detail, hint and requestId only; stack traces and internals go to this log (error.details lines, same requestId). Set ERRORS_VERBOSE=true only while debugging.");
+    app.Logger.LogInformation("{Line}", $"conversion.queue workers=1 (libse settings are process-global) capacity={opts.QueueCapacity} timeout={opts.ConversionTimeoutSeconds}s stuckGrace={opts.EffectiveStuckGraceSeconds}s: "
+        + $"a conversion still running {opts.EffectiveStuckGraceSeconds}s after its timeout makes the API exit with code {ConversionQueue.StuckExitCode}; run the container with restart: unless-stopped so it comes back.");
+    var allow = app.Services.GetRequiredService<SmartSubtitleConverterApi.Storage.ExtensionAllowlist>();
+    app.Logger.LogInformation("{Line}", $"storage.extensions count={allow.Sorted.Count} (file and S3 locations: only these subtitle extensions are listed, read and written; HTTPS URLs and the {{output}}.json sidecar are exempt; full list in GET /v1/limits storage.extensions)");
+    app.Logger.LogInformation("{Line}", $"storage.browse concurrency={opts.BrowseConcurrency} queueCapacity={opts.BrowseQueueCapacity} waitSeconds={opts.BrowseWaitSeconds} listMaxEntries={SmartSubtitleConverterApi.Storage.StorageListing.MaxEntries} "
+        + "(listings, reads by location and job file reads; beyond the line: 503 browse-busy; BROWSE_CONCURRENCY, BROWSE_QUEUE_CAPACITY, BROWSE_WAIT_SECONDS)");
+    app.Logger.LogInformation("{Line}", "storage.hidden names starting with '.' (and anything inside such folders) are never read, listed or written in file and S3 locations (422 hidden-path); HTTPS URLs are not affected. Symlinks are never followed.");
     _ = app.Services.GetRequiredService<ApiKeyStore>();
     app.Logger.LogInformation("{Line}", opts.StorageListEnabled
         ? $"storage.list enabled=true locations={StorageEndpoints.Locations(opts).Count(l => l.Listable)} (browse and read by location on GET /v1/storage/*; HTTPS is never listable)"
         : "storage.list enabled=false (set STORAGE_LIST_ENABLED=true to browse allowed locations and read files by location)");
     var hiddenRoots = opts.StorageFileRoots.Count(r => SmartSubtitleConverterApi.Storage.HiddenPaths.IsHidden(Path.GetFullPath(r))) + opts.S3AllowedPrefixes.Count(SmartSubtitleConverterApi.Storage.HiddenPaths.IsHidden);
     if (hiddenRoots > 0)
-        app.Logger.LogWarning("{Line}", $"storage.hidden roots={hiddenRoots}: {hiddenRoots} STORAGE_FILE_ROOTS / S3_ALLOWED_PREFIXES entries have a component starting with '.'; files there can be written but never read, listed or used as conversion input, and they are left out of GET /v1/storage/locations.");
+        app.Logger.LogWarning("{Line}", $"storage.hidden roots={hiddenRoots}: {hiddenRoots} STORAGE_FILE_ROOTS / S3_ALLOWED_PREFIXES entries have a component starting with '.'; nothing there can be read, listed or written (422 hidden-path), and they are left out of GET /v1/storage/locations. Fix: use folders whose names don't start with '.'.");
 });
 
 app.Run();
+return 0;
 
 public partial class Program;

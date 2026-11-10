@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 // libse settings are process-global; tests share one process, so run them serially.
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
@@ -23,9 +24,21 @@ public class ApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("PROFILES_DIR", settings?.GetValueOrDefault("PROFILES_DIR") ?? Path.Combine(Path.GetTempPath(), "se-api-none-" + Guid.NewGuid()));
+        // Auth is on by default (H1); tests that don't configure keys run with it explicitly off.
+        if (settings == null || !(settings.ContainsKey("API_KEYS") || settings.ContainsKey("API_KEYS_FILE") || settings.ContainsKey("API_AUTH_DISABLED")))
+            builder.UseSetting("API_AUTH_DISABLED", "true");
         foreach (var (k, v) in settings ?? []) builder.UseSetting(k, v);
+        // Never let the stuck-conversion exit (H8) end the test process.
+        builder.ConfigureServices(s => { s.RemoveAll<SmartSubtitleConverterApi.Conversion.ProcessExit>(); s.AddSingleton<SmartSubtitleConverterApi.Conversion.ProcessExit>(new RecordingExit()); });
         if (configure != null) builder.ConfigureServices(configure);
     }
+}
+
+/// <summary>Records exit requests instead of ending the process.</summary>
+public sealed class RecordingExit : SmartSubtitleConverterApi.Conversion.ProcessExit
+{
+    public readonly TaskCompletionSource<(int Code, string Reason)> Exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public override void Exit(int code, string reason) => Exited.TrySetResult((code, reason));
 }
 
 public static class Samples

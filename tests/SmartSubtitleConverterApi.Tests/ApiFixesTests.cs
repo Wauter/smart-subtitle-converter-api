@@ -111,7 +111,8 @@ public class ApiFixesTests(ApiFactory f) : IClassFixture<ApiFactory>
         }
         catch (ApiException ex2)
         {
-            Assert.Equal("queue", ex2.Extensions["phase"]);
+            // Either its own queue budget ran out first, or the stuck conversion (H8) refused it.
+            Assert.True(ex2.Code == "conversion-engine-stuck" || (string?)ex2.Extensions["phase"] == "queue", ex2.Code);
         }
         stuck.Set();
     }

@@ -187,7 +187,12 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     public async Task Truncated_binary_with_source_format_is_invalid_binary_input()
     {
         var stl = await (await ToBinary(_c, "ebustl")).Content.ReadAsByteArrayAsync();
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(stl[..600], "x.stl", ("target", "srt"), ("profile", """{"source":{"format":"ebustl"}}""")));
+        // The default (ERRORS_VERBOSE=false, H9) carries no debug block; verbose mode shows it.
+        var quiet = await (await _c.PostAsync("/v1/convert", Samples.Form(stl[..600], "x.stl", ("target", "srt"), ("profile", """{"source":{"format":"ebustl"}}""")))).Json();
+        Assert.Equal("invalid-binary-input", (string)quiet["code"]!);
+        Assert.Null(quiet["debug"]);
+        using var verbose = ApiFactory.With(new() { ["ERRORS_VERBOSE"] = "true" });
+        var r = await verbose.CreateClient().PostAsync("/v1/convert", Samples.Form(stl[..600], "x.stl", ("target", "srt"), ("profile", """{"source":{"format":"ebustl"}}""")));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, r.StatusCode);
         var j = await r.Json();
         Assert.Equal("invalid-binary-input", (string)j["code"]!);
@@ -429,6 +434,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
         Assert.False(File.Exists(path));
         Assert.False(Directory.Exists(Path.GetDirectoryName(path)));
         stuck.Set();
+        for (var i = 0; i < 200 && q.IsStuck; i++) await Task.Delay(10); // the stuck conversion returns; the same worker resumes (H8)
         Assert.Equal("ok", (await q.RunAsync(() => "ok", default)).Result);
         Assert.Equal(0, BinaryIO.CountEntries());
     }

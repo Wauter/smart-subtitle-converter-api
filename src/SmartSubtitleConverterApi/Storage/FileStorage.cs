@@ -46,13 +46,28 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
         }
         catch { dir.Dispose(); throw; }
     }
-    public async Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct)
+    /// <summary>Allowlist, hidden and extension checks without touching the filesystem, in the order clients see them.</summary>
+    public string Validate(StorageLocation location)
     {
         var path = CheckedPath(location);
         HiddenPaths.Check(path); // before any filesystem call: no existence oracle for hidden names
+        ExtensionAllowlist.Shared.Check(location);
+        return path;
+    }
+    public async Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct)
+    {
+        var path = Validate(location);
         using var parent = Parent(path);
-        using var file = Open((int)parent.DangerousGetHandle(), Path.GetFileName(path), 0 | NonBlock);
-        if (statx((int)file.DangerousGetHandle(), "", 0x1000, 1, out var stat) != 0 || (stat.Mode & 0xf000) != 0x8000)
+        // O_PATH first: inspect the type without opening it for reading, so a device node is never really opened (F8).
+        using var pathHandle = Open((int)parent.DangerousGetHandle(), Path.GetFileName(path), PathOnly);
+        if (statx((int)pathHandle.DangerousGetHandle(), "", 0x1000 /* AT_EMPTY_PATH */, 0x201 /* TYPE|SIZE */, out var stat) != 0 || (stat.Mode & 0xf000) != 0x8000)
+            throw StorageLocation.Rejected("Filesystem inputs must be regular files, not directories, pipes or devices.");
+        if ((long)stat.Size > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
+        // Reopen the same inode through the pinned O_PATH handle; no path lookup, so nothing can be swapped in between.
+        var fd = open($"/proc/self/fd/{(int)pathHandle.DangerousGetHandle()}", NonBlock | CloseExec, 0);
+        if (fd < 0) throw IoError(Marshal.GetLastPInvokeError());
+        using var file = new SafeFileHandle((IntPtr)fd, true);
+        if (statx(fd, "", 0x1000, 1, out var again) != 0 || (again.Mode & 0xf000) != 0x8000)
             throw StorageLocation.Rejected("Filesystem inputs must be regular files, not directories, pipes or devices.");
         using var stream = new FileStream(file, FileAccess.Read);
         if (stream.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
@@ -60,7 +75,7 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
     }
     public async Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false)
     {
-        var path = CheckedPath(location);
+        var path = Validate(location);
         if (bytes.LongLength > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
         using var parent = Parent(path);
         var fd = (int)parent.DangerousGetHandle();
@@ -91,7 +106,7 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
     {
         try
         {
-            using var existing = Open(fd, name, 2097152); // O_PATH: inspect without reading/truncating, no-follow
+            using var existing = Open(fd, name, PathOnly); // O_PATH: inspect without reading/truncating, no-follow
             if (statx((int)existing.DangerousGetHandle(), "", 0x1000, 1, out var stat) != 0)
                 throw IoError(Marshal.GetLastPInvokeError());
             if ((stat.Mode & 0xf000) != 0x8000)
@@ -102,15 +117,15 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
     public Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var path = CheckedPath(location);
+        var path = Validate(location);
         using var parent = Parent(path);
-        try { using var handle = Open((int)parent.DangerousGetHandle(), Path.GetFileName(path), 0 | NonBlock); return Task.FromResult(true); }
+        try { using var handle = Open((int)parent.DangerousGetHandle(), Path.GetFileName(path), PathOnly); return Task.FromResult(true); } // O_PATH: never opens the file itself
         catch (ApiException ex) when (ex.Code == "storage-not-found") { return Task.FromResult(false); }
     }
     public Task<bool> DeleteAsync(StorageLocation location, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var path = CheckedPath(location);
+        var path = Validate(location);
         using var parent = Parent(path);
         var fd = (int)parent.DangerousGetHandle();
         var name = Path.GetFileName(path);
@@ -124,30 +139,47 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
     /// <summary>
     /// One page of a directory listing (STORAGE_LIST_ENABLED): entries whose name starts with <paramref name="namePrefix"/> and sorts after
     /// <paramref name="after"/> in UTF-8 byte order. The directory is opened component by component without following symlinks, and
-    /// entries are inspected with lstat semantics: regular files and directories are listed, symlinks, devices, pipes and hidden
-    /// (dot) entries are not. Stateless: the cursor is the last name returned.
+    /// entries are inspected with lstat semantics: directories and regular files with a subtitle extension (H3) are listed; symlinks,
+    /// devices, pipes, other files and hidden (dot) entries are not. Stateless: the cursor is the last name returned.
+    /// Bounded (H6): more than <see cref="StorageListing.MaxEntries"/> matching names, or more than <see cref="StorageListing.MaxScan"/>
+    /// names in the folder, is 422 folder-too-large. Sort keys are computed once per name (no allocation per comparison).
     /// </summary>
     public (List<StorageListing.Entry> Items, bool More) List(string directory, string namePrefix, string? after, int pageSize, CancellationToken ct)
     {
         if (!OperatingSystem.IsLinux()) throw StorageLocation.Rejected("Filesystem storage currently requires a Linux server.");
         CheckedDirectory(directory);
         HiddenPaths.Check(directory);
+        if (namePrefix.StartsWith('.')) throw HiddenPaths.Rejected();
         using var dir = OpenDirectory(directory);
         var fd = (int)dir.DangerousGetHandle();
-        IEnumerable<string> names;
-        try { names = Directory.EnumerateFileSystemEntries($"/proc/self/fd/{fd}").Select(Path.GetFileName).OfType<string>().ToList(); }
+        var afterKey = after == null ? null : StorageListing.Utf8Key(after);
+        var matching = 0;
+        var scanned = 0;
+        var candidates = new List<(byte[] Key, string Name)>();
+        try
+        {
+            foreach (var path in Directory.EnumerateFileSystemEntries($"/proc/self/fd/{fd}"))
+            {
+                if (++scanned > StorageListing.MaxScan) throw StorageListing.FolderTooLarge(directory, StorageListing.MaxScan, prefixed: false);
+                if ((scanned & 1023) == 0) ct.ThrowIfCancellationRequested();
+                var n = Path.GetFileName(path);
+                if (n.Length == 0 || n[0] == '.' || n.Contains('\\') || n.Contains('\uFFFD') || !n.StartsWith(namePrefix, StringComparison.Ordinal)) continue;
+                if (++matching > StorageListing.MaxEntries) throw StorageListing.FolderTooLarge(directory, StorageListing.MaxEntries, prefixed: namePrefix.Length > 0);
+                var key = StorageListing.Utf8Key(n);
+                if (afterKey == null || key.AsSpan().SequenceCompareTo(afterKey) > 0) candidates.Add((key, n));
+            }
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         { throw new ApiException(502, "storage-io-failed", "Filesystem listing failed.", "Check mount availability, permissions and the container UID/GID.", ex); }
-        var candidates = names.Where(n => n.Length > 0 && n[0] != '.' && !n.Contains('\\') && !n.Contains('\uFFFD') && n.StartsWith(namePrefix, StringComparison.Ordinal)
-                                          && (after == null || StorageListing.Utf8Compare(n, after) > 0))
-            .Order(StorageListing.Utf8Order).ToList();
+        candidates.Sort((a, b) => a.Key.AsSpan().SequenceCompareTo(b.Key));
         var items = new List<StorageListing.Entry>();
-        foreach (var name in candidates)
+        foreach (var (_, name) in candidates)
         {
             ct.ThrowIfCancellationRequested();
             if (statx(fd, name, 0x100 /* AT_SYMLINK_NOFOLLOW */, 0x7ff, out var st) != 0) continue; // vanished meanwhile
             var type = st.Mode & 0xf000;
             if (type is not (0x8000 or 0x4000)) continue;
+            if (type == 0x8000 && !ExtensionAllowlist.Shared.Allowed(name)) continue;
             if (items.Count == pageSize) return (items, true);
             items.Add(type == 0x4000
                 ? new(name + "/", true, null, null)
@@ -180,6 +212,8 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
     [StructLayout(LayoutKind.Explicit, Size = 256)]
     private struct Statx { [FieldOffset(28)] public ushort Mode; [FieldOffset(40)] public ulong Size; [FieldOffset(112)] public long MtimeSeconds; [FieldOffset(120)] public uint MtimeNanos; }
     [DllImport("libc", SetLastError = true)] private static extern int statx(int dirfd, string path, int flags, uint mask, out Statx stat);
+    private const int PathOnly = 2097152; // O_PATH
+    [DllImport("libc", SetLastError = true)] private static extern int open(string path, int flags, uint mode);
     private const int WriteOnly = 1, Create = 64, Exclusive = 128, NonBlock = 2048, DirectoryFlag = 65536, NoFollow = 131072, CloseExec = 524288;
     [DllImport("libc", SetLastError = true)] private static extern int openat(int dirfd, string path, int flags, uint mode);
     [DllImport("libc", SetLastError = true)] private static extern int unlinkat(int dirfd, string path, int flags);

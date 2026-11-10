@@ -44,7 +44,7 @@ public class MinioListTests
             await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "in/season1/ep1.srt", ContentBody = Samples.Srt, UseChunkEncoding = false }); expected.Add("season1/");
             await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "private/secret.srt", ContentBody = "secret", UseChunkEncoding = false });
             // Hidden keys (a segment starting with '.') are never listed or read; ordinary dotted names are.
-            foreach (var k in new[] { "in/.env", "in/.cache/x.srt" }) await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = k, ContentBody = "HIDDEN_SENTINEL", UseChunkEncoding = false });
+            foreach (var k in new[] { "in/.env", "in/.cache/x.srt", "in/notes.pdf", "in/run.sh" }) await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = k, ContentBody = "HIDDEN_SENTINEL", UseChunkEncoding = false });
             await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "in/show.v2.final.srt", ContentBody = Samples.Srt, UseChunkEncoding = false }); expected.Add("show.v2.final.srt");
             expected.Sort(StorageListing.Utf8Order);
             using var factory = ApiFactory.With(new() { ["S3_ALLOWED_BUCKETS"] = "subs", ["S3_ALLOWED_PREFIXES"] = "in/", ["S3_ENDPOINT"] = endpoint, ["S3_FORCE_PATH_STYLE"] = "true", ["STORAGE_LIST_ENABLED"] = "true" },
@@ -71,8 +71,12 @@ public class MinioListTests
                                         "/v1/storage/list?location=" + Uri.EscapeDataString("s3://subs/in/.cache/"), "/v1/storage/list?location=" + Uri.EscapeDataString("s3://subs/in/") + "&prefix=.cache/" })
             {
                 var r = await c.GetAsync(url); var body = await r.Content.ReadAsStringAsync();
-                Assert.True((int)r.StatusCode == 422 && body.Contains("storage-location-rejected"), url + " " + body); Assert.DoesNotContain("HIDDEN_SENTINEL", body);
+                Assert.True((int)r.StatusCode == 422 && body.Contains("\"hidden-path\""), url + " " + body); Assert.DoesNotContain("HIDDEN_SENTINEL", body);
             }
+            // H3: non-subtitle objects are not listed (asserted by the name walk above) and never read.
+            var pdf = await c.GetAsync("/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/notes.pdf"));
+            var pdfBody = await pdf.Content.ReadAsStringAsync();
+            Assert.True((int)pdf.StatusCode == 422 && pdfBody.Contains("\"extension-not-allowed\""), pdfBody); Assert.DoesNotContain("HIDDEN_SENTINEL", pdfBody);
             var conv = await c.PostAsJsonAsync("/v1/convert/json", new { input = "s3://subs/in/.env", target = "vtt" });
             Assert.Equal(422, (int)conv.StatusCode); Assert.DoesNotContain("HIDDEN_SENTINEL", await conv.Content.ReadAsStringAsync());
         }
