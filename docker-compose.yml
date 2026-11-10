@@ -5,31 +5,29 @@ services:
   smart-subtitle-converter-api:
     # :edge is pushed by CI on every green push to main (private package: docker login ghcr.io with a read:packages token).
     # Switch to a version tag (e.g. :1.2.0) once releases exist.
-    image: ghcr.io/wauter/smart-subtitle-converter-api:edge
-    build: .                                   # `docker compose up --build` builds locally instead of pulling
+    # API_IMAGE in .env picks another image or tag (e.g. a local build: API_IMAGE=smart-subtitle-converter-api:dev).
+    image: ${API_IMAGE:-ghcr.io/wauter/smart-subtitle-converter-api:edge}
+    build: .                                   # `docker compose up --build` builds this checkout and tags it as image:
     ports:
-      - "127.0.0.1:8080:8080"                # host 8080 on localhost only -> container 8080; change the left-hand port if 8080 is taken; use "8080:8080" to expose on all interfaces (README)
-    # Compose's .env next to this file only feeds ${...} interpolation in this file; it does NOT reach the container
-    # by itself. env_file passes every variable in .env (e.g. S3_ALLOWED_BUCKETS, AWS_*) into the container.
+      # Host side from .env: PUBLISH_ADDRESS (default 127.0.0.1, localhost only; 0.0.0.0 exposes it on all
+      # interfaces, see README) and PUBLISH_PORT (default 8080). The container always listens on 8080.
+      - "${PUBLISH_ADDRESS:-127.0.0.1}:${PUBLISH_PORT:-8080}:8080"
+    # Every tunable setting lives in .env (start from .env.example); env_file passes it into the container.
+    # Compose's .env on its own only feeds ${...} interpolation in this file, it does not reach the container.
     # required: false keeps `docker compose up` working without a .env (needs Docker Compose 2.24 or later).
-    # Values under `environment:` below win over the same variable in .env.
     env_file:
       - path: .env
         required: false
+    # Only fixed wiring here, plus defaults written as ${VAR:-default} so a value in .env always wins.
     environment:
-      API_KEYS_FILE: /api_keys.txt             # one key per line (optional name:key); empty file = a key is generated into it
-      ALLOWED_HOSTS: "smart-subtitle-converter-api"   # Host names callers use besides localhost/127.0.0.1/[::1], e.g. this service name for other containers
-      # ERRORS_VERBOSE: "true"                 # default false: error bodies stay short, details go to the server log by requestId
-      QUEUE_CAPACITY: "32"
-      CONVERSION_TIMEOUT_SECONDS: "30"
-      MAX_UPLOAD_BYTES: "10485760"
-      # LOG_FORMAT: "json"                     # default "text" (plain lines); "json" for log collectors
-      # METRICS_ENABLED: "true"
-      # RATE_LIMIT_PER_MINUTE: "120"
-      # STORAGE_LIST_ENABLED: "true"         # browse allowed locations and read files by location (GET /v1/storage/*); off by default
+      API_KEYS_FILE: /api_keys.txt             # matches the mount below; one key per line (optional name:key); empty file = a key is generated into it
+      PROFILES_DIR: /profiles                  # matches the mount below
+      ASPNETCORE_HTTP_PORTS: "8080"            # matches the container side of ports above
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-smart-subtitle-converter-api}"   # default: this service name, for other containers on the network
     volumes:
       - ./profiles:/profiles:ro                # your own presets (*.json); see GET /v1/profiles
       - ./api_keys.txt:/api_keys.txt           # read-write (the API writes a generated key into an empty file); must be a file, not a folder
+      # - ./data:/data                         # subtitle storage: set STORAGE_FILE_ROOTS=/data in .env (folder writable by UID 1654)
     read_only: true
     tmpfs:
       - /tmp                                   # RAM-backed; binary formats use a private 0700 temp dir here

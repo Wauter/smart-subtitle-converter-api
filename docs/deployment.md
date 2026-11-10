@@ -29,8 +29,8 @@ Exit code 78 means a configuration problem; the log says what to change, and res
 ## Docker Compose
 
 The repo's [`docker-compose.yml`](../docker-compose.yml) is the reference setup: host port 8080 on `127.0.0.1`,
-read-only rootfs, `tmpfs` `/tmp`, `./profiles` and `./api_keys.txt` (read-write) mounted, `ALLOWED_HOSTS` set to the
-service name, all capabilities dropped and `restart: unless-stopped` (see [security.md](security.md)).
+read-only rootfs, `tmpfs` `/tmp`, `./profiles` and `./api_keys.txt` (read-write) mounted, `ALLOWED_HOSTS`
+defaulting to the service name, all capabilities dropped and `restart: unless-stopped` (see [security.md](security.md)).
 
 ```bash
 touch api_keys.txt && chmod 600 api_keys.txt && sudo chown 1654 api_keys.txt   # once
@@ -43,9 +43,13 @@ reference file loads it into the container with `env_file` (`required: false`, s
 needs Docker Compose 2.24 or later). Compose's `.env` on its own only feeds `${...}` interpolation and never
 reaches the container: without `env_file` or `environment` entries, `S3_ALLOWED_BUCKETS` set in `.env` is ignored
 and the startup log shows `storage.config var=S3_ALLOWED_BUCKETS value=<unset> effective="(unset — S3 off)"`.
-Variables under `environment:` override the same name from `.env`. To run your own build from a checkout, set
-`image:` to a local tag (for example `smart-subtitle-converter-api:dev` after `docker build -t
-smart-subtitle-converter-api:dev .`).
+Every setting you tune goes in `.env`. The file's `environment:` block holds only fixed wiring that must match its
+mounts and port mapping (`API_KEYS_FILE=/api_keys.txt`, `PROFILES_DIR=/profiles`, `ASPNETCORE_HTTP_PORTS=8080`)
+and defaults written as `${VAR:-default}` (`ALLOWED_HOSTS`), so a value in `.env` always wins. Three variables
+are read by Compose only: `API_IMAGE` (the image or tag to run), `PUBLISH_ADDRESS` and `PUBLISH_PORT` (the host
+side of the port, default `127.0.0.1:8080`). `docker compose up --build -d` builds this checkout and tags it as
+`API_IMAGE`; a plain `up -d` runs whatever image already has that tag. Check what the container received with
+`docker compose config` or the startup log (`security.hosts`, `storage.config`).
 
 Environment variables: [configuration.md](configuration.md).
 

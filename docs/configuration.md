@@ -7,7 +7,8 @@ The API is configured with environment variables. Security-related settings are 
 
 The container listens on `8080` internally. The examples and the reference Compose publish it on host port
 **8080** as well (`127.0.0.1:8080:8080`), bound to `127.0.0.1`, so only your own machine can reach it. If host
-8080 is already taken, change only the left-hand number (for example `127.0.0.1:5050:8080`). To reach it from
+8080 is already taken, change only the left-hand number (for example `127.0.0.1:5050:8080`); with the reference
+Compose set `PUBLISH_PORT=5050` in `.env`. To reach it from
 other machines, see [security.md](security.md#step-4-exposing-it-beyond-localhost).
 
 ## Environment variables
@@ -41,7 +42,8 @@ A `.env` file next to a Compose file is only interpolation input for `${...}` in
 **not** put any variable into the container, so `S3_ALLOWED_BUCKETS` in `.env` alone leaves S3 off. The repo's
 [`docker-compose.yml`](../docker-compose.yml) therefore loads it with `env_file: [{ path: .env, required: false }]`
 (Docker Compose 2.24 or later); in your own Compose file add the same `env_file` entry or list the variables under
-`environment`. Values under `environment` override the same variable from `env_file`. The startup log always
+`environment`. Values under `environment` override the same variable from `env_file`, so the reference file keeps
+only fixed wiring there and writes defaults as `${VAR:-default}` ([Docker Compose](deployment.md#docker-compose)). The startup log always
 prints `S3_ALLOWED_BUCKETS`, `STORAGE_FILE_ROOTS` and `HTTP_ALLOWED_HOSTS` (as `(unset — S3 off)` and so on), so
 `docker compose logs | grep storage.config` shows what the container actually received. Never commit real
 credentials.

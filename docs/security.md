@@ -33,7 +33,7 @@ chmod 600 api_keys.txt && sudo chown 1654 api_keys.txt
 services:
   smart-subtitle-converter-api:
     environment:
-      ALLOWED_HOSTS: "smart-subtitle-converter-api"
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-smart-subtitle-converter-api}"   # .env wins
     volumes:
       - ./api_keys.txt:/api_keys.txt      # read-write, a file (not a folder)
     restart: unless-stopped
@@ -85,7 +85,7 @@ an API key, so browser front ends call their own backend, which calls the API.
 
 With keys and host names in place, change the port mapping:
 
-- Compose: `"8080:8080"` (all interfaces) or `"192.168.1.10:8080:8080"` (one interface) in `docker-compose.yml`.
+- Compose: `PUBLISH_ADDRESS=0.0.0.0` (all interfaces) or `PUBLISH_ADDRESS=192.168.1.10` (one interface) in `.env`.
 - `docker run`: `-p 8080:8080`.
 
 Behind a reverse proxy, set `KNOWN_PROXIES` so `X-Forwarded-*` headers are trusted only from it. Put TLS on the

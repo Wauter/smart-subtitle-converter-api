@@ -8,6 +8,12 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 
 ## Unreleased
 
+- `docker-compose.yml`: every tunable setting now comes from `.env` (documented in `.env.example`). The
+  `environment:` block keeps only fixed wiring that matches the mounts and port (`API_KEYS_FILE`, `PROFILES_DIR`,
+  `ASPNETCORE_HTTP_PORTS`) and `ALLOWED_HOSTS: ${ALLOWED_HOSTS:-smart-subtitle-converter-api}`, so `ALLOWED_HOSTS`
+  in `.env` is no longer silently overridden. The hard-coded `QUEUE_CAPACITY`, `CONVERSION_TIMEOUT_SECONDS` and
+  `MAX_UPLOAD_BYTES` (equal to the defaults) are gone. New Compose-only variables: `API_IMAGE`, `PUBLISH_ADDRESS`
+  and `PUBLISH_PORT` (default `127.0.0.1:8080`).
 - Fixed: filesystem storage failed on arm64 Linux (for example Docker on Apple silicon) with `502 storage-io-failed`
   "Invalid argument" for every listing, read and write. The folder-open and no-follow flags now use the right values
   for the CPU architecture, so symlinks are refused on arm64 too. Supported: `linux/amd64` and `linux/arm64`; any
