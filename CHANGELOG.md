@@ -16,11 +16,12 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - Filesystem outputs and sidecars create missing sub-folders below an allowed root, one level at a time on the opened
   parent folder (mode 0755, narrowed by the umask), never through a symlink, never a hidden (`.`) folder and never
   the root itself. Reads of a missing file or folder stay `404 storage-not-found`.
-- New, off by default: browse storage and read files by location with `STORAGE_LIST_ENABLED=true`.
+- New, on by default: browse storage and read files by location (`STORAGE_LIST_ENABLED`, default `true`), limited
+  to the same allowlists, hidden-file and extension rules as conversions.
   `GET /v1/storage/locations` lists the allowed file roots, S3 buckets and prefixes (HTTPS hosts as not listable);
   `GET /v1/storage/list?location=&prefix=&cursor=` lists one folder, up to 200 items a page in name order, with a
   stateless `next` cursor; `GET /v1/storage/file?location=` returns one file's current bytes. Same allowlists and
-  checks as conversions. Off, the routes answer `403 storage-list-disabled`. See
+  checks as conversions. `STORAGE_LIST_ENABLED=false` makes the routes answer `403 storage-list-disabled`. See
   [browsing storage](docs/usage.md#browsing-storage-and-reading-by-location).
 - New error codes `storage-list-disabled` (403), `storage-not-listable` (422) and `storage-cursor-invalid` (400).
 - `GET /v1/limits` adds `storage.list` and `storage.listSchemes`; the startup log says whether listing is on.

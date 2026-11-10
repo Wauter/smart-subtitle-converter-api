@@ -3310,8 +3310,8 @@
       ]
     },
     {
-      "name": "Browse storage (STORAGE_LIST_ENABLED, off by default)",
-      "description": "Listing and reading by location. With the default STORAGE_LIST_ENABLED=false every request here expects 403 storage-list-disabled.",
+      "name": "Browse storage (STORAGE_LIST_ENABLED, on by default)",
+      "description": "Listing and reading by location (on by default). With STORAGE_LIST_ENABLED=false every request here expects 403 storage-list-disabled.",
       "item": [
         {
           "name": "Storage locations",
@@ -3329,7 +3329,7 @@
                 "locations"
               ]
             },
-            "description": "Allowed file roots, S3 buckets/prefixes and HTTPS hosts (listable:false). 403 storage-list-disabled unless STORAGE_LIST_ENABLED=true."
+            "description": "Allowed file roots, S3 buckets/prefixes and HTTPS hosts (listable:false). 403 storage-list-disabled when STORAGE_LIST_ENABLED=false."
           },
           "event": [
             {

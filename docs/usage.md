@@ -165,9 +165,9 @@ use fresh filesystem output names for repeated runs. ZIP input is rejected: loop
 
 ## Browsing storage and reading by location
 
-Off by default. With `STORAGE_LIST_ENABLED=true` the API lists its allowed file and S3 locations and reads files
+On by default (`STORAGE_LIST_ENABLED=true`): the API lists its allowed file and S3 locations and reads files
 from them, with no wider scope than conversions: the same roots, buckets, prefixes, symlink, traversal and size
-checks. Off, these routes answer `403 storage-list-disabled`; `GET /v1/limits` says which (`storage.list`,
+checks. With `STORAGE_LIST_ENABLED=false` these routes answer `403 storage-list-disabled`; `GET /v1/limits` says which (`storage.list`,
 `storage.listSchemes`).
 
 ```bash

@@ -12,7 +12,7 @@ public sealed record StorageListResponse(string Location, string Prefix, List<St
 
 public static class StorageEndpoints
 {
-    private const string Gate = " Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.";
+    private const string Gate = " On by default; with STORAGE_LIST_ENABLED=false it is 403 storage-list-disabled.";
 
     public static void Map(RouteGroupBuilder v1)
     {

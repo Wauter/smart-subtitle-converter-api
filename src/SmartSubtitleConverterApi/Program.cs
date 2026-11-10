@@ -198,8 +198,8 @@ app.Lifetime.ApplicationStarted.Register(() =>
     app.Logger.LogInformation("{Line}", "storage.hidden names starting with '.' (and anything inside such folders) are never read, listed or written in file and S3 locations (422 hidden-path); HTTPS URLs are not affected. Symlinks are never followed.");
     _ = app.Services.GetRequiredService<ApiKeyStore>();
     app.Logger.LogInformation("{Line}", opts.StorageListEnabled
-        ? $"storage.list enabled=true locations={StorageEndpoints.Locations(opts).Count(l => l.Listable)} (browse and read by location on GET /v1/storage/*; HTTPS is never listable)"
-        : "storage.list enabled=false (set STORAGE_LIST_ENABLED=true to browse allowed locations and read files by location)");
+        ? $"storage.list enabled=true locations={StorageEndpoints.Locations(opts).Count(l => l.Listable)} (browse and read by location on GET /v1/storage/*, limited to the allowed roots and buckets; HTTPS is never listable; STORAGE_LIST_ENABLED=false turns it off)"
+        : "storage.list enabled=false (STORAGE_LIST_ENABLED=false; unset it or set it to true to browse allowed locations and read files by location)");
     var hiddenRoots = opts.StorageFileRoots.Count(r => SmartSubtitleConverterApi.Storage.HiddenPaths.IsHidden(Path.GetFullPath(r))) + opts.S3AllowedPrefixes.Count(SmartSubtitleConverterApi.Storage.HiddenPaths.IsHidden);
     if (hiddenRoots > 0)
         app.Logger.LogWarning("{Line}", $"storage.hidden roots={hiddenRoots}: {hiddenRoots} STORAGE_FILE_ROOTS / S3_ALLOWED_PREFIXES entries have a component starting with '.'; nothing there can be read, listed or written (422 hidden-path), and they are left out of GET /v1/storage/locations. Fix: use folders whose names don't start with '.'.");

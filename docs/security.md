@@ -146,9 +146,9 @@ next to an output written without `sidecar` (filesystem and S3). With atomic wri
 file while the process is alive. A crash can leave a partial file. Enable atomic writes when consumers scan
 folders, and verify the mount's rename semantics. No filesystem operation crosses into another protocol.
 
-Browsing (`STORAGE_LIST_ENABLED`, off by default) adds no new scope: `GET /v1/storage/locations`, `/list` and
+Browsing (`STORAGE_LIST_ENABLED`, on by default) adds no new scope: `GET /v1/storage/locations`, `/list` and
 `/file` work inside the same roots, buckets and prefixes, with the same no-follow, dot-segment, size and allowlist
-checks, before any storage call. With it off, those routes answer `403 storage-list-disabled` and reveal nothing
+checks, before any storage call. Set `STORAGE_LIST_ENABLED=false` to hide the allowlists from callers: those routes then answer `403 storage-list-disabled` and reveal nothing
 about the allowlists. Listings skip symlinks and special files; HTTPS is never listed or read by location.
 
 Hidden files and folders (any path or key component starting with `.`, including inside a hidden allowed root) are

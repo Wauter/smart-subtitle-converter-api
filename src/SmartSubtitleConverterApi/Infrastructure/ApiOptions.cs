@@ -42,8 +42,8 @@ public sealed class ApiOptions
     public int IoRetries { get; init; } = 3;
     public string[] StorageFileRoots { get; init; } = [];
     public bool StorageFileAtomic { get; init; }
-    /// <summary>STORAGE_LIST_ENABLED: browse allowed locations and read files by location (/v1/storage/*). Off by default.</summary>
-    public bool StorageListEnabled { get; init; }
+    /// <summary>STORAGE_LIST_ENABLED: browse allowed locations and read files by location (/v1/storage/*). On by default; still limited to the allowlists.</summary>
+    public bool StorageListEnabled { get; init; } = true;
     public int RequestWaitSeconds { get; init; } = 30;
     public int JobTtlSeconds { get; init; } = 21600;
     public int JobMaxEntries { get; init; } = 400;
@@ -120,7 +120,7 @@ public sealed class ApiOptions
             IoRetries = Math.Clamp(Get("IO_RETRIES", d.IoRetries), 0, 10),
             StorageFileRoots = Roots(c["STORAGE_FILE_ROOTS"]),
             StorageFileAtomic = Get("STORAGE_FILE_ATOMIC", false),
-            StorageListEnabled = Get("STORAGE_LIST_ENABLED", false),
+            StorageListEnabled = Get("STORAGE_LIST_ENABLED", true),
             RequestWaitSeconds = Math.Clamp(Get("REQUEST_WAIT_SECONDS", d.RequestWaitSeconds), 0, 60),
             JobTtlSeconds = Math.Clamp(Get("JOB_TTL_SECONDS", d.JobTtlSeconds), 1, 86400),
             JobMaxEntries = Math.Clamp(Get("JOB_MAX_ENTRIES", d.JobMaxEntries), 1, 10000),

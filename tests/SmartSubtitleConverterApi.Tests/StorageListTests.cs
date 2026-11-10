@@ -363,4 +363,14 @@ public sealed class StorageListTests : IDisposable
         var hidden = new HttpRequestMessage(HttpMethod.Get, $"/v1/storage/file?location={Q(Path.Combine(root, ".x.srt"))}"); hidden.Headers.TryAddWithoutValidation("If-None-Match", tag);
         Assert.Equal(422, (int)(await c.SendAsync(hidden)).StatusCode);
     }
+    [Fact]
+    public async Task Browsing_is_on_by_default_within_the_allowlists()
+    {
+        File.WriteAllText(Path.Combine(root, "a.srt"), Samples.Srt);
+        using var f = ApiFactory.With(new() { ["STORAGE_FILE_ROOTS"] = root }); var c = f.CreateClient();
+        var (status, j) = await Get(c, $"/v1/storage/list?location={Q(root + "/")}");
+        Assert.Equal(200, status); Assert.Contains("a.srt", j.ToJsonString());
+        Assert.Equal(422, (await Get(c, $"/v1/storage/list?location={Q(outside + "/")}")).Status);
+        Assert.True((bool)(await c.GetFromJsonAsync<System.Text.Json.Nodes.JsonObject>("/v1/limits"))!["storage"]!["list"]!);
+    }
 }

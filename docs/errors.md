@@ -553,10 +553,11 @@ transient statuses are retried (`IO_RETRIES`); policy rejections and 403/404 are
 
 **What:** You asked to list storage or read a file by its location, and this API has that turned off.
 
-**Why:** Browsing is off by default (`STORAGE_LIST_ENABLED=false`), so the API shows nothing about its allowed
-folders and buckets.
+**Why:** The operator turned browsing off (`STORAGE_LIST_ENABLED=false`), so the API shows nothing about its
+allowed folders and buckets.
 
-**What to do:** Ask the operator to set `STORAGE_LIST_ENABLED=true` and restart the API. Reading a job's stored
+**What to do:** Ask the operator to set `STORAGE_LIST_ENABLED=true` (or remove the setting; on is the default) and
+restart the API. Reading a job's stored
 files (`GET /v1/jobs/{id}/input` and `/output`) works either way.
 
 _For integrators:_ 403 on every `/v1/storage/*` route while off, checked on each request. `GET /v1/limits` reports
