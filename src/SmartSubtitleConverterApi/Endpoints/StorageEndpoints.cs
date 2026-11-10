@@ -49,15 +49,18 @@ public static class StorageEndpoints
             if (parsed.Scheme is not ("file" or "s3")) throw StorageListing.NotListable(parsed.Scheme);
             return browse.RunAsync(async () =>
             {
-                var bytes = await storage.ReadAsync(parsed, ctx.RequestAborted);
+                var (bytes, tag) = await storage.ReadIfChangedAsync(parsed, ctx.Request.Headers.IfNoneMatch.ToString(), ctx.RequestAborted);
+                if (tag != null) ctx.Response.Headers.ETag = tag;
+                if (bytes == null) return Results.StatusCode(304);
                 var format = formats.Find(Path.GetExtension(parsed.FileName));
                 return ConvertEndpoints.File(ctx, bytes, format?.MediaType ?? "application/octet-stream", parsed.FileName);
             }, ctx.RequestAborted);
         }).WithName("getStorageFile").WithTags("storage")
           .WithSummary("Read one file from an allowed file or S3 location (current contents, unconverted).")
           .WithDescription("The same allowlists, symlink, traversal, hidden-file, extension and size checks as convert input: outside the allowed locations is 422 storage-location-rejected, a path or key with a component starting with '.' is 422 hidden-path, "
-              + "a name without a subtitle extension is 422 extension-not-allowed. HTTPS is not readable here (422 storage-not-listable); use it as convert input. Shares the browse queue (503 browse-busy)." + Gate)
-          .Produces(200, contentType: "application/octet-stream").ProducesProblem(403).ProducesProblem(404).ProducesProblem(413).ProducesProblem(422).ProducesProblem(502).ProducesProblem(503);
+              + "a name without a subtitle extension is 422 extension-not-allowed. HTTPS is not readable here (422 storage-not-listable); use it as convert input. Shares the browse queue (503 browse-busy). "
+              + "The response carries an ETag (file: size, modification time and inode; S3: the object ETag); send it back as If-None-Match to get 304 Not Modified without the content being read (a cheap change check)." + Gate)
+          .Produces(200, contentType: "application/octet-stream").Produces(304).ProducesProblem(403).ProducesProblem(404).ProducesProblem(413).ProducesProblem(422).ProducesProblem(502).ProducesProblem(503);
     }
 
     private static async Task<IResult> ListAsync(HttpContext ctx, ApiOptions opts, FileStorage files, S3Storage s3, string? location, string? prefix, string? cursor)

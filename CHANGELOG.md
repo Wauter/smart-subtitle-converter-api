@@ -51,6 +51,8 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
   ENTITY is `422 unsafe-xml`, and XML parsing prohibits DTDs, uses no resolver and limits entity expansion.
 - Reads by file location open a path handle and check it is a regular file before opening it, so a FIFO or device
   named like a subtitle can't hang a request. Writes, replaces, sidecars and deletes never follow symlinks.
+- `GET /v1/storage/file` and job file reads send an `ETag` (file: size, mtime, ctime, inode; S3: object ETag) and
+  answer `If-None-Match` with `304 Not Modified` without reading the content: a cheap change check for caches.
 - New error codes: `hidden-path`, `extension-not-allowed`, `folder-too-large` (422), `host-not-allowed` (400),
   `origin-not-allowed` (403), `browse-busy`, `conversion-engine-stuck` (503).
 - Fix: a percent-encoded control character in a file or S3 location (for example `file:///data/a.srt%00.txt`) is

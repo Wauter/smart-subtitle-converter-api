@@ -78,6 +78,33 @@ public sealed class StorageRouter(FileStorage files, HttpStorage http, S3Storage
         else _ = For(location);
     }
     public Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct) => For(location).ReadAsync(location, ct);
+    /// <summary>Bytes plus an entity tag (file: size/mtime/ctime/inode; S3: ETag); HTTPS has no tag.</summary>
+    public async Task<(byte[] Bytes, string? Tag)> ReadVersionedAsync(StorageLocation location, CancellationToken ct) => location.Scheme switch
+    {
+        "file" => await files.ReadVersionedAsync(location, ct),
+        "s3" => await s3.ReadVersionedAsync(location, ct),
+        _ => (await ReadAsync(location, ct), null),
+    };
+    /// <summary>A cheap change check without reading the content (file: statx on an O_PATH handle; S3: HEAD). Null for HTTPS.</summary>
+    public async Task<string?> VersionAsync(StorageLocation location, CancellationToken ct) => location.Scheme switch
+    {
+        "file" => await files.VersionAsync(location, ct),
+        "s3" => await s3.VersionAsync(location, ct),
+        _ => null,
+    };
+    /// <summary>
+    /// Conditional read (H7): with If-None-Match matching the current tag, answers 304 without reading the content; otherwise reads
+    /// and sets ETag. Returns null bytes for 304.
+    /// </summary>
+    public async Task<(byte[]? Bytes, string? Tag)> ReadIfChangedAsync(StorageLocation location, string? ifNoneMatch, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(ifNoneMatch) && location.Scheme is "file" or "s3")
+        {
+            var tag = await VersionAsync(location, ct);
+            if (tag != null && ifNoneMatch.Split(',').Select(t => t.Trim()).Select(t => t.StartsWith("W/") ? t[2..] : t).Contains(tag)) return (null, tag);
+        }
+        return await ReadVersionedAsync(location, ct);
+    }
     public Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false) => For(location).WriteAsync(location, bytes, contentType, ct, replace);
     public Task<bool> ExistsAsync(StorageLocation location, CancellationToken ct) => For(location).ExistsAsync(location, ct);
     public Task<bool> DeleteAsync(StorageLocation location, CancellationToken ct) => For(location).DeleteAsync(location, ct);

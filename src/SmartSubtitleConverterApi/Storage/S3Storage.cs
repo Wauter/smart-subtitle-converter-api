@@ -83,15 +83,28 @@ public sealed class S3Storage : IStorage, IDisposable
         var more = response.IsTruncated == true && !string.IsNullOrEmpty(response.NextContinuationToken);
         return (items, more, more ? response.NextContinuationToken : null);
     }
-    public async Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct)
+    public async Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct) => (await ReadVersionedAsync(location, ct)).Bytes;
+    public async Task<(byte[] Bytes, string? Tag)> ReadVersionedAsync(StorageLocation location, CancellationToken ct)
     {
         var (bucket, key) = Validate(location);
         return await Attempt(async token =>
         {
             using var response = await _client.Value.GetObjectAsync(new GetObjectRequest { BucketName = bucket, Key = key }, token);
             if (response.ContentLength > _opts.MaxUploadBytes) throw Problems.TooLarge(_opts);
-            return await StorageRouter.ReadCapped(response.ResponseStream, _opts.MaxUploadBytes, token);
+            return (await StorageRouter.ReadCapped(response.ResponseStream, _opts.MaxUploadBytes, token), SafeTag(response.ETag));
         }, ct);
+    }
+    /// <summary>The object's ETag from a HEAD (GetObjectMetadata), for If-None-Match on reads by location.</summary>
+    public async Task<string?> VersionAsync(StorageLocation location, CancellationToken ct)
+    {
+        var (bucket, key) = Validate(location);
+        return await Attempt(async token => SafeTag((await _client.Value.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = bucket, Key = key }, token)).ETag), ct);
+    }
+    /// <summary>An S3 ETag as an HTTP entity tag (quoted, printable ASCII only), or null.</summary>
+    private static string? SafeTag(string? etag)
+    {
+        var t = (etag ?? "").Trim().Trim('"');
+        return t.Length is > 0 and <= 200 && t.All(c => c is > ' ' and < (char)127 and not '"' and not '\\') ? $"\"s3-{t}\"" : null;
     }
     public async Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false)
     {

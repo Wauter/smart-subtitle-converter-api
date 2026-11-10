@@ -58,6 +58,10 @@ public sealed class JobFileTests : IDisposable
         Assert.DoesNotContain("Hello", job.ToJsonString());
         var input = await b.GetAsync("/v1/jobs/" + id + "/input");
         Assert.Equal(Samples.Srt, await input.Content.ReadAsStringAsync()); Assert.Contains("attachment", input.Content.Headers.ContentDisposition!.ToString());
+        // H7: job file reads carry an ETag; If-None-Match with it is 304 without the content.
+        var cond = new HttpRequestMessage(HttpMethod.Get, "/v1/jobs/" + id + "/input"); cond.Headers.TryAddWithoutValidation("If-None-Match", input.Headers.ETag!.Tag);
+        var notModified = await b.SendAsync(cond);
+        Assert.Equal(304, (int)notModified.StatusCode); Assert.Empty(await notModified.Content.ReadAsByteArrayAsync()); Assert.Equal(id, notModified.Header("X-Job-Id"));
         Assert.True((bool)job["inputReplayable"]!); Assert.True((bool)job["outputReplayable"]!);
         File.WriteAllText(output, "current bytes, not an archived result");
         var read = await b.GetAsync("/v1/jobs/" + id + "/output");

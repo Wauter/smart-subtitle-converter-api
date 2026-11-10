@@ -54,14 +54,37 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
         ExtensionAllowlist.Shared.Check(location);
         return path;
     }
-    public async Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct)
+    public async Task<byte[]> ReadAsync(StorageLocation location, CancellationToken ct) => (await ReadVersionedAsync(location, ct)).Bytes;
+
+    /// <summary>
+    /// A cheap version tag (an HTTP entity tag) of a regular file, from one statx on an O_PATH handle: size, mtime, ctime and
+    /// inode. The file itself is never opened. Used for If-None-Match on reads by location (the MCP preview cache's change check).
+    /// </summary>
+    public Task<string> VersionAsync(StorageLocation location, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var path = Validate(location);
+        using var parent = Parent(path);
+        using var pathHandle = Open((int)parent.DangerousGetHandle(), Path.GetFileName(path), PathOnly);
+        return Task.FromResult(Tag(StatRegular(pathHandle)));
+    }
+
+    private const uint StatMask = 0x3C1; // TYPE | MTIME | CTIME | INO | SIZE
+    private static Statx StatRegular(SafeFileHandle pathHandle)
+    {
+        if (statx((int)pathHandle.DangerousGetHandle(), "", 0x1000 /* AT_EMPTY_PATH */, StatMask, out var stat) != 0 || (stat.Mode & 0xf000) != 0x8000)
+            throw StorageLocation.Rejected("Filesystem inputs must be regular files, not directories, pipes or devices.");
+        return stat;
+    }
+    private static string Tag(Statx s) => $"\"f-{s.Size:x}-{s.MtimeSeconds:x}.{s.MtimeNanos:x}-{s.CtimeSeconds:x}.{s.CtimeNanos:x}-{s.Ino:x}\"";
+
+    public async Task<(byte[] Bytes, string Tag)> ReadVersionedAsync(StorageLocation location, CancellationToken ct)
     {
         var path = Validate(location);
         using var parent = Parent(path);
         // O_PATH first: inspect the type without opening it for reading, so a device node is never really opened (F8).
         using var pathHandle = Open((int)parent.DangerousGetHandle(), Path.GetFileName(path), PathOnly);
-        if (statx((int)pathHandle.DangerousGetHandle(), "", 0x1000 /* AT_EMPTY_PATH */, 0x201 /* TYPE|SIZE */, out var stat) != 0 || (stat.Mode & 0xf000) != 0x8000)
-            throw StorageLocation.Rejected("Filesystem inputs must be regular files, not directories, pipes or devices.");
+        var stat = StatRegular(pathHandle);
         if ((long)stat.Size > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
         // Reopen the same inode through the pinned O_PATH handle; no path lookup, so nothing can be swapped in between.
         var fd = open($"/proc/self/fd/{(int)pathHandle.DangerousGetHandle()}", NonBlock | CloseExec, 0);
@@ -71,7 +94,7 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
             throw StorageLocation.Rejected("Filesystem inputs must be regular files, not directories, pipes or devices.");
         using var stream = new FileStream(file, FileAccess.Read);
         if (stream.Length > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
-        return await StorageRouter.ReadCapped(stream, opts.MaxUploadBytes, ct);
+        return (await StorageRouter.ReadCapped(stream, opts.MaxUploadBytes, ct), Tag(stat));
     }
     public async Task WriteAsync(StorageLocation location, byte[] bytes, string contentType, CancellationToken ct, bool replace = false)
     {
@@ -210,7 +233,12 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
         catch { dir.Dispose(); throw; }
     }
     [StructLayout(LayoutKind.Explicit, Size = 256)]
-    private struct Statx { [FieldOffset(28)] public ushort Mode; [FieldOffset(40)] public ulong Size; [FieldOffset(112)] public long MtimeSeconds; [FieldOffset(120)] public uint MtimeNanos; }
+    private struct Statx
+    {
+        [FieldOffset(28)] public ushort Mode; [FieldOffset(32)] public ulong Ino; [FieldOffset(40)] public ulong Size;
+        [FieldOffset(96)] public long CtimeSeconds; [FieldOffset(104)] public uint CtimeNanos;
+        [FieldOffset(112)] public long MtimeSeconds; [FieldOffset(120)] public uint MtimeNanos;
+    }
     [DllImport("libc", SetLastError = true)] private static extern int statx(int dirfd, string path, int flags, uint mask, out Statx stat);
     private const int PathOnly = 2097152; // O_PATH
     [DllImport("libc", SetLastError = true)] private static extern int open(string path, int flags, uint mode);

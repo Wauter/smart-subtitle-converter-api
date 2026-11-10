@@ -331,4 +331,36 @@ public sealed class StorageListTests : IDisposable
         Assert.Equal(("/data/", "x"), StorageListing.Split(StorageListing.ParseFolder("/data"), "x"));
         Assert.Equal(("/data/a/b/", "c"), StorageListing.Split(StorageListing.ParseFolder("/data"), "a/b/c"));
     }
+
+    [Fact]
+    public async Task File_read_carries_an_etag_and_if_none_match_gives_304_until_the_file_changes()
+    {
+        var file = Path.Combine(root, "cache.srt");
+        File.WriteAllText(file, Samples.Srt);
+        using var f = Api(); var c = f.CreateClient();
+        var url = $"/v1/storage/file?location={Q(file)}";
+        var first = await c.GetAsync(url);
+        Assert.Equal(200, (int)first.StatusCode);
+        var tag = first.Headers.ETag!.Tag;
+        Assert.StartsWith("\"f-", tag);
+        var again = new HttpRequestMessage(HttpMethod.Get, url); again.Headers.TryAddWithoutValidation("If-None-Match", tag);
+        var notModified = await c.SendAsync(again);
+        Assert.Equal(304, (int)notModified.StatusCode);
+        Assert.Empty(await notModified.Content.ReadAsByteArrayAsync());
+        Assert.Equal(tag, notModified.Headers.ETag!.Tag);
+        File.AppendAllText(file, "\n3\n00:00:09,000 --> 00:00:10,000\nMore\n"); // size and mtime change
+        var changed = new HttpRequestMessage(HttpMethod.Get, url); changed.Headers.TryAddWithoutValidation("If-None-Match", tag);
+        var fresh = await c.SendAsync(changed);
+        Assert.Equal(200, (int)fresh.StatusCode);
+        Assert.NotEqual(tag, fresh.Headers.ETag!.Tag);
+        Assert.Contains("More", await fresh.Content.ReadAsStringAsync());
+        // Same-size rewrite: a new inode (rename over) still changes the tag.
+        var tag2 = fresh.Headers.ETag!.Tag;
+        var tmp = Path.Combine(root, "cache.srt.tmp"); File.WriteAllText(tmp, File.ReadAllText(file).Replace("More", "Mora")); File.Move(tmp, file, true);
+        var swapped = new HttpRequestMessage(HttpMethod.Get, url); swapped.Headers.TryAddWithoutValidation("If-None-Match", tag2);
+        Assert.Equal(200, (int)(await c.SendAsync(swapped)).StatusCode);
+        // The change check still applies every rule: a hidden or non-subtitle location is refused, never 304.
+        var hidden = new HttpRequestMessage(HttpMethod.Get, $"/v1/storage/file?location={Q(Path.Combine(root, ".x.srt"))}"); hidden.Headers.TryAddWithoutValidation("If-None-Match", tag);
+        Assert.Equal(422, (int)(await c.SendAsync(hidden)).StatusCode);
+    }
 }

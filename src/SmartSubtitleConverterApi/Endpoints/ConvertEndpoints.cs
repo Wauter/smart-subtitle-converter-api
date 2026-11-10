@@ -38,8 +38,8 @@ public static class ConvertEndpoints
                     browse.RunAsync(() => GetJobFile(id, selected, ctx, jobs, storage, formats), ctx.RequestAborted))
                 .WithName(which == "input" ? "getJobInput" : "getJobOutput").WithTags("jobs")
                 .WithSummary("Re-read the job's stored " + which + " location; never a cached file.")
-                .WithDescription("Any valid API key knowing the id may fetch it. Current allowlists, hidden-path rule, extension allowlist and size limits apply: a file or S3 location whose extension is not a subtitle format (GET /v1/limits storage.extensions) is 422 extension-not-allowed, also for failed jobs. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared. Shares the browse queue (503 browse-busy).")
-                .Produces(200, contentType: "application/octet-stream").ProducesProblem(404).ProducesProblem(409).ProducesProblem(413).ProducesProblem(422).ProducesProblem(502).ProducesProblem(503);
+                .WithDescription("Any valid API key knowing the id may fetch it. Current allowlists, hidden-path rule, extension allowlist and size limits apply: a file or S3 location whose extension is not a subtitle format (GET /v1/limits storage.extensions) is 422 extension-not-allowed, also for failed jobs. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared. Shares the browse queue (503 browse-busy). File and S3 files carry an ETag; If-None-Match with it gives 304 Not Modified without reading the content.")
+                .Produces(200, contentType: "application/octet-stream").Produces(304).ProducesProblem(404).ProducesProblem(409).ProducesProblem(413).ProducesProblem(422).ProducesProblem(502).ProducesProblem(503);
         }
         v1.MapPost("/convert", ConvertMultipart)
             .WithName("convert").WithTags("convert")
@@ -148,13 +148,15 @@ public static class ConvertEndpoints
                 "Job files are only returned for subtitle files (see GET /v1/limits storage.extensions). " + (which == "input" && (string?)job["status"] == "failed"
                     ? "The conversion failed; GET /v1/jobs/{id} shows why." : "Read the file directly from storage instead.")) { Extensions = { ["extension"] = ex.Extensions["extension"] } };
         }
-        byte[] bytes;
-        try { bytes = await storage.ReadAsync(parsed, ctx.RequestAborted); }
+        byte[]? bytes; string? tag;
+        try { (bytes, tag) = await storage.ReadIfChangedAsync(parsed, ctx.Request.Headers.IfNoneMatch.ToString(), ctx.RequestAborted); }
         catch (ApiException ex) when (ex.Code == "storage-not-found")
         { throw new ApiException(404, ErrorCodes.JobFileGone, "The file is no longer at the job's stored location.", "Job history is not a file archive. Inspect storage or the original result; do not blindly repeat writes.") { Extensions = { ["location"] = publicLocation } }; }
+        if (tag != null) ctx.Response.Headers.ETag = tag;
+        ctx.Response.Headers["X-Job-Id"] = id;
+        if (bytes == null) return Results.StatusCode(304);
         var formatId = which == "input" ? (string?)job["result"]?["detected"]?["id"] : (string?)job["result"]?["outputs"]?.AsArray().FirstOrDefault()?["formatId"];
         var format = formats.Find(formatId ?? Path.GetExtension(parsed.FileName));
-        ctx.Response.Headers["X-Job-Id"] = id;
         return File(ctx, bytes, format?.MediaType ?? "application/octet-stream", parsed.FileName);
     }
 

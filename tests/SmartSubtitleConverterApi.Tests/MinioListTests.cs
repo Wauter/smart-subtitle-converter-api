@@ -62,6 +62,14 @@ public class MinioListTests
             Assert.Equal(3, pages);
             var file = await c.GetAsync("/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/season1/ep1.srt"));
             Assert.Equal(Samples.Srt, await file.Content.ReadAsStringAsync());
+            // H7 change check: the S3 ETag comes back, If-None-Match with it is 304 (HEAD only), a rewrite changes it.
+            var s3Tag = file.Headers.ETag!.Tag; Assert.StartsWith("\"s3-", s3Tag);
+            var cond = new HttpRequestMessage(HttpMethod.Get, "/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/season1/ep1.srt")); cond.Headers.TryAddWithoutValidation("If-None-Match", s3Tag);
+            Assert.Equal(304, (int)(await c.SendAsync(cond)).StatusCode);
+            await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "in/season1/ep1.srt", ContentBody = Samples.Srt + "\r\n", UseChunkEncoding = false });
+            var cond2 = new HttpRequestMessage(HttpMethod.Get, "/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/season1/ep1.srt")); cond2.Headers.TryAddWithoutValidation("If-None-Match", s3Tag);
+            var rewritten = await c.SendAsync(cond2);
+            Assert.Equal(200, (int)rewritten.StatusCode); Assert.NotEqual(s3Tag, rewritten.Headers.ETag!.Tag);
             var denied = await c.GetAsync("/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/private/secret.srt"));
             Assert.Equal(422, (int)denied.StatusCode);
             var root2 = await c.GetAsync("/v1/storage/list?location=" + Uri.EscapeDataString("s3://subs/"));

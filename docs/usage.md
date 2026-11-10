@@ -241,6 +241,14 @@ Listing, reading by location and job file reads go through a small browse queue 
 waiting up to 30 seconds). When it is full the answer is `503 browse-busy` with `Retry-After`; just retry.
 Conversions have their own queue and are not slowed down by browsing.
 
+### Change checks (ETag)
+
+`GET /v1/storage/file` and `GET /v1/jobs/{id}/input|output` send an `ETag` for file and S3 locations (for files:
+size, modification time and inode; for S3: the object's ETag). Send it back as `If-None-Match` and the answer is
+`304 Not Modified` with no body when the file hasn't changed; the content isn't even read (one `statx` or one S3
+`HEAD`). The MCP uses this to keep its preview cache fresh. Every other check (allowlists, hidden, extension) still
+runs first.
+
 `GET /v1/storage/file` returns the current bytes with a `Content-Disposition` file name. It doesn't detect or
 convert; send the same location as `input` to `/v1/detect` or `/v1/convert/json` for that.
 
