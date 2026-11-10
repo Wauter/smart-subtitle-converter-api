@@ -21,7 +21,7 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
     }
     private static ApiException IoError(int errno, bool writing = false) => errno switch
     {
-        2 => new(404, "storage-not-found", "The storage file or parent directory does not exist.", "Create the parent directories and check the full file path."),
+        2 => new(404, "storage-not-found", "The storage file, its folder or the allowed root folder does not exist.", "Check the full path. Outputs create missing sub-folders below an allowed root, but the root folder itself must exist."),
         17 => StorageLocation.OutputExists(),
         40 or 20 => StorageLocation.Rejected("A path component is a symlink or is not a directory. Symlinks are not followed."),
         _ => new(502, "storage-io-failed", $"Filesystem {(writing ? "write" : "read")} failed: {new Win32Exception(errno).Message}.", "Check mount availability, permissions and the container UID/GID."),
@@ -32,20 +32,40 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
         if (fd < 0) throw IoError(Marshal.GetLastPInvokeError(), (flags & WriteOnly) != 0);
         return new SafeFileHandle((IntPtr)fd, true);
     }
-    private static SafeFileHandle Parent(string full)
+    /// <summary>
+    /// Opens the parent folder of <paramref name="full"/> one component at a time without following symlinks. With
+    /// <paramref name="createBelow"/> (an allowed root), missing folders below that root are created level by level with
+    /// mkdirat on the pinned parent handle (mode 0755, subject to the umask); the root itself and anything above it are
+    /// never created. Hidden components were already rejected by <see cref="Validate"/>.
+    /// </summary>
+    private static SafeFileHandle Parent(string full, string? createBelow = null)
     {
         var dir = Open(-100, "/", DirectoryFlag);
         try
         {
+            var rootDepth = createBelow?.Split('/', StringSplitOptions.RemoveEmptyEntries).Length ?? int.MaxValue;
+            var depth = 0;
             foreach (var part in Path.GetDirectoryName(full)!.Split('/', StringSplitOptions.RemoveEmptyEntries))
             {
-                var next = Open((int)dir.DangerousGetHandle(), part, DirectoryFlag);
+                var parentFd = (int)dir.DangerousGetHandle();
+                SafeFileHandle next;
+                try { next = Open(parentFd, part, DirectoryFlag); }
+                catch (ApiException ex) when (ex.Code == "storage-not-found" && depth >= rootDepth) // strictly below the root
+                {
+                    if (mkdirat(parentFd, part, 0x1ED /* 0755 */) != 0 && Marshal.GetLastPInvokeError() is var errno && errno != 17 /* EEXIST: created meanwhile */)
+                        throw IoError(errno, true);
+                    next = Open(parentFd, part, DirectoryFlag); // re-opened without following symlinks, like every level
+                }
+                depth++;
                 dir.Dispose(); dir = next;
             }
             return dir;
         }
         catch { dir.Dispose(); throw; }
     }
+    /// <summary>The longest allowed root containing <paramref name="full"/>.</summary>
+    private string RootOf(string full) => opts.StorageFileRoots.Select(r => Path.GetFullPath(r).TrimEnd('/'))
+        .Where(r => full.StartsWith(r + "/", StringComparison.Ordinal)).MaxBy(r => r.Length)!;
     /// <summary>Allowlist, hidden and extension checks without touching the filesystem, in the order clients see them.</summary>
     public string Validate(StorageLocation location)
     {
@@ -100,7 +120,7 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
     {
         var path = Validate(location);
         if (bytes.LongLength > opts.MaxUploadBytes) throw Problems.TooLarge(opts);
-        using var parent = Parent(path);
+        using var parent = Parent(path, createBelow: RootOf(path)); // missing sub-folders below the root are created
         var fd = (int)parent.DangerousGetHandle();
         var name = Path.GetFileName(path);
         if (replace) EnsureReplaceable(fd, name);
@@ -240,10 +260,33 @@ public sealed class FileStorage(ApiOptions opts) : IStorage
         [FieldOffset(112)] public long MtimeSeconds; [FieldOffset(120)] public uint MtimeNanos;
     }
     [DllImport("libc", SetLastError = true)] private static extern int statx(int dirfd, string path, int flags, uint mask, out Statx stat);
-    private const int PathOnly = 2097152; // O_PATH
     [DllImport("libc", SetLastError = true)] private static extern int open(string path, int flags, uint mode);
-    private const int WriteOnly = 1, Create = 64, Exclusive = 128, NonBlock = 2048, DirectoryFlag = 65536, NoFollow = 131072, CloseExec = 524288;
+    // Same value on x86_64 and arm64: O_WRONLY, O_CREAT, O_EXCL, O_NONBLOCK, O_CLOEXEC, O_PATH (and AT_*, errno, statx).
+    private const int WriteOnly = 1, Create = 64, Exclusive = 128, NonBlock = 2048, CloseExec = 524288, PathOnly = 2097152;
+    // O_DIRECTORY and O_NOFOLLOW differ by architecture; the x86_64 values mean O_DIRECT and O_LARGEFILE on arm64.
+    private static readonly int DirectoryFlag = LinuxOpenFlags.Current.Directory, NoFollow = LinuxOpenFlags.Current.NoFollow;
+    [DllImport("libc", SetLastError = true)] private static extern int mkdirat(int dirfd, string path, uint mode);
     [DllImport("libc", SetLastError = true)] private static extern int openat(int dirfd, string path, int flags, uint mode);
     [DllImport("libc", SetLastError = true)] private static extern int unlinkat(int dirfd, string path, int flags);
     [DllImport("libc", SetLastError = true)] private static extern int renameat2(int olddirfd, string oldpath, int newdirfd, string newpath, uint flags);
+}
+
+/// <summary>
+/// Linux open(2) flags whose numeric value depends on the CPU architecture. Only the architectures the image is built for
+/// are known; anything else is refused at startup (<see cref="Unsupported"/>) rather than guessed, because a wrong value
+/// can silently drop O_NOFOLLOW.
+/// </summary>
+public static class LinuxOpenFlags
+{
+    public static (int Directory, int NoFollow)? For(Architecture arch) => arch switch
+    {
+        Architecture.X64 => (0x10000, 0x20000),   // O_DIRECTORY 0200000, O_NOFOLLOW 0400000
+        Architecture.Arm64 => (0x4000, 0x8000),   // O_DIRECTORY 040000, O_NOFOLLOW 0100000
+        _ => null,
+    };
+    public static (int Directory, int NoFollow) Current => For(RuntimeInformation.ProcessArchitecture)
+        ?? throw new PlatformNotSupportedException(Unsupported(RuntimeInformation.ProcessArchitecture));
+    public static string Unsupported(Architecture arch) =>
+        $"Invalid configuration: STORAGE_FILE_ROOTS is set, but filesystem storage supports only x64 and arm64 Linux (this process is {arch.ToString().ToLowerInvariant()}). "
+        + "Fix: run the API on x64 or arm64, or unset STORAGE_FILE_ROOTS and use uploads or S3.";
 }

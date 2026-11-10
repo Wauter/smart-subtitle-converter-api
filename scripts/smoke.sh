@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Docker smoke test (design §9): boot the image, wait for /readyz, convert corpus files,
-# check auth (default on, generated key, API_KEYS, disabled), host/origin checks, and enforce the size budget.
+# check auth (default on, generated key, API_KEYS, disabled), host/origin checks, file storage, and enforce the size budget.
 #   scripts/smoke.sh <image> [platform] [max-mb]
 set -euo pipefail
 IMAGE=$1; PLATFORM=${2:-linux/amd64}; MAX_MB=${3:-200}
@@ -64,5 +64,25 @@ code=$(convert sample.srt webvtt); [ "$code" = 401 ] || fail "auth on, no key ga
 code=$(convert sample.srt webvtt -H "Authorization: Bearer smoke-key"); [ "$code" = 200 ] || fail "auth on, good key gave $code"
 curl -sf "localhost:$PORT/healthz" >/dev/null || fail "/healthz not open with auth on"
 echo "ok  auth on/off"
-docker rm -f se-smoke >/dev/null
+# Filesystem storage on this architecture (open flags differ between x86_64 and arm64): list, read, write into
+# folders that do not exist yet, and refuse symlinks, hidden folders and missing inputs.
+DATA=$(mktemp -d); mkdir -p "$DATA/in"; cp "$DIR/tests/smoke/sample.srt" "$DATA/in/"
+chmod -R a+rwX "$DATA"; ln -s /etc/passwd "$DATA/in/link.srt"; ln -s /etc "$DATA/linkdir"
+start -e API_AUTH_DISABLED=true -e STORAGE_FILE_ROOTS=/data -v "$DATA:/data"
+api() { curl -s -o /tmp/smoke.out -w '%{http_code}' "$@"; }
+post() { api -H 'Content-Type: application/json' -d "$1" "localhost:$PORT/v1/convert/json"; }
+code=$(api "localhost:$PORT/v1/storage/list?location=file:///data/in/"); [ "$code" = 200 ] || fail "file list gave $code: $(cat /tmp/smoke.out)"
+grep -q '"sample.srt"' /tmp/smoke.out || fail "file list misses sample.srt: $(cat /tmp/smoke.out)"
+grep -q 'link.srt' /tmp/smoke.out && fail "file list shows a symlink"
+code=$(api "localhost:$PORT/v1/storage/file?location=file:///data/in/sample.srt"); [ "$code" = 200 ] || fail "file read gave $code: $(cat /tmp/smoke.out)"
+code=$(post '{"input":"file:///data/in/sample.srt","output":"/data/out/new/show.vtt","target":"vtt","sidecar":true}')
+[ "$code" = 200 ] || fail "file write into new folders gave $code: $(cat /tmp/smoke.out)"
+grep -q WEBVTT "$DATA/out/new/show.vtt" && [ -f "$DATA/out/new/show.vtt.json" ] || fail "written file or sidecar missing"
+code=$(api "localhost:$PORT/v1/storage/file?location=file:///data/in/link.srt"); [ "$code" = 422 ] || fail "symlinked file read gave $code"
+code=$(post '{"content":"1\n00:00:01,000 --> 00:00:02,000\nHi\n","output":"/data/linkdir/new/x.vtt","target":"vtt"}'); [ "$code" = 422 ] || fail "write through a symlinked folder gave $code: $(cat /tmp/smoke.out)"
+code=$(post '{"content":"1\n00:00:01,000 --> 00:00:02,000\nHi\n","output":"/data/.hidden/x.vtt","target":"vtt"}'); [ "$code" = 422 ] || fail "write into a hidden folder gave $code"
+[ -e "$DATA/.hidden" ] && fail "a hidden folder was created"
+code=$(api -H 'Content-Type: application/json' -d '{"input":"/data/nope/x.srt"}' "localhost:$PORT/v1/detect"); [ "$code" = 404 ] || fail "missing folder read gave $code: $(cat /tmp/smoke.out)"
+echo "ok  file storage: list, read, write into new folders, symlinks and hidden folders refused"
+docker rm -f se-smoke >/dev/null; rm -rf "$DATA" 2>/dev/null || true # files the container wrote may stay behind
 echo "SMOKE PASS ($PLATFORM)"

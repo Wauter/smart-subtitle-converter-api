@@ -526,12 +526,13 @@ _For integrators:_ 422 with `limit`. Filesystem folders only; S3 listings are pa
 
 ### <a id="storage-not-found"></a>`storage-not-found`
 
-**What:** The input file, or the folder the output should go into, doesn't exist.
+**What:** The input file or its folder doesn't exist, or an output's allowed root folder doesn't exist.
 
-**Why:** The API never creates folders and can only read files that are there.
+**Why:** The API can only read files that are there. For filesystem outputs it creates missing sub-folders below an
+allowed root (`STORAGE_FILE_ROOTS`), but never the root itself.
 
-**What to do:** Check the path, bucket and key, create the parent folders first, and check that a signed HTTPS URL
-hasn't expired.
+**What to do:** Check the path, bucket and key, check that the allowed root folder exists and is mounted, and check
+that a signed HTTPS URL hasn't expired.
 
 _For integrators:_ 404.
 

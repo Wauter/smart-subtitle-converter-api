@@ -89,7 +89,7 @@ public sealed class ApiOptions
             }
         }
         var d = new ApiOptions();
-        return new ApiOptions
+        var o = new ApiOptions
         {
             MaxUploadBytes = Get("MAX_UPLOAD_BYTES", d.MaxUploadBytes),
             ConversionTimeoutSeconds = Get("CONVERSION_TIMEOUT_SECONDS", d.ConversionTimeoutSeconds),
@@ -127,5 +127,9 @@ public sealed class ApiOptions
             ProfileMaxBytes = Math.Max(1024, Get("PROFILE_MAX_BYTES", d.ProfileMaxBytes)),
             KnownProxies = List(c["KNOWN_PROXIES"]),
         };
+        // Filesystem storage needs per-architecture open(2) flags; an unknown architecture fails startup instead of guessing.
+        if (o.StorageFileRoots.Length > 0 && OperatingSystem.IsLinux() && Storage.LinuxOpenFlags.For(System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture) == null)
+            throw new InvalidOperationException(Storage.LinuxOpenFlags.Unsupported(System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture));
+        return o;
     }
 }

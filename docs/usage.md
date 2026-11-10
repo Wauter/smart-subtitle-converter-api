@@ -108,7 +108,7 @@ Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs
 {"input":"file:///data/in/show.srt","output":"/data/out/show.pac","target":"pac","sidecar":true}
 ```
 
-`input` is mutually exclusive with JSON `content` or multipart `file`. `output` is optional; with it the response contains output metadata and verification, not file bytes. With `output`, `outputs[].fileName` is the name the file was stored under (the last path segment of `output`), not the name the converter would generate from the source. An explicit `output` requires exactly one target; `target.additional` remains available for inline results. `detect` accepts `input` too. A path must name a file: no trailing slash, dot segments, symlinks or control characters (also when percent-encoded, such as `%00`). Hidden files and folders are never read as input ([hidden files](#hidden-files-and-folders)). Only Linux server filesystem storage is supported; directory handles and no-follow opens prevent path-component symlink swaps. Pre-create parent directories. Existing filesystem and S3 outputs are rejected by default; `ifExists:"replace"` explicitly permits replacement.
+`input` is mutually exclusive with JSON `content` or multipart `file`. `output` is optional; with it the response contains output metadata and verification, not file bytes. With `output`, `outputs[].fileName` is the name the file was stored under (the last path segment of `output`), not the name the converter would generate from the source. An explicit `output` requires exactly one target; `target.additional` remains available for inline results. `detect` accepts `input` too. A path must name a file: no trailing slash, dot segments, symlinks or control characters (also when percent-encoded, such as `%00`). Hidden files and folders are never read as input ([hidden files](#hidden-files-and-folders)). Only Linux server filesystem storage is supported; directory handles and no-follow opens prevent path-component symlink swaps. Missing folders below an allowed root are created for outputs and sidecars (mode 0755, narrowed by the umask), one level at a time without following symlinks; hidden folders are never created and the root itself must exist. Existing filesystem and S3 outputs are rejected by default; `ifExists:"replace"` explicitly permits replacement.
 
 Set `STORAGE_FILE_ROOTS` to allowlisted absolute roots (OS path separator, or a JSON array); empty disables file URIs. `STORAGE_FILE_ATOMIC=false` writes directly with exclusive creation, removing its own incomplete file after a failed write. With `true`, stage a sibling temporary file, flush it, then rename without replacing an existing destination. Consumers may see a growing file with direct writes; use atomic writes for scanning directories. Network mounts still need suitable rename semantics.
 
@@ -143,7 +143,7 @@ Outputs use one object PUT with `If-None-Match: *` by default; existing keys yie
 After configuring the matching allowlists (see [configuration](configuration.md)):
 
 ```bash
-# API container paths, not the caller's paths. Parent folders must already exist.
+# API container paths, not the caller's paths. Missing folders below an allowed root are created.
 curl localhost:8080/v1/convert/json -H 'content-type: application/json' \
   -H 'Prefer: wait=30' \
   -d '{"input":"file:///data/in/show.srt","output":"/data/out/show.vtt","target":"vtt","sidecar":true}'

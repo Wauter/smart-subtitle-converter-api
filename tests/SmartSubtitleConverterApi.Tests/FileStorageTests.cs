@@ -91,4 +91,61 @@ public sealed class FileStorageTests : IDisposable
         Assert.Equal(File.GetUnixFileMode(reference), File.GetUnixFileMode(output + ".json"));
         Assert.True(File.GetUnixFileMode(output).HasFlag(UnixFileMode.UserRead | UnixFileMode.UserWrite));
     }
+    [SupportedOSPlatform("linux")]
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Missing_output_folders_below_the_root_are_created_0755(bool atomic)
+    {
+        using var f = ApiFactory.With(new() { ["STORAGE_FILE_ROOTS"] = root, ["STORAGE_FILE_ATOMIC"] = atomic.ToString() }); var c = f.CreateClient();
+        var output = Path.Combine(root, "out/2026/show.vtt");
+        Assert.Equal(200, (int)(await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, output, target = "vtt", sidecar = true })).StatusCode);
+        Assert.Contains("WEBVTT", File.ReadAllText(output)); Assert.True(File.Exists(output + ".json"));
+        var reference = Path.Combine(root, "reference-dir");
+        Directory.CreateDirectory(reference, (UnixFileMode)0x1ED);
+        Assert.Equal(File.GetUnixFileMode(reference), File.GetUnixFileMode(Path.Combine(root, "out")));
+        Assert.Equal(File.GetUnixFileMode(reference), File.GetUnixFileMode(Path.Combine(root, "out/2026")));
+        // The file can be read back by location and listed.
+        var detect = await c.PostAsJsonAsync("/v1/detect", new { input = output });
+        Assert.Equal(200, (int)detect.StatusCode);
+    }
+    [SupportedOSPlatform("linux")]
+    [Fact]
+    public async Task Folder_creation_never_follows_symlinks_creates_hidden_folders_or_leaves_the_root()
+    {
+        var absentRoot = Path.Combine(root, "absent-root");
+        var outside = Path.Combine(Path.GetTempPath(), "se-outside-" + Guid.NewGuid());
+        Directory.CreateDirectory(outside);
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(root, "linked"), outside);
+            Directory.CreateSymbolicLink(Path.Combine(root, "dangling"), Path.Combine(outside, "missing"));
+            using var f = ApiFactory.With(new() { ["STORAGE_FILE_ROOTS"] = string.Join(Path.PathSeparator, root, absentRoot) }); var c = f.CreateClient();
+            async Task<(int, string)> Write(string output)
+            {
+                var r = await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, output, target = "vtt" });
+                return ((int)r.StatusCode, (string)(await r.Json())["code"]!);
+            }
+            Assert.Equal((422, "storage-location-rejected"), await Write(Path.Combine(root, "linked/new/out.vtt")));
+            Assert.Equal((422, "storage-location-rejected"), await Write(Path.Combine(root, "dangling/new/out.vtt")));
+            Assert.Empty(Directory.GetFileSystemEntries(outside));
+            Assert.Equal((422, "hidden-path"), await Write(Path.Combine(root, ".hidden/out.vtt")));
+            Assert.False(Directory.Exists(Path.Combine(root, ".hidden")));
+            Assert.Equal((404, "storage-not-found"), await Write(Path.Combine(absentRoot, "sub/out.vtt"))); // a root itself is never created
+            Assert.False(Directory.Exists(absentRoot));
+            File.WriteAllText(Path.Combine(root, "file"), "x");
+            Assert.Equal((422, "storage-location-rejected"), await Write(Path.Combine(root, "file/sub/out.vtt"))); // ENOTDIR
+            // Reads never create anything: a missing folder is 404.
+            var read = await c.PostAsJsonAsync("/v1/detect", new { input = Path.Combine(root, "nope/in.srt") });
+            Assert.Equal(404, (int)read.StatusCode); Assert.Equal("storage-not-found", (string)(await read.Json())["code"]!);
+            Assert.False(Directory.Exists(Path.Combine(root, "nope")));
+        }
+        finally { Directory.Delete(outside, true); }
+    }
+    [Fact]
+    public void Open_flags_are_known_for_x64_and_arm64_only()
+    {
+        Assert.Equal((0x10000, 0x20000), LinuxOpenFlags.For(System.Runtime.InteropServices.Architecture.X64));
+        Assert.Equal((0x4000, 0x8000), LinuxOpenFlags.For(System.Runtime.InteropServices.Architecture.Arm64));
+        Assert.Null(LinuxOpenFlags.For(System.Runtime.InteropServices.Architecture.RiscV64));
+        Assert.Contains("STORAGE_FILE_ROOTS", LinuxOpenFlags.Unsupported(System.Runtime.InteropServices.Architecture.RiscV64));
+    }
 }

@@ -109,7 +109,7 @@ services:
       STORAGE_FILE_ATOMIC: "false"
 ```
 
-Parent directories must exist. Match the container UID/GID to permissions on the mount; check NFS root-squash and SMB ownership mapping. Files are created with mode 0644, narrowed by the process umask: other accounts on the mount (MAM, playout) can read deliveries; write access stays with the API user. The app speaks filesystem operations, not NFS/SMB/Aspera/Signiant protocols. Atomic mode uses a sibling temporary file and a no-replace rename, never a cross-device copy.
+Each allowed root must exist; missing sub-folders below it are created for outputs (mode 0755, narrowed by the umask), never through a symlink and never hidden. Filesystem storage runs on `linux/amd64` and `linux/arm64`; another architecture with `STORAGE_FILE_ROOTS` set stops startup with a clear error. Match the container UID/GID to permissions on the mount; check NFS root-squash and SMB ownership mapping. Files are created with mode 0644, narrowed by the process umask: other accounts on the mount (MAM, playout) can read deliveries; write access stays with the API user. The app speaks filesystem operations, not NFS/SMB/Aspera/Signiant protocols. Atomic mode uses a sibling temporary file and a no-replace rename, never a cross-device copy.
 
 Set `user` to a UID/GID that can access the mount; avoid running the API as root to paper over permissions.
 For a read-only input tree and a separate writable output tree, mount each separately and allowlist both

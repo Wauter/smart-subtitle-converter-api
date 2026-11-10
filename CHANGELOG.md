@@ -8,6 +8,14 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 
 ## Unreleased
 
+- Fixed: filesystem storage failed on arm64 Linux (for example Docker on Apple silicon) with `502 storage-io-failed`
+  "Invalid argument" for every listing, read and write. The folder-open and no-follow flags now use the right values
+  for the CPU architecture, so symlinks are refused on arm64 too. Supported: `linux/amd64` and `linux/arm64`; any
+  other architecture with `STORAGE_FILE_ROOTS` set stops startup with an `Invalid configuration` message. The Docker
+  smoke test on both architectures now lists, reads and writes filesystem storage and checks symlink refusal.
+- Filesystem outputs and sidecars create missing sub-folders below an allowed root, one level at a time on the opened
+  parent folder (mode 0755, narrowed by the umask), never through a symlink, never a hidden (`.`) folder and never
+  the root itself. Reads of a missing file or folder stay `404 storage-not-found`.
 - New, off by default: browse storage and read files by location with `STORAGE_LIST_ENABLED=true`.
   `GET /v1/storage/locations` lists the allowed file roots, S3 buckets and prefixes (HTTPS hosts as not listable);
   `GET /v1/storage/list?location=&prefix=&cursor=` lists one folder, up to 200 items a page in name order, with a
