@@ -29,7 +29,6 @@ other machines, see [security.md](security.md#step-4-exposing-it-beyond-localhos
 | `BROWSE_CONCURRENCY` / `BROWSE_QUEUE_CAPACITY` / `BROWSE_WAIT_SECONDS` | `4` / `32` / `30` | Browse queue for listing, read by location and job file reads; beyond it `503 browse-busy` |
 | `MAX_CUES` / `MAX_LINE_CHARS` | `200000` / `10000` | Input limits |
 | `RATE_LIMIT_PER_MINUTE` | off | Per key name, or per client IP when auth is off |
-| `CORS_ORIGINS` | off | Comma-separated exact origins that get CORS headers (also accepted by the `Origin` check) |
 | `KNOWN_PROXIES` | unset | IPs whose `X-Forwarded-*` headers are trusted |
 | `DOCS_ENABLED` | `true` | `/docs` (Scalar) |
 | `METRICS_ENABLED` / `METRICS_PORT` | off | Prometheus text at `/metrics`, optionally only on that port |

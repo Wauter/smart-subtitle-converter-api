@@ -85,14 +85,6 @@ builder.Services.AddOpenApi("v1", o =>
     });
 });
 
-if (opts.CorsOrigins.Length > 0)
-{
-    builder.Services.AddCors(c => c.AddDefaultPolicy(p => p.WithOrigins(opts.CorsOrigins).AllowAnyMethod()
-        .WithHeaders("Authorization", "Content-Type", "X-Request-Id", "Prefer")
-        .WithExposedHeaders("X-Request-Id", "X-Detected-Format", "X-Detected-Encoding", "X-Detected-Code-Page", "X-Output-Kind", "X-Cue-Count", "X-Cue-Count-In",
-            "X-Warnings-Count", "X-Warnings", "X-Libse-Version", "X-Profile", "Content-Disposition", "Retry-After", "X-Job-Id", "Location", "Preference-Applied")));
-}
-
 if (opts.RateLimitPerMinute > 0)
 {
     builder.Services.AddRateLimiter(r =>
@@ -146,7 +138,6 @@ app.Use(async (ctx, next) =>
     await next();
     if (ctx.Items["errorCode"] is string code) ctx.RequestServices.GetRequiredService<Metrics>().Count(code);
 });
-if (opts.CorsOrigins.Length > 0) app.UseCors();
 app.UseMiddleware<ApiKeyMiddleware>();
 if (opts.RateLimitPerMinute > 0) app.UseRateLimiter();
 
@@ -180,6 +171,9 @@ catch (StartupConfigException ex)
     return 78; // EX_CONFIG
 }
 app.Services.GetRequiredService<HostOriginFilter>().Log(app.Logger);
+if (!string.IsNullOrWhiteSpace(app.Configuration["CORS_ORIGINS"]))
+    app.Logger.LogWarning("{Line}", "security.cors CORS_ORIGINS is set but no longer supported and is ignored: the API sends no CORS headers, because a browser front end should not hold an API key. "
+        + "Fix: remove CORS_ORIGINS; call the API from a backend (or the MCP) instead of from a web page.");
 
 BinaryIO.RegisterEbuHelper();
 BinaryIO.SweepAtStartup(app.Logger);

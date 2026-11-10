@@ -195,6 +195,31 @@ public sealed class BrowserAccessTests : IDisposable
     }
 
     [Fact]
+    public async Task Cors_is_gone_a_leftover_cors_origins_setting_grants_nothing_and_no_cors_headers_are_sent()
+    {
+        using var f = ApiFactory.With(new() { ["CORS_ORIGINS"] = "https://studio.example.com" });
+        var c = f.CreateClient();
+        using var get = new HttpRequestMessage(HttpMethod.Get, "/v1/formats");
+        get.Headers.Add("Origin", "https://studio.example.com");
+        var r = await c.SendAsync(get);
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Equal("origin-not-allowed", (string)(await r.Json())["code"]!);
+        Assert.False(r.Headers.Contains("Access-Control-Allow-Origin"));
+        using var preflight = new HttpRequestMessage(HttpMethod.Options, "/v1/convert");
+        preflight.Headers.Add("Origin", "https://studio.example.com");
+        preflight.Headers.Add("Access-Control-Request-Method", "POST");
+        var p = await c.SendAsync(preflight);
+        Assert.False(p.Headers.Contains("Access-Control-Allow-Origin"));
+        Assert.False(p.Headers.Contains("Access-Control-Allow-Methods"));
+        // Same-host browser origin still works, without CORS headers.
+        using var own = new HttpRequestMessage(HttpMethod.Get, "/v1/formats");
+        own.Headers.Add("Origin", "http://localhost:8080");
+        var o = await c.SendAsync(own);
+        Assert.True(o.IsSuccessStatusCode);
+        Assert.False(o.Headers.Contains("Access-Control-Allow-Origin"));
+    }
+
+    [Fact]
     public async Task With_any_host_an_origin_must_match_the_request_host()
     {
         using var f = ApiFactory.With(new() { ["ALLOWED_HOSTS"] = "*" });

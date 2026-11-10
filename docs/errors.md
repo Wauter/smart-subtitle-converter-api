@@ -213,8 +213,8 @@ whose origin is one of its own allowed hosts, so a random web page you visit can
 **What to do:** Call the API from a program (curl, a script, the MCP server). Those don't send `Origin` and are
 not affected. A page served from an allowed host works too.
 
-_For integrators:_ 403. Requests without an `Origin` header are never affected. Origins listed in `CORS_ORIGINS`
-are also accepted.
+_For integrators:_ 403. Requests without an `Origin` header are never affected. The API sends no CORS headers, so a
+web page on another site can't call it: a browser front end should not hold an API key. Put a backend in between.
 
 ### <a id="not-found"></a>`not-found`
 

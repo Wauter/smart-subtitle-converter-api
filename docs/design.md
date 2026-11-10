@@ -328,7 +328,7 @@ Validation notes:
 
 - **XML**: everything is parsed with `DtdProcessing = Prohibit` and `XmlResolver = null`, so external entities are never fetched. A DTD returns `422 unsafe-xml`. libse creates its own `XmlDocument` instances in format classes, so the service **pre-screens** every XML-looking input with an `XmlReader` with DTDs prohibited and no resolver before handing it to libse. The same parser settings are proposed for libse’s own readers.
 - **Storage**: uploads/results are bounded in memory; binary operations use private temporary files. Optional allowlisted filesystem/S3/HTTPS input and output are described in [usage](usage.md#filesystem-locations-and-sidecars). Retained jobs contain metadata only.
-- **CORS**: off by default. `CORS_ORIGINS` enables an explicit allow-list; wildcards are not supported when auth is on.
+- **CORS**: not supported. The API sends no CORS headers; a browser front end should not hold an API key, so it calls its own backend.
 - **Headers**: `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'` on API responses (relaxed only for `/docs`), and `Cache-Control: no-store` on conversion responses.
 - **Container**: non-root, read-only root filesystem, no shell (chiseled image), all capabilities dropped.
 
@@ -361,7 +361,7 @@ Every error is `application/problem+json`:
 - Security events are **always** logged at `Warning` or higher, whatever the log level: auth failures (with key-name hint or prefix hash, never the key), rate-limit hits, XML-guard rejections, oversized bodies, timeouts and key-file reloads.
 
 ### 7.3 Response headers on conversions
-`X-Request-Id`, `X-Detected-Format`, `X-Detected-Encoding`, `X-Cue-Count` (output), `X-Cue-Count-In`, `X-Warnings-Count`, `X-Warnings` (compact JSON, truncated to 4 KB; the complete list is in the JSON endpoint), `X-Libse-Version`, `X-Profile` (resolved preset name). CORS `Access-Control-Expose-Headers` lists them when CORS is enabled.
+`X-Request-Id`, `X-Detected-Format`, `X-Detected-Encoding`, `X-Cue-Count` (output), `X-Cue-Count-In`, `X-Warnings-Count`, `X-Warnings` (compact JSON, truncated to 4 KB; the complete list is in the JSON endpoint), `X-Libse-Version`, `X-Profile` (resolved preset name).
 
 ### 7.4 Versioning
 - Path versioning `/v1`. Package compatibility changes, including removed features while alpha, are recorded in the CHANGELOG.

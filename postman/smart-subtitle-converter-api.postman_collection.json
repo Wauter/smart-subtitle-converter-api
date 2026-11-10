@@ -2037,7 +2037,7 @@
                 "formats"
               ]
             },
-            "description": "A request whose Origin header names a host that is not in ALLOWED_HOSTS (or CORS_ORIGINS) is refused before auth, so a web page can't use the API from someone's browser. Requests without Origin (curl, scripts, the MCP) are not affected."
+            "description": "A request whose Origin header names a host that is not in ALLOWED_HOSTS is refused before auth, so a web page can't use the API from someone's browser. Requests without Origin (curl, scripts, the MCP) are not affected."
           },
           "event": [
             {

@@ -31,7 +31,6 @@ public sealed class ApiOptions
     public int RateLimitPerMinute { get; init; }
     public int MaxCues { get; init; } = 200_000;
     public int MaxLineChars { get; init; } = 10_000;
-    public string[] CorsOrigins { get; init; } = [];
     public string[] KnownProxies { get; init; } = [];
     public string? S3Endpoint { get; init; }
     public string S3Region { get; init; } = "us-east-1";
@@ -126,7 +125,6 @@ public sealed class ApiOptions
             JobTtlSeconds = Math.Clamp(Get("JOB_TTL_SECONDS", d.JobTtlSeconds), 1, 86400),
             JobMaxEntries = Math.Clamp(Get("JOB_MAX_ENTRIES", d.JobMaxEntries), 1, 10000),
             ProfileMaxBytes = Math.Max(1024, Get("PROFILE_MAX_BYTES", d.ProfileMaxBytes)),
-            CorsOrigins = List(c["CORS_ORIGINS"]),
             KnownProxies = List(c["KNOWN_PROXIES"]),
         };
     }

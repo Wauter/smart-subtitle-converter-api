@@ -3,15 +3,14 @@ namespace SmartSubtitleConverterApi.Infrastructure;
 /// <summary>
 /// Browser-access protection (H1, DNS rebinding and cross-site requests). The Host header must name an allowed host:
 /// localhost, 127.0.0.1 and [::1] always, plus ALLOWED_HOSTS ("*" accepts any Host). A request with an Origin header is
-/// accepted only when the Origin's host is in that same list (the API's own origin), or exactly matches a CORS_ORIGINS
-/// entry; requests without Origin (curl, SDKs, the MCP) are unaffected. Ports are not compared. Health probes
+/// accepted only when the Origin's host is in that same list (the API's own origin). The API sends no CORS headers:
+/// a browser front end should not hold an API key. Requests without Origin (curl, SDKs, the MCP) are unaffected. Ports are not compared. Health probes
 /// (/healthz, /readyz, /metrics) are exempt: orchestrators call them by pod IP and they expose no data.
 /// </summary>
 public sealed class HostOriginFilter
 {
     public static readonly string[] AlwaysAllowed = ["localhost", "127.0.0.1", "[::1]"];
     private readonly HashSet<string> _hosts;
-    private readonly HashSet<string> _corsOrigins;
     public bool AnyHost { get; }
     public IReadOnlyCollection<string> Effective => _hosts;
 
@@ -20,7 +19,6 @@ public sealed class HostOriginFilter
         AnyHost = opts.AllowedHosts.Contains("*");
         _hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var h in AlwaysAllowed.Concat(opts.AllowedHosts.Where(h => h != "*"))) _hosts.Add(Normalize(h));
-        _corsOrigins = new HashSet<string>(opts.CorsOrigins.Select(o => o.TrimEnd('/')), StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Lower-cased host without port; IPv6 in brackets; a trailing dot removed.</summary>
@@ -40,10 +38,9 @@ public sealed class HostOriginFilter
 
     public bool HostAllowed(string? host) => AnyHost || (!string.IsNullOrEmpty(host) && _hosts.Contains(Normalize(host)));
 
-    /// <summary>True when <paramref name="origin"/> is our own origin: its host is allowed (with ALLOWED_HOSTS=*, it must equal the request's Host), or it is listed in CORS_ORIGINS.</summary>
+    /// <summary>True when <paramref name="origin"/> is our own origin: its host is allowed (with ALLOWED_HOSTS=*, it must equal the request's Host).</summary>
     public bool OriginAllowed(string origin, string? requestHost)
     {
-        if (_corsOrigins.Contains(origin.TrimEnd('/'))) return true;
         if (!Uri.TryCreate(origin, UriKind.Absolute, out var u) || u.Scheme is not ("http" or "https") || u.Host.Length == 0) return false; // "null", file:, garbage
         var host = Normalize(u.HostNameType == UriHostNameType.IPv6 ? u.Host : u.IdnHost);
         if (AnyHost) return requestHost != null && host == Normalize(requestHost);
@@ -63,8 +60,7 @@ public sealed class HostOriginFilter
         }
         log.LogInformation("{Line}", $"security.hosts allowed={string.Join(",", _hosts)} (requests with any other Host header get 400 host-not-allowed; "
             + "add the name or IP clients use, the compose service name of this API, or your reverse proxy's public hostname to ALLOWED_HOSTS, comma separated)");
-        log.LogInformation("{Line}", "security.origin requests with an Origin header are accepted only from an allowed host above"
-            + (_corsOrigins.Count > 0 ? $" or from CORS_ORIGINS ({string.Join(",", _corsOrigins)})" : "") + "; other browser origins get 403 origin-not-allowed. Requests without Origin (curl, SDKs, the MCP) are unaffected.");
+        log.LogInformation("{Line}", "security.origin requests with an Origin header are accepted only from an allowed host above; no CORS headers are sent; other browser origins get 403 origin-not-allowed. Requests without Origin (curl, SDKs, the MCP) are unaffected.");
     }
 }
 
