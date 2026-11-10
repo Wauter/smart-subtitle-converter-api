@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "48b0adfa-e493-5b61-a071-2cf7c7caee01",
     "name": "smart-subtitle-converter-api",
-    "description": "Every smart-subtitle-converter-api endpoint with the README examples, plus negative cases.\n\nSet `baseUrl` (default http://localhost:8080) and `apiKey` (leave empty for an open server) in the environment. File parts use paths relative to the repository root: in Postman set Settings -> General -> Working directory to your checkout; with newman pass `--working-dir <checkout>`.\n\nEvery request sends `Authorization: Bearer {{apiKey}}` when apiKey is set, except those tagged [no auth].\n\nStorage/job examples: URI transfers are opt-in. Fill fileInput/fileOutput, s3Input/s3Output, or httpsInput/httpsOutput only for storage you have configured. fileOutput is a complete-file template; each write inserts a GUID to avoid replacing files. Leave unused values empty to skip. Never commit signed URLs or credentials.\n\nJob file routes re-read stored input/output, not cached bytes; ids are capability tokens for any valid API key. ifExists is error (default) | replace. Disk/S3 default to collision errors; presigned HTTPS PUT follows signer/receiver policy. S3 output values are complete-key templates with a fresh GUID per example.",
+    "description": "Every smart-subtitle-converter-api endpoint with the README examples, plus negative cases.\n\nSet `baseUrl` (default http://localhost:8080) and `apiKey` in the environment. A key is required by default: use the key the API generated into its api_keys.txt on first start (read it from the file; it is never logged), or one of your own. Leave apiKey empty only for a server started with API_AUTH_DISABLED=true. File parts use paths relative to the repository root: in Postman set Settings -> General -> Working directory to your checkout; with newman pass `--working-dir <checkout>`.\n\nEvery request sends `Authorization: Bearer {{apiKey}}` when apiKey is set, except those tagged [no auth].\n\nStorage/job examples: URI transfers are opt-in. Fill fileInput/fileOutput, s3Input/s3Output, or httpsInput/httpsOutput only for storage you have configured. fileOutput is a complete-file template; each write inserts a GUID to avoid replacing files. Leave unused values empty to skip. Never commit signed URLs or credentials.\n\nJob file routes re-read stored input/output, not cached bytes; ids are capability tokens for any valid API key. ifExists is error (default) | replace. Disk/S3 default to collision errors; presigned HTTPS PUT follows signer/receiver policy. S3 output values are complete-key templates with a fresh GUID per example.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "event": [
@@ -2012,6 +2012,44 @@
                   "pm.test(\"code ambiguous-format\", () => pm.expect(p.code).to.eql(\"ambiguous-format\"));",
                   "pm.test(\"candidates\", () => pm.expect(p.candidates).to.eql([\"pacscreenelectronics\", \"pacunicodeunipac\"]));",
                   "pm.test(\"hint names source.format\", () => pm.expect(p.hint).to.include(\"source.format\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Foreign browser Origin (origin-not-allowed)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Origin",
+                "value": "https://evil.example"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/formats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "formats"
+              ]
+            },
+            "description": "A request whose Origin header names a host that is not in ALLOWED_HOSTS (or CORS_ORIGINS) is refused before auth, so a web page can't use the API from someone's browser. Requests without Origin (curl, scripts, the MCP) are not affected."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"problem+json\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                  "pm.test(\"code origin-not-allowed\", () => pm.expect(pm.response.json().code).to.eql(\"origin-not-allowed\"));",
+                  "pm.test(\"no CORS headers\", () => pm.expect(pm.response.headers.get(\"Access-Control-Allow-Origin\")).to.be.undefined);",
+                  "pm.test(\"has hint\", () => pm.expect(pm.response.json().hint).to.be.a(\"string\").and.not.empty);"
                 ]
               }
             }
