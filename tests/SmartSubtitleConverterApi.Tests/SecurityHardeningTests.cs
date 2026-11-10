@@ -165,18 +165,35 @@ public sealed class BrowserAccessTests : IDisposable
     }
 
     [Fact]
-    public async Task Origin_is_accepted_only_from_an_allowed_host_and_a_cross_site_multipart_post_writes_nothing()
+    public async Task Origin_is_accepted_only_when_host_and_port_match_the_request_and_a_cross_site_multipart_post_writes_nothing()
     {
         var root = Directory.CreateTempSubdirectory("se-origin-").FullName;
         try
         {
             using var f = ApiFactory.With(new() { ["ALLOWED_HOSTS"] = "subtitle-api", ["STORAGE_FILE_ROOTS"] = root });
             var c = f.CreateClient();
-            foreach (var origin in new[] { "http://localhost:3000", "http://127.0.0.1", "https://subtitle-api", "http://[::1]:5173" })
-                Assert.True((await c.SendAsync(Get("/v1/formats", origin: origin))).IsSuccessStatusCode, origin);
-            foreach (var origin in new[] { "https://evil.example", "null", "file://", "http://localhost.evil.example", "garbage" })
+            foreach (var (host, origin) in new (string, string)[] {
+                ("localhost:8080", "http://localhost:8080"),
+                ("127.0.0.1:8080", "https://127.0.0.1:8080"), // scheme is ignored
+                ("[::1]:8080", "http://[::1]:8080"),
+                ("subtitle-api:8080", "http://subtitle-api:8080"),
+                ("localhost", "http://localhost"),
+                ("localhost", "http://localhost:80"),
+            })
+                Assert.True((await c.SendAsync(Get("/v1/formats", host, origin))).IsSuccessStatusCode, origin);
+            foreach (var (host, origin) in new (string?, string)[] {
+                ("127.0.0.1:8080", "http://127.0.0.1:8099"),
+                ("localhost:8080", "http://localhost:3000"),
+                ("localhost", "https://localhost"), // default 443 vs 80
+                ("localhost:8080", "http://subtitle-api:8080"), // allowed, but not this request
+                (null, "https://evil.example"),
+                (null, "null"),
+                (null, "file://"),
+                (null, "http://localhost.evil.example"),
+                (null, "garbage"),
+            })
             {
-                var r = await c.SendAsync(Get("/v1/formats", origin: origin));
+                var r = await c.SendAsync(Get("/v1/formats", host, origin));
                 Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
                 Assert.Equal("origin-not-allowed", (string)(await r.Json())["code"]!);
             }
@@ -211,8 +228,9 @@ public sealed class BrowserAccessTests : IDisposable
         var p = await c.SendAsync(preflight);
         Assert.False(p.Headers.Contains("Access-Control-Allow-Origin"));
         Assert.False(p.Headers.Contains("Access-Control-Allow-Methods"));
-        // Same-host browser origin still works, without CORS headers.
+        // Same host and port still works, without CORS headers.
         using var own = new HttpRequestMessage(HttpMethod.Get, "/v1/formats");
+        own.Headers.Host = "localhost:8080";
         own.Headers.Add("Origin", "http://localhost:8080");
         var o = await c.SendAsync(own);
         Assert.True(o.IsSuccessStatusCode);
@@ -224,8 +242,22 @@ public sealed class BrowserAccessTests : IDisposable
     {
         using var f = ApiFactory.With(new() { ["ALLOWED_HOSTS"] = "*" });
         var c = f.CreateClient();
-        Assert.True((await c.SendAsync(Get("/v1/formats", "api.example:8080", "https://api.example"))).IsSuccessStatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(Get("/v1/formats", "api.example:8080", "https://evil.example"))).StatusCode);
+        Assert.True((await c.SendAsync(Get("/v1/formats", "api.example:8080", "https://api.example:8080"))).IsSuccessStatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(Get("/v1/formats", "api.example:8080", "https://api.example"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(Get("/v1/formats", "api.example:8080", "https://evil.example:8080"))).StatusCode);
+    }
+
+    [Fact]
+    public void Origin_matches_request_host_and_port_including_default_ports()
+    {
+        var f = new HostOriginFilter(new ApiOptions());
+        Assert.True(f.OriginAllowed("http://localhost", "localhost", "http"));
+        Assert.True(f.OriginAllowed("http://localhost:80", "localhost", "http"));
+        Assert.True(f.OriginAllowed("https://localhost", "localhost", "https"));
+        Assert.True(f.OriginAllowed("https://127.0.0.1:8080", "127.0.0.1:8080", "http"));
+        Assert.False(f.OriginAllowed("https://localhost", "localhost", "http"));
+        Assert.False(f.OriginAllowed("http://127.0.0.1:8099", "127.0.0.1:8080", "http"));
+        Assert.False(f.OriginAllowed("http://subtitle-api:8080", "localhost:8080", "http"));
     }
 
     [Fact]

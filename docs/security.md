@@ -76,10 +76,10 @@ header gets `400 host-not-allowed`, which stops web pages from reaching the API 
 host and logs a warning; use it only behind a proxy that checks the host itself.
 
 Browsers send an `Origin` header. Requests without one (curl, scripts, the MCP) are not affected. When present, its
-host must be one of the allowed hosts, otherwise `403 origin-not-allowed`. This
-also stops a web page from posting a form to the API. With `ALLOWED_HOSTS=*`, the origin must match the request's
-own host. The API sends no CORS headers at all: a web page should not hold an API key, so browser front ends call
-their own backend, which calls the API.
+host and port must match the request's own `Host` (scheme is ignored; a missing port is 80 or 443) and that host must
+be allowed, otherwise `403 origin-not-allowed`. A page on another port, even on localhost, is refused. The same
+host-and-port match applies with `ALLOWED_HOSTS=*`. The API sends no CORS headers at all: a web page should not hold
+an API key, so browser front ends call their own backend, which calls the API.
 
 ### Step 4: exposing it beyond localhost
 

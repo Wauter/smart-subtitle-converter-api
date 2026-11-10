@@ -32,7 +32,8 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
   [Securing the API](docs/security.md#securing-the-api).
 - **Breaking:** `ALLOWED_HOSTS`: the API answers only to `localhost`, `127.0.0.1`, `[::1]` and the listed host names
   (`*` for any, with a warning); other `Host` headers get `400 host-not-allowed`. A browser `Origin` header, when
-  present, must name an allowed host: `403 origin-not-allowed`. Health probes are exempt.
+  present, must match the request's own host and port (scheme ignored; missing ports default to 80 or 443) and that
+  host must be allowed: `403 origin-not-allowed`. Health probes are exempt.
 - **Breaking:** CORS support is removed. `CORS_ORIGINS` is ignored (with a startup warning) and the API never sends
   CORS headers: a browser front end should not hold an API key, so it calls its own backend instead.
 - **Breaking:** only subtitle files are read, listed or written by file and S3 location: the extension must be one

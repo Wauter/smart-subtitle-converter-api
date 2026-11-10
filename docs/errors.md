@@ -208,10 +208,11 @@ accepted hosts (`security.hosts`).
 **What:** A web page from another site tried to call the API, and the API refused.
 
 **Why:** Browsers send an `Origin` header that says which site the page came from. The API only accepts requests
-whose origin is one of its own allowed hosts, so a random web page you visit can't read or write your files.
+whose origin host and port match the `Host` they were sent to (and that host is allowed), so a random web page you
+visit — or one on another port — can't read or write your files.
 
 **What to do:** Call the API from a program (curl, a script, the MCP server). Those don't send `Origin` and are
-not affected. A page served from an allowed host works too.
+not affected. A page served from the same host and port the API was called on works too.
 
 _For integrators:_ 403. Requests without an `Origin` header are never affected. The API sends no CORS headers, so a
 web page on another site can't call it: a browser front end should not hold an API key. Put a backend in between.

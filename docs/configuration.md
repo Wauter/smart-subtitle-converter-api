@@ -19,7 +19,7 @@ other machines, see [security.md](security.md#step-4-exposing-it-beyond-localhos
 | `API_KEYS_FILE` | `/api_keys.txt` (image) | One key per line, `#` comments, `name:key`; reloaded on change. A file with no key gets a generated one on first start (never printed). Missing, a folder, or not writable when empty: startup stops, exit code 78 ([Securing the API](security.md#securing-the-api)) |
 | `API_KEYS` | unset | Comma-separated bearer keys (`name:key` allowed), in addition to the file |
 | `API_AUTH_DISABLED` | `false` | `true` turns auth off (local experiments only; logs a loud warning) |
-| `ALLOWED_HOSTS` | unset | Extra `Host` names besides `localhost`, `127.0.0.1`, `[::1]` (always allowed); comma-separated; `*` = any (warning). Also checks a browser `Origin` |
+| `ALLOWED_HOSTS` | unset | Extra `Host` names besides `localhost`, `127.0.0.1`, `[::1]` (always allowed); comma-separated; `*` = any (warning). A browser `Origin` must match the request host and port, and that host must be allowed |
 | `ERRORS_VERBOSE` | `false` | `true` puts stack traces and internals in error responses; otherwise they are logged as `error.details` by request id |
 | `MAX_UPLOAD_BYTES` | `10485760` | Max decoded file size. Body caps derive from it: multipart `+256 KiB`, JSON `4*ceil(n/3) + PROFILE_MAX_BYTES + 64 KiB` (see `GET /v1/limits`) |
 | `PROFILE_MAX_BYTES` | `65536` | Max inline profile size (min 1024) |
