@@ -6,7 +6,7 @@ An API key is required by default. Create an empty key file the container user (
 read-write at `/api_keys.txt`; a key is generated into it on first start ([Securing the API](security.md#securing-the-api)):
 
 ```bash
-touch api_keys.txt && sudo chown 1654 api_keys.txt && chmod 600 api_keys.txt
+touch api_keys.txt && chmod 600 api_keys.txt && sudo chown 1654 api_keys.txt
 docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 --restart unless-stopped \
   -v "$PWD/api_keys.txt:/api_keys.txt" ghcr.io/wauter/smart-subtitle-converter-api:latest
 ```
@@ -33,7 +33,7 @@ read-only rootfs, `tmpfs` `/tmp`, `./profiles` and `./api_keys.txt` (read-write)
 service name, all capabilities dropped and `restart: unless-stopped` (see [security.md](security.md)).
 
 ```bash
-touch api_keys.txt && sudo chown 1654 api_keys.txt && chmod 600 api_keys.txt   # once
+touch api_keys.txt && chmod 600 api_keys.txt && sudo chown 1654 api_keys.txt   # once
 docker compose up -d           # pull the image
 docker compose up --build -d   # or build it locally from this checkout
 ```

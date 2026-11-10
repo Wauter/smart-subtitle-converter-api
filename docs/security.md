@@ -26,7 +26,7 @@ write it, and mount it read-write:
 
 ```sh
 touch api_keys.txt
-sudo chown 1654 api_keys.txt && chmod 600 api_keys.txt
+chmod 600 api_keys.txt && sudo chown 1654 api_keys.txt
 ```
 
 ```yaml
@@ -55,9 +55,17 @@ partly. Read it from the file on the host (`cat api_keys.txt`) and send it as `A
 
 ### Step 2: give the MCP the key
 
-The Smart Subtitle Converter MCP sends the key for you. Either mount the same file read-only into the MCP and set
-`SUBTITLE_API_KEY_FILE=/api_keys.txt` (comment lines are skipped; the first key is used), or set
-`SUBTITLE_API_KEY=<key>` in the MCP client configuration. For Postman, set the environment variable `apiKey`.
+The Smart Subtitle Converter MCP sends the key for you. Set `SUBTITLE_API_KEY_FILE` to a file holding the key (comment
+lines are skipped; the first key is used, and the file is re-read when it changes), or set `SUBTITLE_API_KEY=<key>` in
+the MCP client configuration. When the MCP runs on the same machine as your user, point it at `api_keys.txt` directly
+if your user can read it. In Docker, the MCP runs as another user than the API (65532, not 1654), so give it a copy:
+
+```sh
+sudo grep -v -e '^#' -e '^$' api_keys.txt | head -n 1 > mcp_api_key.txt
+chmod 600 mcp_api_key.txt && sudo chown 65532 mcp_api_key.txt
+```
+
+and mount `mcp_api_key.txt` read-only into the MCP container. For Postman, set the environment variable `apiKey`.
 
 ### Step 3: host names
 

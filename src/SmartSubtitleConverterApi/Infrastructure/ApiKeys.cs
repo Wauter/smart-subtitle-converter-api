@@ -173,13 +173,13 @@ public static class ApiKeyBootstrap
                 $"API_KEYS_FILE={path} is a directory, not a file.\n"
                 + "  Why: this usually means the file did not exist on the host when the container started, so Docker created an empty directory with that name instead of mounting a file.\n"
                 + $"  Fix: stop the container, remove that directory on the host (rmdir {HostFileExample}), create an empty file (touch {HostFileExample}), "
-                + $"make it writable for the container user (UID 1654), for example: sudo chown 1654 {HostFileExample} && chmod 600 {HostFileExample}, then start again. "
+                + $"make it writable for the container user (UID 1654), for example: chmod 600 {HostFileExample} && sudo chown 1654 {HostFileExample}, then start again. "
                 + $"The volume line should look like: - {HostFileExample}:{path}");
         if (!File.Exists(path))
             throw new StartupConfigException(
                 $"API_KEYS_FILE={path} does not exist.\n"
                 + "  Why: the API requires an API key by default and reads it from this file.\n"
-                + $"  Fix: create an empty file on the host (touch {HostFileExample}), make it writable for the container user (UID 1654): sudo chown 1654 {HostFileExample} && chmod 600 {HostFileExample}, "
+                + $"  Fix: create an empty file on the host (touch {HostFileExample}), make it writable for the container user (UID 1654): chmod 600 {HostFileExample} && sudo chown 1654 {HostFileExample}, "
                 + $"and mount it read-write: - {HostFileExample}:{path}. On first start the API writes a new key into it. "
                 + "Or put your own key in it, or set API_KEYS=<key>, or (only for throwaway local tests) API_AUTH_DISABLED=true.");
         string[] lines;
@@ -188,7 +188,7 @@ public static class ApiKeyBootstrap
         {
             throw new StartupConfigException(
                 $"API_KEYS_FILE={path} can't be read ({ex.GetType().Name}).\n"
-                + $"  Fix: make the file readable for the container user (UID 1654), for example: sudo chown 1654 {HostFileExample} && chmod 600 {HostFileExample}.");
+                + $"  Fix: make the file readable for the container user (UID 1654), for example: chmod 600 {HostFileExample} && sudo chown 1654 {HostFileExample}.");
         }
         var fileCount = CountKeys(null, lines);
         if (fileCount + envCount > 0)
@@ -217,7 +217,7 @@ public static class ApiKeyBootstrap
             throw new StartupConfigException(
                 $"API_KEYS_FILE={path} has no key and the API could not write a new one into it ({ex.GetType().Name}).\n"
                 + "  Why: when the key file is empty the API generates a key into it on first start, which needs write access.\n"
-                + $"  Fix: mount the file read-write (no :ro on the volume line, not as a Docker secret) and make it writable for the container user (UID 1654): sudo chown 1654 {HostFileExample} && chmod 600 {HostFileExample}. "
+                + $"  Fix: mount the file read-write (no :ro on the volume line, not as a Docker secret) and make it writable for the container user (UID 1654): chmod 600 {HostFileExample} && sudo chown 1654 {HostFileExample}. "
                 + "Or put your own key in the file yourself (one per line) and keep the read-only mount.");
         }
         var modeNote = "";
@@ -228,7 +228,7 @@ public static class ApiKeyBootstrap
         log.LogWarning("{Line}", $"auth.key-generated No API key was configured, so a new random key was generated and written to {path} inside the container{modeNote}. The key is not printed here.");
         log.LogWarning("{Line}", $"auth.key-generated Where to find it: in the file you mounted at {path} (for example {HostFileExample} next to docker-compose.yml). Open it on the host; the key is the line that does not start with '#'.");
         log.LogWarning("{Line}", "auth.key-generated Clients send it as the header: Authorization: Bearer <key>.");
-        log.LogWarning("{Line}", "auth.key-generated MCP server: mount the same file read-only and set SUBTITLE_API_KEY_FILE=<path of the file inside the MCP container>, or set SUBTITLE_API_KEY=<key>. Restart the MCP after changing it.");
+        log.LogWarning("{Line}", "auth.key-generated MCP server: give it the key with SUBTITLE_API_KEY_FILE=<a file holding the key, readable by the MCP's user> (for example a copy of this file) or SUBTITLE_API_KEY=<key>. The MCP re-reads that file when it changes.");
         log.LogWarning("{Line}", "auth.key-generated Postman: set the apiKey environment variable to the key.");
         log.LogWarning("{Line}", new string('=', 100));
     }

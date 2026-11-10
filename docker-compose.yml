@@ -1,4 +1,4 @@
-# Auth is on by default. Before the first start:  touch api_keys.txt && sudo chown 1654 api_keys.txt && chmod 600 api_keys.txt
+# Auth is on by default. Before the first start:  touch api_keys.txt && chmod 600 api_keys.txt && sudo chown 1654 api_keys.txt
 # On first start the API writes a new key into that file (it never prints it); see docs/security.md.
 # Example: docker compose up -d (pulls :edge; needs `docker login ghcr.io`) or docker compose up --build -d (local build), then   curl -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ
 services:

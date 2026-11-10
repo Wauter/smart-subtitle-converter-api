@@ -49,7 +49,7 @@ of ambiguous input instead of a guess.
 With Docker. The API needs a key, so first create an empty key file it can write (the container runs as UID 1654):
 
 ```bash
-touch api_keys.txt && sudo chown 1654 api_keys.txt && chmod 600 api_keys.txt
+touch api_keys.txt && chmod 600 api_keys.txt && sudo chown 1654 api_keys.txt
 docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 \
   -v "$PWD/api_keys.txt:/api_keys.txt" ghcr.io/wauter/smart-subtitle-converter-api:latest
 curl localhost:8080/healthz   # {"status":"ok","version":"…","libse":"…"}

@@ -49,8 +49,11 @@ echo "ok  host and origin checks"
 KEYS=$(mktemp); chmod 666 "$KEYS"
 start -v "$KEYS:/api_keys.txt"
 KEY=$(grep '^ssc_' "$KEYS" | head -1); [ -n "$KEY" ] || fail "no key generated into the mounted file"
-docker logs se-smoke 2>&1 | grep -qF "$KEY" && fail "generated key appears in the logs"
-docker logs se-smoke 2>&1 | grep -q "auth.key-generated" || fail "key generation is not logged"
+# Logs go to a file first: `docker logs | grep -q` can fail under pipefail when grep exits early (SIGPIPE).
+LOGS=$(mktemp); docker logs se-smoke >"$LOGS" 2>&1
+grep -qF "$KEY" "$LOGS" && fail "generated key appears in the logs"
+grep -q "auth.key-generated" "$LOGS" || fail "key generation is not logged"
+rm -f "$LOGS"
 code=$(convert sample.srt webvtt); [ "$code" = 401 ] || fail "generated key, no key sent gave $code"
 code=$(convert sample.srt webvtt -H "Authorization: Bearer $KEY"); [ "$code" = 200 ] || fail "generated key gave $code"
 echo "ok  key generated into the mounted file"
