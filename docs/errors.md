@@ -24,7 +24,9 @@ Setting names are profile fields, written as a path: `source.format` means
 | [`invalid-profile`](#invalid-profile) | 400 | A profile setting is wrong or unknown |
 | [`format-option-invalid`](#format-option-invalid) | 400 | A format option value is not allowed |
 | [`empty-input`](#empty-input) | 400 | The file is empty |
+| [`host-not-allowed`](#host-not-allowed) | 400 | The API was called by a host name it doesn't accept |
 | [`unauthorized`](#unauthorized) | 401 | Missing or wrong API key |
+| [`origin-not-allowed`](#origin-not-allowed) | 403 | A web page from another site tried to call the API |
 | [`not-found`](#not-found) | 404 | No such endpoint |
 | [`preset-not-found`](#preset-not-found) | 404 | No preset with that name |
 | [`payload-too-large`](#payload-too-large) | 413 | File, request or profile too big |
@@ -41,9 +43,14 @@ Setting names are profile fields, written as a path: `source.format` means
 | [`conversion-failed`](#conversion-failed) | 422 | An operation or the format writer failed |
 | [`rate-limited`](#rate-limited) | 429 | Too many requests |
 | [`queue-full`](#queue-full) | 503 | The converter is busy |
+| [`conversion-engine-stuck`](#conversion-engine-stuck) | 503 | An earlier conversion is stuck; the API is recovering |
+| [`browse-busy`](#browse-busy) | 503 | Too many listings and reads at once |
 | [`conversion-timeout`](#conversion-timeout) | 504 | The conversion took too long |
 | [`internal-error`](#internal-error) | 500 | A bug in the API |
 | [`storage-location-rejected`](#storage-location-rejected) | 422 | The input/output location is not allowed |
+| [`hidden-path`](#hidden-path) | 422 | The file or folder is hidden (its name starts with `.`) |
+| [`extension-not-allowed`](#extension-not-allowed) | 422 | Not a subtitle file extension, or the wrong one for the target |
+| [`folder-too-large`](#folder-too-large) | 422 | The folder has too many entries to list |
 | [`storage-not-found`](#storage-not-found) | 404 | The storage file or folder does not exist |
 | [`storage-io-failed`](#storage-io-failed) | 502 | Reading or writing storage failed |
 | [`storage-list-disabled`](#storage-list-disabled) | 403 | Browsing and reading by location are off |
@@ -173,11 +180,41 @@ _For integrators:_ 404.
 
 **What:** The API key is missing or not accepted.
 
-**Why:** This server requires an API key for every request.
+**Why:** The API requires a key for every `/v1` request by default. On first start it can generate one for you
+(see [Securing the API](security.md#securing-the-api)).
 
-**What to do:** Send `Authorization: Bearer <key>`. Ask the operator for a key if you don't have one.
+**What to do:** Send `Authorization: Bearer <key>`. The key is in the API's key file (for example `api_keys.txt`
+next to `docker-compose.yml`); the line that doesn't start with `#` is the key. For the MCP server, set
+`SUBTITLE_API_KEY_FILE` (or `SUBTITLE_API_KEY`). Ask the operator for a key if you don't have one.
 
 _For integrators:_ 401 with `WWW-Authenticate: Bearer`.
+
+### <a id="host-not-allowed"></a>`host-not-allowed`
+
+**What:** The API was called by a host name (the `Host` header) it doesn't accept.
+
+**Why:** To stop web pages from reaching the API through a trick called DNS rebinding, the API only answers to
+names it knows: `localhost`, `127.0.0.1`, `[::1]`, plus the names the operator added to `ALLOWED_HOSTS`.
+
+**What to do:** Call the API by an allowed name. If you reach it by another name or IP (another container, a
+server name, a reverse proxy), ask the operator to add that name to `ALLOWED_HOSTS` (comma separated) and restart
+the API. The error names the host it saw.
+
+_For integrators:_ 400. Health probes (`/healthz`, `/readyz`, `/metrics`) are exempt. The startup log lists the
+accepted hosts (`security.hosts`).
+
+### <a id="origin-not-allowed"></a>`origin-not-allowed`
+
+**What:** A web page from another site tried to call the API, and the API refused.
+
+**Why:** Browsers send an `Origin` header that says which site the page came from. The API only accepts requests
+whose origin is one of its own allowed hosts, so a random web page you visit can't read or write your files.
+
+**What to do:** Call the API from a program (curl, a script, the MCP server). Those don't send `Origin` and are
+not affected. A page served from an allowed host works too.
+
+_For integrators:_ 403. Requests without an `Origin` header are never affected. Origins listed in `CORS_ORIGINS`
+are also accepted.
 
 ### <a id="not-found"></a>`not-found`
 
@@ -255,6 +292,33 @@ _For integrators:_ 503, `Retry-After`. Safe to retry: the request was not admitt
 operations; retrying the same request will usually time out again.
 
 _For integrators:_ 504 with `phase`. Budget: `CONVERSION_TIMEOUT_SECONDS`.
+
+### <a id="conversion-engine-stuck"></a>`conversion-engine-stuck`
+
+**What:** An earlier conversion ran past its time limit and is still running, so the API is not starting new
+conversions for now.
+
+**Why:** The converter keeps its settings in one shared place, so running a second conversion beside a stuck one
+could mix up their settings. The API waits until the stuck one ends. If it never ends, the API restarts itself
+after a grace period (`CONVERSION_STUCK_GRACE_SECONDS`, by default twice the time limit).
+
+**What to do:** Retry after `Retry-After`. If it keeps happening with the same file, that file is probably the
+cause; keep a copy and send it, with the API's `conversion.stuck` log lines, to the operator.
+
+_For integrators:_ 503 with `Retry-After`; `/readyz` reports not ready meanwhile. The container needs a restart
+policy (`restart: unless-stopped`) so the automatic restart brings it back.
+
+### <a id="browse-busy"></a>`browse-busy`
+
+**What:** The API is handling too many folder listings and file reads at the same time.
+
+**Why:** Listings, reads by location and job file reads share a small number of slots (4 by default) and a
+bounded waiting line, so a burst of browsing can't slow down the whole server. Conversions use their own queue.
+
+**What to do:** Retry after `Retry-After`. If it happens often, the operator can raise `BROWSE_CONCURRENCY` or
+`BROWSE_QUEUE_CAPACITY`.
+
+_For integrators:_ 503 with `Retry-After`. Current values: `GET /v1/limits` (`storage.browse`).
 
 ### <a id="internal-error"></a>`internal-error`
 
@@ -408,14 +472,56 @@ and downloading. Setup: [usage.md](usage.md#filesystem-locations-and-sidecars).
 
 **Why:** Storage access is limited to what the operator allowlisted, and some paths are refused for safety: a
 scheme that isn't enabled, a path outside the allowed roots, buckets, prefixes or hosts, a directory instead of a
-file, dot segments, symlinks, a hidden file or folder (a path or key component starting with `.`; see
-[hidden files](usage.md#hidden-files-and-folders)), control characters in the decoded location (an encoded NUL,
-`%00`), an HTTPS redirect, or an HTTPS host that resolves to a private address.
+file, dot segments, symlinks, control characters in the decoded location (an encoded NUL, `%00`), an HTTPS
+redirect, or an HTTPS host that resolves to a private address. Hidden files and folders inside an allowed
+location have their own code, [`hidden-path`](#hidden-path).
 
 **What to do:** Name a complete file inside an allowed location. If the location is right, ask the operator to
 add it to the allowlist (`STORAGE_FILE_ROOTS`, `S3_ALLOWED_BUCKETS`, `S3_ALLOWED_PREFIXES`, `HTTP_ALLOWED_HOSTS`).
 
 _For integrators:_ 422. `detail` says which rule applied. Enabled schemes: `GET /v1/limits` (`storage`).
+
+### <a id="hidden-path"></a>`hidden-path`
+
+**What:** The file or folder is inside an allowed location, but it is hidden: its name, or the name of a folder
+above it, starts with `.` (for example `.env`, `.git/config` or `.cache/show.srt`).
+
+**Why:** Hidden files often hold settings and secrets, so the API never reads, lists or writes them, also not as
+an output or sidecar. Names with dots inside them (`show.en.srt`) are fine.
+
+**What to do:** Use a file or folder whose name and parent folders don't start with `.`. A listing `prefix` can't
+start with `.` either. HTTPS URLs are not affected by this rule.
+
+_For integrators:_ 422. Checked after the allowlist: a path outside the allowed locations is still
+`storage-location-rejected`.
+
+### <a id="extension-not-allowed"></a>`extension-not-allowed`
+
+**What:** The file name doesn't end in a subtitle extension, or, for an output, not in an extension of the
+target format.
+
+**Why:** In file and S3 locations the API only lists, reads and writes subtitle files, so other files in the same
+folders (configuration, documents) can't be read through it. An output must be named for its format (a WebVTT
+output ends in `.vtt`), so files are never written under a misleading name.
+
+**What to do:** Use the file's real subtitle extension (`.srt`, `.vtt`, `.stl`, `.pac`, ...). For an output,
+give it the target format's extension or pick the target that matches the name. The full list is in
+`GET /v1/limits` under `storage.extensions`. HTTPS URLs and the `{output}.json` sidecar are not affected.
+
+_For integrators:_ 422 with `extension` (and `allowed` for outputs). Also returned by
+`GET /v1/jobs/{id}/input|output` when the stored location has no subtitle extension, for example a failed job.
+
+### <a id="folder-too-large"></a>`folder-too-large`
+
+**What:** The folder has too many entries to list.
+
+**Why:** Listing reads the whole folder on every page, so very large folders are refused to keep the API
+responsive: at most 5,000 entries that match your prefix (and 100,000 names in total).
+
+**What to do:** Add a `prefix` (the start of the names you want) to list fewer entries, or organise the files into
+subfolders.
+
+_For integrators:_ 422 with `limit`. Filesystem folders only; S3 listings are paged by S3 itself.
 
 ### <a id="storage-not-found"></a>`storage-not-found`
 

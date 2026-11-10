@@ -17,13 +17,42 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - New error codes `storage-list-disabled` (403), `storage-not-listable` (422) and `storage-cursor-invalid` (400).
 - `GET /v1/limits` adds `storage.list` and `storage.listSchemes`; the startup log says whether listing is on.
 - Listing S3 uses `ListObjectsV2` and needs `s3:ListBucket` ([S3 permissions](docs/deployment.md#s3-permissions)).
-- **Breaking:** hidden files and folders are never read, listed or used as a conversion source, with listing on or
-  off: any path or S3 key component starting with `.` (a dotfile, anything inside a dot-named folder, or anything
-  under a hidden allowed root or prefix) is `422 storage-location-rejected` on `GET /v1/storage/file`,
-  `GET /v1/storage/list`, convert and detect `input`, and job file reads. Before, hidden entries were only left out
-  of listings and could still be read directly. Checked on the decoded location, before any storage call. Hidden
-  roots and prefixes are left out of `GET /v1/storage/locations`. Dotted names (`show.en.srt`) and writes are
-  unaffected. See [hidden files](docs/usage.md#hidden-files-and-folders).
+- **Breaking:** hidden files and folders are never read, listed, written, replaced or used as a conversion source,
+  output or sidecar, with listing on or off: any path or S3 key component starting with `.` (a dotfile, anything
+  inside a dot-named folder, or anything under a hidden allowed root or prefix) is `422 hidden-path` on
+  `GET /v1/storage/file`, `GET /v1/storage/list` (also a `prefix` starting with `.`), convert and detect `input`,
+  convert `output` and job file reads. A location outside the allowed folders still gets
+  `422 storage-location-rejected` first. Checked on the decoded location, before any storage call. Hidden roots and
+  prefixes are left out of `GET /v1/storage/locations`. Dotted names (`show.en.srt`) are unaffected. HTTPS URLs are
+  not checked. See [hidden files](docs/usage.md#hidden-files-and-folders).
+- **Breaking:** an API key is required by default. The image sets `API_KEYS_FILE=/api_keys.txt`; mount an empty,
+  writable file there and a strong key is generated into it on first start (in place, mode 0600, never logged).
+  A missing file, a folder, an unreadable file or a read-only empty file stops startup with exit code 78 and an
+  explanation. `API_AUTH_DISABLED=true` opts out, with a loud startup warning. See
+  [Securing the API](docs/security.md#securing-the-api).
+- **Breaking:** `ALLOWED_HOSTS`: the API answers only to `localhost`, `127.0.0.1`, `[::1]` and the listed host names
+  (`*` for any, with a warning); other `Host` headers get `400 host-not-allowed`. A browser `Origin` header, when
+  present, must name an allowed host (or a `CORS_ORIGINS` entry): `403 origin-not-allowed`. Health probes are exempt.
+- **Breaking:** only subtitle files are read, listed or written by file and S3 location: the extension must be one
+  libse reads or writes (`GET /v1/limits` `storage.extensions`), and an output must use an extension of its target
+  format (the `{output}.json` sidecar is exempt). Otherwise `422 extension-not-allowed`. Listings show only those
+  files. Job file reads follow the same rule.
+- **Breaking:** `ERRORS_VERBOSE` defaults to `false`: error responses no longer carry stack traces or internals;
+  they are logged as `error.details requestId=...` instead.
+- A folder listing stops at 5000 matching entries: `422 folder-too-large` (narrow it with `prefix`).
+- Browse queue: listing, reading by location and job file reads run at most `BROWSE_CONCURRENCY` (4) at a time,
+  `BROWSE_QUEUE_CAPACITY` (32) wait up to `BROWSE_WAIT_SECONDS` (30), then `503 browse-busy` with `Retry-After`.
+  Separate from the conversion queue. Reported in `GET /v1/limits` `storage.browse`.
+- After a conversion timeout no other conversion starts beside the stuck one: `503 conversion-engine-stuck` with
+  `Retry-After` and `/readyz` not ready, until it returns. Still running after `CONVERSION_STUCK_GRACE_SECONDS`
+  (default twice the timeout), the process logs why and exits with code 70 so the restart policy starts a clean one.
+  New metric `subtitleedit_conversion_engine_stuck`.
+- XML is screened after stripping leading byte-order marks, zero-width characters and whitespace; any DOCTYPE or
+  ENTITY is `422 unsafe-xml`, and XML parsing prohibits DTDs, uses no resolver and limits entity expansion.
+- Reads by file location open a path handle and check it is a regular file before opening it, so a FIFO or device
+  named like a subtitle can't hang a request. Writes, replaces, sidecars and deletes never follow symlinks.
+- New error codes: `hidden-path`, `extension-not-allowed`, `folder-too-large` (422), `host-not-allowed` (400),
+  `origin-not-allowed` (403), `browse-busy`, `conversion-engine-stuck` (503).
 - Fix: a percent-encoded control character in a file or S3 location (for example `file:///data/a.srt%00.txt`) is
   `422 storage-location-rejected` before any filesystem call, instead of `500 internal-error`.
 

@@ -58,13 +58,16 @@ curl localhost:8080/v1/schemas/profile.json     # JSON Schema for editors and ag
 curl localhost:8080/v1/limits
 ```
 
-## With API keys enabled
+## API keys
+
+A key is required by default (see [Securing the API](security.md#securing-the-api)). The examples on this page
+leave the header out for brevity; add it to every `/v1` call:
 
 ```bash
 curl -H "Authorization: Bearer $KEY" -F file=@movie.srt -F target=vtt localhost:8080/v1/convert -OJ
 ```
 
-How to enable keys: [security.md](security.md#api-keys).
+How to enable keys: [security.md](security.md#step-1-the-api-key-file).
 
 ## Response headers
 
@@ -199,25 +202,44 @@ files), `returned`, `truncated` and, when truncated, `next`. Pass `next` as `cur
 
 ### Hidden files and folders
 
-Hidden files and folders are never read, listed or used as a conversion source, whether listing is on or off. A
+Hidden files and folders are never read, listed, written or used as a conversion source or sidecar, whether listing
+is on or off. A
 path or object key is hidden when any of its `/`-separated components starts with `.`: a dotfile (`.env`,
 `.hidden.srt`), anything inside a dot-named folder at any depth (`.git/config`, `.cache/x/y.srt`), and everything
 under an allowed root or `S3_ALLOWED_PREFIXES` entry that is itself hidden or sits inside a hidden folder
 (`/srv/.subtitles`, `/home/app/.cache/subs`, `tmp/.cache/`). Dots inside names are fine: `show.en.v2.srt`,
 `v1.2/ep.srt` and `a..b.srt` are ordinary files.
 
-- **Where it applies:** `GET /v1/storage/file`, `GET /v1/storage/list` (a hidden folder, directly or through
-  `prefix`), convert and detect `input` (JSON and multipart), and `GET /v1/jobs/{id}/input|output`. Filesystem
+- **Where it applies:** `GET /v1/storage/file`, `GET /v1/storage/list` (a hidden folder, or a `prefix` starting
+  with `.`), convert and detect `input` and convert `output` (JSON and multipart, including `ifExists:"replace"`
+  and the `{output}.json` sidecar), and `GET /v1/jobs/{id}/input|output`. Filesystem
   roots and S3 keys alike. Listings leave hidden entries out, and `GET /v1/storage/locations` leaves out hidden
   roots and prefixes, so their names aren't revealed; the startup log warns about them (`storage.hidden`).
 - **How it's checked:** on the decoded location (percent-encoding is decoded once, so `%2Eenv` is `.env`) before any
-  filesystem or S3 call, with the same `422 storage-location-rejected` for an existing and a missing hidden name.
+  filesystem or S3 call, with the same `422 hidden-path` for an existing and a missing hidden name. A location
+  outside the allowed folders gets `422 storage-location-rejected` first, so you always see the most basic problem.
   The filesystem never follows symlinks, so a link can't alias a hidden file.
-- **Writes** keep their rules: a conversion may still write a dot-named `output`, but nothing reads it back, not even
-  that job's `GET /v1/jobs/{id}/output`. HTTPS URLs are not affected (`/.well-known/…` still works as input).
+- **HTTPS URLs are not affected** (`/.well-known/…` still works as input or output): those files belong to the
+  remote server.
 - **Limits:** the rule is name-based. It doesn't look at other hidden markers (Windows hidden attributes, macOS
   `UF_HIDDEN`), and filesystem storage runs on Linux only. Hidden S3 entries are dropped after `ListObjectsV2`
   returns them, so a page can hold fewer than 200 items (even none) while `truncated` is still true.
+
+### Subtitle files only
+
+By file and S3 location, only subtitle files are read, listed or written: the extension (case-insensitive) must be
+one that libse reads or writes, such as `.srt`, `.vtt`, `.ass`, `.stl`, `.ttml`, `.xml` or `.txt`. The full list is
+`storage.extensions` in `GET /v1/limits`. Listings show only those files, plus folders. A conversion `output` must
+use an extension of its target format (`out.vtt` for WebVTT, not `out.srt`); its `{output}.json` sidecar is
+allowed. Anything else, including a file without an extension, is `422 extension-not-allowed`. HTTPS URLs are not
+checked.
+
+### Big folders and busy servers
+
+A listing stops at 5000 matching entries per folder and answers `422 folder-too-large`; use `prefix` to narrow it.
+Listing, reading by location and job file reads go through a small browse queue (4 at a time by default, more
+waiting up to 30 seconds). When it is full the answer is `503 browse-busy` with `Retry-After`; just retry.
+Conversions have their own queue and are not slowed down by browsing.
 
 `GET /v1/storage/file` returns the current bytes with a `Content-Disposition` file name. It doesn't detect or
 convert; send the same location as `input` to `/v1/detect` or `/v1/convert/json` for that.

@@ -2,23 +2,38 @@
 
 ## Docker
 
-```bash
-docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 ghcr.io/wauter/smart-subtitle-converter-api:latest
-```
-
-To use your own presets, mount a folder at `/profiles`:
+An API key is required by default. Create an empty key file the container user (UID 1654) can write, and mount it
+read-write at `/api_keys.txt`; a key is generated into it on first start ([Securing the API](security.md#securing-the-api)):
 
 ```bash
-docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 \
-  -v "$PWD/profiles:/profiles:ro" ghcr.io/wauter/smart-subtitle-converter-api:latest
+touch api_keys.txt && sudo chown 1654 api_keys.txt && chmod 600 api_keys.txt
+docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 --restart unless-stopped \
+  -v "$PWD/api_keys.txt:/api_keys.txt" ghcr.io/wauter/smart-subtitle-converter-api:latest
 ```
+
+If the file is missing, Docker creates a folder named `api_keys.txt` instead, and the API stops with exit code 78
+and a message saying how to fix it (the same for a read-only empty file). Use `-e API_KEYS=<key>` instead of the
+file if you prefer, or `-e API_AUTH_DISABLED=true` for throwaway local tests only.
+
+To use your own presets, also mount a folder at `/profiles`:
+
+```bash
+docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 --restart unless-stopped \
+  -v "$PWD/api_keys.txt:/api_keys.txt" -v "$PWD/profiles:/profiles:ro" ghcr.io/wauter/smart-subtitle-converter-api:latest
+```
+
+Keep a restart policy (`--restart unless-stopped`, `restart: unless-stopped` in Compose, or your orchestrator's):
+when a conversion gets stuck past its grace period, the API exits with code 70 on purpose so a clean process starts.
+Exit code 78 means a configuration problem; the log says what to change, and restarting won't help until you do.
 
 ## Docker Compose
 
 The repo's [`docker-compose.yml`](../docker-compose.yml) is the reference setup: host port 8080 on `127.0.0.1`,
-read-only rootfs, `tmpfs` `/tmp`, `./profiles` mounted, all capabilities dropped (see [security.md](security.md)).
+read-only rootfs, `tmpfs` `/tmp`, `./profiles` and `./api_keys.txt` (read-write) mounted, `ALLOWED_HOSTS` set to the
+service name, all capabilities dropped and `restart: unless-stopped` (see [security.md](security.md)).
 
 ```bash
+touch api_keys.txt && sudo chown 1654 api_keys.txt && chmod 600 api_keys.txt   # once
 docker compose up -d           # pull the image
 docker compose up --build -d   # or build it locally from this checkout
 ```

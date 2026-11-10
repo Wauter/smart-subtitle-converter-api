@@ -145,7 +145,7 @@
           "jobs"
         ],
         "summary": "Re-read the job\u0027s stored input location; never a cached file.",
-        "description": "Any valid API key knowing the id may fetch it. Current allowlists/size limits apply. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared.",
+        "description": "Any valid API key knowing the id may fetch it. Current allowlists, hidden-path rule, extension allowlist and size limits apply: a file or S3 location whose extension is not a subtitle format (GET /v1/limits storage.extensions) is 422 extension-not-allowed, also for failed jobs. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared. Shares the browse queue (503 browse-busy).",
         "operationId": "getJobInput",
         "parameters": [
           {
@@ -268,6 +268,30 @@
               }
             }
           },
+          "503": {
+            "description": "Service Unavailable",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
             "headers": {
@@ -343,7 +367,7 @@
           "jobs"
         ],
         "summary": "Re-read the job\u0027s stored output location; never a cached file.",
-        "description": "Any valid API key knowing the id may fetch it. Current allowlists/size limits apply. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared.",
+        "description": "Any valid API key knowing the id may fetch it. Current allowlists, hidden-path rule, extension allowlist and size limits apply: a file or S3 location whose extension is not a subtitle format (GET /v1/limits storage.extensions) is 422 extension-not-allowed, also for failed jobs. Query-redacted HTTPS locations cannot be replayed. Files may have changed or disappeared. Shares the browse queue (503 browse-busy).",
         "operationId": "getJobOutput",
         "parameters": [
           {
@@ -455,6 +479,30 @@
                 "description": "Request id (also in problem.requestId and the logs).",
                 "schema": {
                   "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
                 }
               }
             },
@@ -1436,7 +1484,7 @@
           "info"
         ],
         "summary": "Effective upload, queue, wait, I/O, job and storage-scheme limits.",
-        "description": "Lets clients pre-check inputs. \u0060queue.depth\u0060 is a live value. \u0060auth.required\u0060 says whether a bearer key is needed; keys are never exposed.",
+        "description": "Lets clients pre-check inputs. \u0060queue.depth\u0060 and \u0060storage.browse.running|waiting\u0060 are live values. \u0060auth.required\u0060 says whether a bearer key is needed; keys are never exposed. \u0060storage.extensions\u0060 lists the subtitle extensions that can be listed, read and written by file/S3 location.",
         "operationId": "getLimits",
         "parameters": [
           {
@@ -2288,7 +2336,7 @@
           "storage"
         ],
         "summary": "List one folder of an allowed file or S3 location, a page at a time.",
-        "description": "\u0060location\u0060 is a folder (file:///root/folder/, /root/folder/ or s3://bucket/prefix/), \u0060prefix\u0060 an optional name prefix (\u0027/\u0027 descends into sub-folders; no globs). Lists one level in backend name order (UTF-8 byte order), at most 200 items per page: files with size and modified time, and folders (ending in \u0027/\u0027). When \u0060truncated\u0060 is true pass \u0060next\u0060 as \u0060cursor\u0060 with the same location and prefix. Stateless: items that exist for the whole walk appear exactly once; items created or deleted during the walk may or may not appear. No total count, time sort or offsets. Hidden entries (names starting with \u0027.\u0027) are skipped, and hidden folders are refused (422); filesystem listings also skip symlinks and special files. HTTPS is not listable (422 storage-not-listable). Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
+        "description": "\u0060location\u0060 is a folder (file:///root/folder/, /root/folder/ or s3://bucket/prefix/), \u0060prefix\u0060 an optional name prefix (\u0027/\u0027 descends into sub-folders; no globs). Lists one level in backend name order (UTF-8 byte order), at most 200 items per page: files with a subtitle extension (GET /v1/limits storage.extensions) with size and modified time, and folders (ending in \u0027/\u0027). When \u0060truncated\u0060 is true pass \u0060next\u0060 as \u0060cursor\u0060 with the same location and prefix. Stateless: items that exist for the whole walk appear exactly once; items created or deleted during the walk may or may not appear. No total count, time sort or offsets. A filesystem folder with more than 5000 matching entries is 422 folder-too-large (narrow it with \u0060prefix\u0060). Hidden entries (names starting with \u0027.\u0027) are skipped; a hidden folder or a prefix starting with \u0027.\u0027 is 422 hidden-path. Filesystem listings also skip symlinks and special files. HTTPS is not listable (422 storage-not-listable). Shares the browse queue with reads by location and job file reads (503 browse-busy with Retry-After when it is full). Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
         "operationId": "listStorage",
         "parameters": [
           {
@@ -2413,6 +2461,30 @@
               }
             }
           },
+          "503": {
+            "description": "Service Unavailable",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Unauthorized: API keys are configured and the bearer key is missing or wrong.",
             "headers": {
@@ -2488,7 +2560,7 @@
           "storage"
         ],
         "summary": "Read one file from an allowed file or S3 location (current contents, unconverted).",
-        "description": "The same allowlists, symlink, traversal, hidden-file and size checks as convert input: a path or key with a component starting with \u0027.\u0027 is 422 storage-location-rejected. HTTPS is not readable here (422 storage-not-listable); use it as convert input. Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
+        "description": "The same allowlists, symlink, traversal, hidden-file, extension and size checks as convert input: outside the allowed locations is 422 storage-location-rejected, a path or key with a component starting with \u0027.\u0027 is 422 hidden-path, a name without a subtitle extension is 422 extension-not-allowed. HTTPS is not readable here (422 storage-not-listable); use it as convert input. Shares the browse queue (503 browse-busy). Requires STORAGE_LIST_ENABLED=true; otherwise 403 storage-list-disabled.",
         "operationId": "getStorageFile",
         "parameters": [
           {
@@ -2599,6 +2671,30 @@
                 "description": "Request id (also in problem.requestId and the logs).",
                 "schema": {
                   "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem\u002Bjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request id (also in problem.requestId and the logs).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
                 }
               }
             },
@@ -2740,7 +2836,14 @@
               "rate-limited",
               "queue-full",
               "conversion-timeout",
-              "internal-error"
+              "internal-error",
+              "hidden-path",
+              "extension-not-allowed",
+              "host-not-allowed",
+              "origin-not-allowed",
+              "folder-too-large",
+              "browse-busy",
+              "conversion-engine-stuck"
             ],
             "type": "string"
           },
@@ -3225,6 +3328,58 @@
           }
         }
       },
+      "LimitsBrowse": {
+        "required": [
+          "concurrency",
+          "queueCapacity",
+          "waitSeconds",
+          "running",
+          "waiting"
+        ],
+        "type": "object",
+        "properties": {
+          "concurrency": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "queueCapacity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "waitSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "running": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "waiting": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "LimitsIo": {
         "required": [
           "timeoutSeconds",
@@ -3478,6 +3633,34 @@
             "items": {
               "type": "string"
             }
+          },
+          "extensions": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "listMaxEntries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "browse": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LimitsBrowse"
+              }
+            ]
           }
         }
       },

@@ -38,25 +38,31 @@ of ambiguous input instead of a guess.
   optional JSON sidecar next to the output. Every conversion gets a job id you can poll.
 - **Container defaults:** amd64/arm64, chiseled ASP.NET Core base with no shell, a non-root user, and a
   reference Compose that adds a read-only root filesystem, dropped capabilities and a `127.0.0.1`-only port.
-  API keys and rate limits are optional.
+  An API key is required by default (generated for you on first start), and only known host names and no foreign
+  web pages can reach it. Rate limits are optional.
 - **Agent-friendly:** a JSON endpoint, an OpenAPI contract, a JSON Schema for profiles, and stable error codes with
   hints. The companion [MCP server](https://github.com/Wauter/smart-subtitle-converter-mcp) lets Claude and other AI
   agents use it directly.
 
 ## Quick start
 
-With Docker:
+With Docker. The API needs a key, so first create an empty key file it can write (the container runs as UID 1654):
 
 ```bash
-docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 ghcr.io/wauter/smart-subtitle-converter-api:latest
+touch api_keys.txt && sudo chown 1654 api_keys.txt && chmod 600 api_keys.txt
+docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 \
+  -v "$PWD/api_keys.txt:/api_keys.txt" ghcr.io/wauter/smart-subtitle-converter-api:latest
 curl localhost:8080/healthz   # {"status":"ok","version":"…","libse":"…"}
 ```
 
-Then convert something:
+On first start the API writes a new key into `api_keys.txt` (it never prints it). Then convert something:
 
 ```bash
-curl -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ   # saves movie.vtt
+KEY=$(sudo grep -v '^#' api_keys.txt | head -1)
+curl -H "Authorization: Bearer $KEY" -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ   # saves movie.vtt
 ```
+
+More on keys, host names and the MCP setup: [Securing the API](docs/security.md#securing-the-api).
 
 Open <http://localhost:8080/docs> for the interactive API reference. Other ways to run it (Docker Compose,
 building from source, image tags): [docs/deployment.md](docs/deployment.md).
@@ -112,7 +118,7 @@ Start with [usage](docs/usage.md#job-metadata), [configuration](docs/configurati
 | [docs/formats.md](docs/formats.md) | Work with binary formats: detection, code pages, frame rates, verification |
 | [docs/profiles.md](docs/profiles.md) | Use presets, write your own profiles, chain operations |
 | [docs/configuration.md](docs/configuration.md) | Change ports, limits, storage allowlists, job history, metrics or health checks |
-| [docs/security.md](docs/security.md) | Expose it beyond localhost, enable API keys, see how files are handled |
+| [docs/security.md](docs/security.md) | Secure the API: API keys, host names, exposing it beyond localhost, how files are handled |
 | [docs/deployment.md](docs/deployment.md) | Pick an image tag, run without Compose, build from source |
 | [docs/errors.md](docs/errors.md) | Look up an error or warning code: what happened, why, what to do; verification and remedy fields |
 | [docs/development.md](docs/development.md) | Build, test, run Postman/newman, see what CI does |
