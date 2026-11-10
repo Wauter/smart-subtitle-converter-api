@@ -58,10 +58,13 @@ WORKDIR /app
 COPY --from=build /app .
 COPY LICENSE /app/LICENSE
 ENV ASPNETCORE_HTTP_PORTS=8080 \
+    API_KEYS_FILE=/api_keys.txt \
     PROFILES_DIR=/profiles \
     DOTNET_gcServer=0 \
     DOTNET_TieredPGO=1
 EXPOSE 8080
 USER app
+# Auth is on by default: mount an empty, writable ./api_keys.txt at /api_keys.txt and a key is generated into it on
+# first start (docs/security.md). Without it (and without API_KEYS) startup stops with exit code 78 and instructions.
 # No HEALTHCHECK: the chiseled image has no curl/shell. Probe /healthz and /readyz from the orchestrator.
 ENTRYPOINT ["dotnet", "SmartSubtitleConverterApi.dll"]

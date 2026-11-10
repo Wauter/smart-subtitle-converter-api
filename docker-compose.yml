@@ -1,3 +1,5 @@
+# Auth is on by default. Before the first start:  touch api_keys.txt && sudo chown 1654 api_keys.txt && chmod 600 api_keys.txt
+# On first start the API writes a new key into that file (it never prints it); see docs/security.md.
 # Example: docker compose up -d (pulls :edge; needs `docker login ghcr.io`) or docker compose up --build -d (local build), then   curl -F file=@movie.srt -F target=webvtt localhost:8080/v1/convert -OJ
 services:
   smart-subtitle-converter-api:
@@ -15,8 +17,9 @@ services:
       - path: .env
         required: false
     environment:
-      # API_KEYS_FILE: /run/secrets/api_keys   # enable auth (one key per line, optional name:key)
-      ERRORS_VERBOSE: "true"                   # set "false" to hide stack traces/internals
+      API_KEYS_FILE: /api_keys.txt             # one key per line (optional name:key); empty file = a key is generated into it
+      ALLOWED_HOSTS: "smart-subtitle-converter-api"   # Host names callers use besides localhost/127.0.0.1/[::1], e.g. this service name for other containers
+      # ERRORS_VERBOSE: "true"                 # default false: error bodies stay short, details go to the server log by requestId
       QUEUE_CAPACITY: "32"
       CONVERSION_TIMEOUT_SECONDS: "30"
       MAX_UPLOAD_BYTES: "10485760"
@@ -26,11 +29,11 @@ services:
       # STORAGE_LIST_ENABLED: "true"         # browse allowed locations and read files by location (GET /v1/storage/*); off by default
     volumes:
       - ./profiles:/profiles:ro                # your own presets (*.json); see GET /v1/profiles
-      # - ./api_keys.txt:/run/secrets/api_keys:ro
+      - ./api_keys.txt:/api_keys.txt           # read-write (the API writes a generated key into an empty file); must be a file, not a folder
     read_only: true
     tmpfs:
       - /tmp                                   # RAM-backed; binary formats use a private 0700 temp dir here
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    restart: unless-stopped
+    restart: unless-stopped                    # required: a stuck conversion makes the process exit (code 70) so a clean one starts
