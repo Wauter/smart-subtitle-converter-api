@@ -14,7 +14,7 @@ trusted, and what to change when it can't.
 > [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) by **Nikolaj Olsson** (MIT). This is a community
 > project, **not an official Subtitle Edit project**.
 >
-> **Status: alpha.** This is early software. It works and is tested, but hasn't been through real-world use yet.
+> **Early software.** It works and is tested, but hasn't been through real-world use yet.
 > Expect changes, and please [report issues](https://github.com/Wauter/smart-subtitle-converter-api/issues).
 
 ## Why use it
