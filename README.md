@@ -3,49 +3,44 @@
 [![CI](https://github.com/Wauter/smart-subtitle-converter-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Wauter/smart-subtitle-converter-api/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Subtitle Edit's proven conversion engine as a containerised HTTP API, with verified output, honest warnings and
-sensible safeguards for automating it or handing it to an AI agent.**
+**An HTTP API for converting and checking subtitles, built on Subtitle Edit's conversion engine.**
 
-Convert and check subtitles between SRT, WebVTT, TTML, ASS and broadcast formats such as EBU STL, PAC and
-Cavena 890, from a script, a media workflow or an AI agent. Every conversion tells you whether the output can be
-trusted, and what to change when it can't.
+It handles SRT, WebVTT, TTML, ASS and broadcast formats such as EBU STL, PAC and Cavena 890, and runs as a single
+container. Each conversion reports whether anything was lost and which setting fixes it, so it can run unattended
+in a media workflow or be handed to an AI agent.
 
 > **Built on Subtitle Edit.** All format reading and writing is done by `libse`, the library behind
 > [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) by **Nikolaj Olsson** (MIT). This is a community
 > project, **not an official Subtitle Edit project**.
 >
-> **Early software.** It works and is tested, but hasn't been through real-world use yet.
-> Expect changes, and please [report issues](https://github.com/Wauter/smart-subtitle-converter-api/issues).
+> **Early software.** Expect changes, and please
+> [report issues](https://github.com/Wauter/smart-subtitle-converter-api/issues).
 
-## Why use it
+## What it adds to the engine
 
-`libse` is the mature, widely used engine behind Subtitle Edit. This project adds the layer that makes it practical
-to automate: what a broadcaster, sports organisation or streaming platform needs before it lets a subtitle
-conversion run unattended inside a workflow, or hands it to an AI agent.
+`libse` already reads and writes the formats. This project adds what you need before a conversion can run without
+someone checking the result by hand.
 
-- **It tells you whether the output is right.** Every binary broadcast output (EBU STL, PAC, FPC, Cavena 890,
-  CapMaker Plus, Cheetah CAP) is read back and given a verdict: `lossless`, `quantised`, `lossy` or `unverified`.
-  The report names cue numbers and code points, never subtitle text.
-- **It doesn't guess.** When a file could be read more than one way (PAC or FPC, or an unclear text encoding), it
-  is refused with the candidates instead of quietly converted wrongly.
-- **Its warnings come with a fix.** When characters would be lost, the warning names the setting to change. For
-  PAC, the API tests each code page and lists only the ones that keep every character. It never switches settings
-  on its own.
-- **It checks the source too.** Overlapping cues, cues longer than 30 seconds, zero-length cues, header fields
-  filled with defaults such as `No Title`, and the frame rate used for frame-based formats are all reported.
-- **It fits the storage and automation you already have.** Allowlisted folders, S3-compatible buckets and HTTPS or
-  presigned URLs, a job id for every conversion, an OpenAPI contract, and presets you can mount.
-- **It is ready for AI agents.** The companion
-  [MCP server](https://github.com/Wauter/smart-subtitle-converter-mcp) gives Claude, Cursor and other MCP clients
-  the same conversions and checks.
+- **Verified output.** Every binary broadcast output (EBU STL, PAC, FPC, Cavena 890, CapMaker Plus, Cheetah CAP)
+  is read back and reported as `lossless`, `quantised`, `lossy` or `unverified`. The report names cue numbers and
+  code points, never subtitle text.
+- **No guessing.** A file that could be read more than one way (PAC or FPC, or an unclear text encoding) is
+  refused with the candidates listed.
+- **Warnings with a fix.** When characters would be lost, the warning names the setting to change. For PAC, the
+  API tests each code page and lists only the ones that keep every character. It never switches settings on its
+  own.
+- **Source checks.** Overlapping cues, cues longer than 30 seconds, zero-length cues, header fields filled with
+  defaults such as `No Title`, and the frame rate used for frame-based formats.
+- **Storage and jobs.** Reads and writes allowlisted folders, S3-compatible buckets and HTTPS or presigned URLs.
+  Every conversion gets a job id.
+- **AI agents.** The companion [MCP server](https://github.com/Wauter/smart-subtitle-converter-mcp) exposes the
+  same conversions and checks to Claude, Cursor and other MCP clients.
 
-Every error and warning has a stable code, a plain-language explanation and a suggested fix
-([docs/errors.md](docs/errors.md)), so both operators and automation can act on them.
+Every error and warning has a stable code, an explanation and a suggested fix ([docs/errors.md](docs/errors.md)).
 
 ### What a verdict looks like
 
-Greek SRT written as PAC with the default Latin code page. The verification says what was lost, and where (code
-points shortened):
+Greek SRT written as PAC with the default Latin code page (code points shortened):
 
 ```json
 {
@@ -57,7 +52,7 @@ points shortened):
 }
 ```
 
-The warning that comes with it names the fix:
+The warning names the fix:
 
 ```json
 "hint": "Lost characters are Greek (U+03B1, U+03B9, U+03B5, U+03BC, U+03BF, …) (detected source language: el); set formatOptions.pac.codePage to \"greek\" (the only value that keeps every character of this text, tested; current: latin) or use target fpc (Unicode PAC). Never switched automatically."
@@ -77,11 +72,10 @@ flowchart LR
     API <--> S["Folders, S3-compatible buckets,<br/>HTTPS and presigned URLs"]
 ```
 
-- **Take it for a spin with your own AI client, agent or coding harness.** Start the API with the quick start
-  below, then add the [Smart Subtitle Converter MCP](https://github.com/Wauter/smart-subtitle-converter-mcp) and ask
-  for a conversion in plain language.
-- **Integrate it into your own platform and automation.** Call the HTTP API wherever a workflow needs to convert
-  or check a subtitle. There is a JSON endpoint, an OpenAPI contract and a JSON Schema for profiles.
+- **From an AI client or coding agent:** start the API with the quick start below, then add the
+  [Smart Subtitle Converter MCP](https://github.com/Wauter/smart-subtitle-converter-mcp).
+- **From your own platform:** call the HTTP API. There is a JSON endpoint, an OpenAPI contract and a JSON Schema
+  for profiles.
 
 ## Quick start
 
@@ -172,7 +166,7 @@ Start with [usage](docs/usage.md#job-metadata), [configuration](docs/configurati
 
 ## Safeguards
 
-The defaults aim to be sensible for one machine or an internal network.
+The defaults are meant for one machine or an internal network.
 
 - **Authentication is on by default.** A key is generated on first start and is never printed or logged. Rate
   limits are optional.
@@ -183,8 +177,8 @@ The defaults aim to be sensible for one machine or an internal network.
   and arm64. The reference Compose file adds a read-only root filesystem, dropped capabilities and a
   `127.0.0.1`-only port.
 
-**It has not been independently audited.** It is meant for a trusted environment, not for exposure to the public
-internet. Details and how to change the defaults: [docs/security.md](docs/security.md).
+It has not been independently audited, and it is meant for a trusted environment, not the public internet.
+Details and how to change the defaults: [docs/security.md](docs/security.md).
 
 ## Good to know
 
@@ -220,12 +214,11 @@ version matches this API's.
 
 ## Feedback and author
 
-This is early software, and reports from real files and real workflows are the most useful thing you can send.
-Please [open an issue](https://github.com/Wauter/smart-subtitle-converter-api/issues) for a bug, a file that
-converts wrongly, or a format or check you are missing.
+Bug reports are welcome, especially with a file that converts wrongly:
+[open an issue](https://github.com/Wauter/smart-subtitle-converter-api/issues).
 
-Built and maintained by [Wauter De Bruyne](https://www.linkedin.com/in/wauterdebruyne/), a hands-on solution
-architect working on media workflow automation for broadcasters, sports organisations and streaming platforms.
+Built by [Wauter De Bruyne](https://www.linkedin.com/in/wauterdebruyne/), a solution architect working on media
+workflow automation for broadcasters, sports organisations and streaming platforms.
 
 ## Credits and license
 
