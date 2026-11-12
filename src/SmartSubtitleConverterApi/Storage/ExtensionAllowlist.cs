@@ -22,9 +22,15 @@ public sealed class ExtensionAllowlist
         _set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in formats.All.Where(f => f.Source == "libse" && f.Kind is FormatKinds.Text or FormatKinds.Binary)) // image/container formats (mkv, mp4, sup, ...) cannot be converted
             foreach (var e in new[] { f.Extension }.Concat(f.AlternateExtensions))
-                if (Normalize(e) is { } n) _set.Add(n);
+                if (Normalize(e) is { } n && !NotSubtitleExtensions.Contains(n)) _set.Add(n);
         Sorted = _set.Order(StringComparer.Ordinal).ToList();
     }
+
+    /// <summary>
+    /// Alternate extensions libse lists that mostly name other kinds of files, kept out so a location can't read or
+    /// overwrite them: ".ini" (FFmpeg metadata chapters, libse 5.4; its own ".ffmeta" stays allowed).
+    /// </summary>
+    private static readonly HashSet<string> NotSubtitleExtensions = new(StringComparer.OrdinalIgnoreCase) { ".ini" };
 
     /// <summary>".SRT" / "srt" -> ".srt"; null for empty or malformed values.</summary>
     public static string? Normalize(string? ext)

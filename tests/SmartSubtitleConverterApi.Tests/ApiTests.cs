@@ -44,7 +44,7 @@ public class ApiTests : IClassFixture<ApiFactory>
         Assert.Equal("no-store", r.Header("Cache-Control"));
         Assert.Equal("nosniff", r.Header("X-Content-Type-Options"));
         Assert.NotEmpty(r.Header("X-Request-Id"));
-        Assert.Equal("5.1.0", r.Header("X-Libse-Version"));
+        Assert.Equal("5.4.0", r.Header("X-Libse-Version"));
         Assert.Contains("WEBVTT", await r.Content.ReadAsStringAsync());
     }
 
@@ -219,7 +219,7 @@ public class ApiTests : IClassFixture<ApiFactory>
     public async Task Health_ready_docs()
     {
         var h = await (await _c.GetAsync("/healthz")).Json();
-        Assert.Equal("5.1.0", (string)h["libse"]!);
+        Assert.Equal("5.4.0", (string)h["libse"]!);
         Assert.Equal("unknown", (string)h["revision"]!); // test builds aren't stamped
         for (var i = 0; i < 50; i++)
         {

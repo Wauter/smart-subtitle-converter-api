@@ -100,6 +100,11 @@ public class FrameRateRequiredTests : IClassFixture<ApiFactory>
         await Required(new { content = Srt, fileName = "a.srt", target = "microdvd" }, "/target/fps");
         await Ok(new { content = Srt, fileName = "a.srt", target = "vtt" });
         await Ok(new { content = Srt, fileName = "a.srt", target = "ebustl" }); // its header declares the rate (default 25)
+        // libse 5.4 writes iTunes Timed Text header timing at the current rate: SMPTE time codes need a real one.
+        await Required(new { content = Srt, fileName = "a.srt", target = "itunestimedtext" }, "/target/fps");
+        var itt = await Ok(new { content = Srt, fileName = "a.srt", target = "itunestimedtext", profile = new { target = new { fps = 25 } } });
+        Assert.Contains("ttp:frameRate=\"25\"", Text(itt));
+        Assert.Contains("ttp:frameRateMultiplier=\"1 1\"", Text(itt));
         var df = await Ok(new { content = Srt, fileName = "a.srt", target = "scenaristclosedcaptionsdropframe" }); // 29.97 by definition
         Assert.Contains("00:00:01;00", Text(df));
     }
@@ -129,7 +134,7 @@ public class FrameRateRequiredTests : IClassFixture<ApiFactory>
         Assert.Contains("00:00:01,000 --> 00:00:03,000", Text(back));
         var scc = await Ok(new { content = SccDropFrame, fileName = "a.scc", target = "microdvd" });
         Assert.Equal("inferred", (string)Details(scc)["frameRateSource"]!);
-        Assert.StartsWith("{45}", Text(scc)); // 1.5 s at 29.97
+        Assert.StartsWith("{54}", Text(scc)); // 1.801 s (shown at the end-of-caption code) at 29.97
     }
 
     [Fact]

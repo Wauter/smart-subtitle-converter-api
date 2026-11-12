@@ -86,7 +86,8 @@ with [`frame-rate-required`](errors.md#frame-rate-required):
 - a frame-based output with no rate field (or SCC) needs `target.fps` or `source.fps` when the source is time-based.
 
 No rate is needed to convert between formats that record none (PAC to PAC, PAC to Cavena 890, …) without those
-settings: frame numbers carry over unchanged. SCC drop-frame output is always 29.97. `GET /v1/formats` marks every
+settings: frame numbers carry over unchanged. SCC drop-frame output is always 29.97. iTunes Timed Text output is
+written with SMPTE frame time codes and declares their rate, so it needs one like a frame-based target. `GET /v1/formats` marks every
 format that stores frames with `frameBased: true`. EBU STL output never needs a rate from the request: its rate is
 `formatOptions.ebuStl.frameRate`, else `target.fps`, else the source's rate when it is an EBU rate, else 25.
 `detected.formatDetails.frameRate` / `frameRateSource` (`profile`, `header`, `inferred`, or `unknown` with no

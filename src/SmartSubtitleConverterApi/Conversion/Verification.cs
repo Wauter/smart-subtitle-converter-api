@@ -316,13 +316,10 @@ public static class Verifier
                 break;
             case "cavena890":
                 option = "formatOptions.cavena890.language"; allowed = Binary.BinaryOptions.CavenaLanguageNames;
-                // libse 5.1.0: Greek, Cyrillic and Arabic don't survive a Cavena 890 round trip whatever the language id
-                // (garbled, or the reader throws); Hebrew and Chinese do. The Latin languages (en, da, sv, no, nb, ro)
-                // share one character table, so switching between them never helps.
-                var broken = real.Where(x => x is "Greek" or "Cyrillic" or "Arabic").ToList();
-                if (broken.Count > 0) note = $"libse's Cavena 890 writer doesn't keep {string.Join(" / ", broken)} text intact (it reads back garbled), whatever the language.";
-                else if (real.Contains("Latin extended")) note = "Cavena 890's Latin languages (en, da, sv, no, nb, ro) share one character table; none keeps these characters.";
-                byScript = sc => sc switch { "Hebrew" => ["he"], "CJK" => ["zh-hant", "zh-hans"], _ => [] };
+                // Since libse 5.4, Greek, Cyrillic and Arabic round-trip with their language id (5.1 garbled them). The
+                // Latin languages (en, da, sv, no, nb, ro) share one character table, so switching between them never helps.
+                if (real.Contains("Latin extended")) note = "Cavena 890's Latin languages (en, da, sv, no, nb, ro) share one character table; none keeps these characters.";
+                byScript = sc => sc switch { "Greek" => ["el"], "Cyrillic" => ["ru"], "Arabic" => ["ar"], "Hebrew" => ["he"], "CJK" => ["zh-hant", "zh-hans"], _ => [] };
                 break;
             default:
                 var r0 = new RemedyInfo([.. scripts], language, encName, null, null, null, null, null, false, "fpc");
@@ -454,7 +451,7 @@ public static class SourceChecks
             warnings.Add(new(ZeroLengthCue,
                 $"{zero.Count} cue(s) in the source have zero or negative duration: cue(s) {Verifier.List(zero)}. These are often metadata or placeholder cues.",
                 zero.Count,
-                "Check them: remove them (operations DeleteFirst / DeleteContains) or give them a duration (operations ApplyDurationLimits with rules.minDurationMs). Most targets keep them, but EBU STL and CapMaker Plus can't store one at 00:00:00; the output's verification reports any cue a target loses.",
+                "Check them: remove them (operations DeleteFirst / DeleteContains) or give them a duration (operations ApplyDurationLimits with rules.minDurationMs). Most targets keep them, but EBU STL and Cheetah CAP can't store one at 00:00:00; the output's verification reports any cue a target loses.",
                 Verifier.Details(zero)));
         }
         if (fffd > 0)

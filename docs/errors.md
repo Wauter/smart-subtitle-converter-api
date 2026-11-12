@@ -461,7 +461,8 @@ instead of guessing. `errors[0].pointer` says which field is missing:
 
 - `/source/fps`: the source is such a format and its frames have to become times (a time-based or SCC output,
   `target.fps`, or millisecond timing settings such as `timing.offsetMs`).
-- `/target/fps`: the output is such a format (or SCC), and the source is time-based (SRT, WebVTT, TTML, ...), so it
+- `/target/fps`: the output is such a format (or SCC, or iTunes Timed Text, which is written with SMPTE frame time
+  codes), and the source is time-based (SRT, WebVTT, TTML, ...), so it
   gives no rate to write at.
 
 **What to do:** Set `source.fps` to the rate the file was made at (25 for PAL and most European broadcast, 29.97
@@ -889,8 +890,9 @@ These describe the source file. The API reports them and leaves the times and te
 
 **What:** Some cues in the source have no duration (end time equal to or before the start).
 
-**Why:** These are often metadata or placeholder cues. Some targets can't store them: EBU STL reads them back at
-99:59:59,999 (also reported as `lossy-format`) and CapMaker Plus drops them.
+**Why:** These are often metadata or placeholder cues. Most targets keep them. EBU STL and Cheetah CAP can't store one at
+00:00:00: EBU STL reads it back at 99:59:59,999 and Cheetah CAP at 00:00:00,000 (also reported as `lossy-format` and in
+the output's `verification.zeroLengthCues`).
 
 **What to do:** Check them. Remove them (operations `DeleteFirst` / `DeleteContains`) or give them a duration
 (operation `ApplyDurationLimits` with `rules.minDurationMs`).

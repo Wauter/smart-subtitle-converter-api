@@ -359,7 +359,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
         Assert.Contains("fpc", F("pacunicodeunipac")["aliases"]!.AsArray().Select(a => (string)a!));
         Assert.Contains("890", F("cavena890")["aliases"]!.AsArray().Select(a => (string)a!));
         var writable = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?kind=binary&writable=true"))!.Select(f => (string)f!["id"]!).Order().ToList();
-        Assert.Equal(["capmakerplus", "cavena890", "cheetahcaption", "cheetahcaptionold", "ebustl", "pacscreenelectronics", "pacunicodeunipac"], writable);
+        Assert.Equal(["capmakerplus", "cavena890", "cheetahcaption", "cheetahcaptionold", "dvbteletext", "ebustl", "pacscreenelectronics", "pacunicodeunipac"], writable);
         var img = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?kind=image,container"))!;
         Assert.Contains(img, f => (string)f!["id"]! == "bluraysup" && !(bool)f["canRead"]!);
         var all = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?textOnly=false"))!;

@@ -36,7 +36,8 @@ public sealed partial class FormatRegistry
     internal static bool IsFrameBased(string id, bool binary, SubtitleFormat f) =>
         binary ? !TimeBasedBinary.Contains(id) : f.IsFrameBased || f is ScenaristClosedCaptions;
 
-    private static readonly HashSet<string> TimeBasedBinary = ["cmaftext", "hbogo", "timelinemvt", "videocddat"];
+    // Binary formats that store times, not frame numbers (DVB Teletext: PES timestamps; its writer's rate is only a bitrate hint).
+    private static readonly HashSet<string> TimeBasedBinary = ["cmaftext", "dvbteletext", "hbogo", "timelinemvt", "videocddat"];
 
 
     // seconv aliases (LibSEIntegration.NormalizeFormatName), plus a few common ones.
@@ -101,6 +102,9 @@ public sealed partial class FormatRegistry
 
     public FormatRegistry()
     {
+        // libse 5.4's Chk constructor loads code page 850, so the provider must be in place before the formats are
+        // listed, whoever creates the registry first (Program.cs registers it too; registering twice is harmless).
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
         var list = new List<FormatInfo>();
         var binaryTypes = SubtitleFormat.GetBinaryFormats(true).Select(f => f.GetType()).ToHashSet();
         void Add(SubtitleFormat f)

@@ -64,9 +64,37 @@ internal static class TextProbe
 
     public static string Sample(string text) => text.Length > MaxSampleChars ? text[..MaxSampleChars] : text;
 
+    /// <summary>
+    /// Languages whose libse hits are counted without one- and two-letter words. libse 5.4 lists Greek "το", "σε",
+    /// "με", "να", …, which PAC's Greek table produces from Latin "to", "se", "me", "na": Czech or Latin PAC text read
+    /// as Greek would score as Greek. Real Greek text still has plenty of longer words.
+    /// </summary>
+    private static readonly HashSet<string> NoShortLibseWords = new(StringComparer.OrdinalIgnoreCase) { "el" };
+    private static readonly Regex ShortWord = new(@"(?<!\p{L})\p{L}{1,2}(?!\p{L})", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public static ProbeScore Score(ProbeCandidate c)
     {
         var sample = Sample(c.Text);
+        var libse = LibseCounts(sample);
+        if (c.Languages.Any(NoShortLibseWords.Contains))
+        {
+            var longOnly = LibseCounts(ShortWord.Replace(sample, " "));
+            foreach (var lang in NoShortLibseWords) libse[lang] = longOnly.GetValueOrDefault(lang);
+        }
+        string? best = null;
+        var bestHits = 0;
+        foreach (var lang in c.Languages)
+        {
+            var hits = libse.GetValueOrDefault(lang);
+            if (WordRegex.TryGetValue(lang, out var re)) hits += re.Count(sample);
+            if (ExtraChars.TryGetValue(lang, out var chars)) hits += chars.Sum(ch => Count(sample, ch));
+            if (hits > bestHits) (best, bestHits) = (lang, hits);
+        }
+        return new ProbeScore(c, best, bestHits);
+    }
+
+    private static Dictionary<string, int> LibseCounts(string sample)
+    {
         var libse = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         try
         {
@@ -80,16 +108,7 @@ internal static class TextProbe
         {
             // Detection is best effort; extra lists still count.
         }
-        string? best = null;
-        var bestHits = 0;
-        foreach (var lang in c.Languages)
-        {
-            var hits = libse.GetValueOrDefault(lang);
-            if (WordRegex.TryGetValue(lang, out var re)) hits += re.Count(sample);
-            if (ExtraChars.TryGetValue(lang, out var chars)) hits += chars.Sum(ch => Count(sample, ch));
-            if (hits > bestHits) (best, bestHits) = (lang, hits);
-        }
-        return new ProbeScore(c, best, bestHits);
+        return libse;
     }
 
     private static int Count(string text, string what)

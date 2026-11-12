@@ -127,7 +127,7 @@ public class VerificationTests : IClassFixture<ApiFactory>
 
     [Theory]
     [InlineData("ebustl")]
-    [InlineData("capmakerplus")]
+    [InlineData("cheetahcaption")]
     public async Task Zero_length_cue_after_the_start_is_kept_and_the_hint_says_so(string target)
     {
         // README example run: the source hint said EBU STL can't store zero-length cues, but STL kept one at 00:00:06.
@@ -143,18 +143,15 @@ public class VerificationTests : IClassFixture<ApiFactory>
         Assert.NotEqual("lossy", (string)v["verdict"]!);
     }
 
-    [Fact]
-    public async Task Dropped_cues_are_matched_by_start_time()
+    [Fact] // libse 5.1 dropped a zero-length cue at 00:00:00 from CapMaker Plus (missingCues [1]); 5.4 keeps it.
+    public async Task CapMaker_plus_keeps_a_zero_length_cue_at_the_start()
     {
         var j = await Convert(ZeroLength, "capmakerplus");
         var v = j["outputs"]![0]!["verification"]!;
         Assert.Equal(3, (int)v["cuesWritten"]!);
-        Assert.Equal(2, (int)v["cuesReadBack"]!);
-        Assert.Equal([1], Ints(v["missingCues"]!["cues"]));
-        Assert.Equal(0, (int)v["timing"]!["cuesOverOneFrame"]!); // the other cues still line up
-        var w = j["warnings"]!.AsArray().Single(x => (string)x!["code"]! == "lossy-format" && ((string)x["message"]!).Contains("read back"))!;
-        Assert.Contains("missing: cue(s) 1", (string)w["message"]!);
-        Assert.Contains("zero-length", (string)w["hint"]!);
+        Assert.Equal(3, (int)v["cuesReadBack"]!);
+        Assert.Null(v["missingCues"]);
+        Assert.Contains("zero-length-cue", Codes(j));
     }
 
     [Theory]
@@ -241,15 +238,14 @@ public class VerificationTests : IClassFixture<ApiFactory>
         Assert.Equal("pacscreenelectronics", (string)asPac["detected"]!["id"]!);
     }
 
-    [Fact] // libse 5.1.0's Cavena 890 reader throws on its own Greek output: we say so instead of staying silent
-    public async Task Unreadable_output_is_unverified_with_a_reason()
+    [Fact] // libse 5.1's Cavena 890 reader threw on its own Greek output (verdict unverified); 5.4 round-trips it.
+    public async Task Cavena_greek_with_language_el_round_trips()
     {
         var j = await Convert("1\r\n00:00:01,000 --> 00:00:02,000\r\nΚαλημέρα\r\n", "cavena890", new { formatOptions = new { cavena890 = new { language = "el" } } });
         var v = j["outputs"]![0]!["verification"]!;
-        Assert.Equal("unverified", (string)v["verdict"]!);
-        Assert.Contains("couldn't be read back", (string)v["reason"]!);
-        Assert.Null(v["cuesReadBack"]);
-        Assert.Contains("verification-failed", Codes(j));
+        Assert.Matches("^(lossless|quantised)$", (string)v["verdict"]!); // text intact; times only rounded to frames
+        Assert.Null(v["replacedChars"]);
+        Assert.DoesNotContain("verification-failed", Codes(j));
     }
 
     // ---------------- unit ----------------
@@ -381,13 +377,13 @@ public class VerificationTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Cavena_greek_keeps_the_libse_limitation_note_and_suggests_nothing()
+    public async Task Cavena_greek_under_another_language_suggests_el()
     {
-        var w = Warning(await Convert(Greek, "cavena890"), "characters-replaced");
+        // libse 5.1 garbled Greek whatever the language (the remedy said so); 5.4 keeps it with language el.
+        var w = Warning(await Convert(Greek, "cavena890", new { formatOptions = new { cavena890 = new { language = "ru" } } }), "characters-replaced");
         var r = w["details"]!["remedy"]!;
-        Assert.Null(r["suggested"]);
-        Assert.Contains("libse's Cavena 890 writer doesn't keep Greek", (string)r["note"]!);
-        Assert.Contains("libse's Cavena 890 writer doesn't keep Greek", (string)w["hint"]!);
+        Assert.Equal("el", (string)r["suggested"]!);
+        Assert.Null(r["note"]);
     }
 
     [Fact]

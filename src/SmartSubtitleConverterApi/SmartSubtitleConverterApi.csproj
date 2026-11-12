@@ -12,7 +12,7 @@
     <AssemblyName>SmartSubtitleConverterApi</AssemblyName>
     <RootNamespace>SmartSubtitleConverterApi</RootNamespace>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <LibseVersion>5.1.0</LibseVersion>
+    <LibseVersion>5.4.0</LibseVersion>
   </PropertyGroup>
 
   <ItemGroup>

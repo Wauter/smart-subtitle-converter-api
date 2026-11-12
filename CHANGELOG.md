@@ -26,9 +26,24 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
   from the `REVISION` build argument; `unknown` for local builds).
 - `409 output-exists` names the output, and a sidecar's `output` is a `file://` URI for filesystem outputs.
 - The `zero-length-cue` hint no longer says EBU STL can't store zero-length cues: it keeps them, except one at
-  00:00:00 (as CapMaker Plus).
+  00:00:00 (as Cheetah CAP).
 - Docs: EBU STL and PAC round a time halfway between two frames in opposite directions (within one frame); the API
   reference (`/docs`, `/openapi/v1.json`) needs no key; `.env.example` quick start sets the key file's owner and mode.
+- libse 5.4.0 (was 5.1.0). What changed for API users:
+  - New formats: YouTube timed text (`youtubetimedtextsrv3`, `.ytt`/`.srv3`), DVB Teletext (`dvbteletext`, `.dvbttx`,
+    read and write), Grid 608, DVD Junior SPC and FFmpeg metadata chapters, and read-only EZTitles binary and CANVASs
+    SSTG1, among others; `GET /v1/formats` lists them. Their extensions join the storage allowlist,
+    except `.ini` (an alternate name for FFmpeg metadata chapters), which stays refused.
+  - SCC: a pop-on caption now starts at its end-of-caption code (one frame per code word after the line's timecode),
+    as CEA-608 displays it, instead of at the line's timecode.
+  - Cavena 890 keeps Greek, Cyrillic and Arabic with the matching `formatOptions.cavena890.language` (`el`, `ru`,
+    `ar`); the `characters-replaced` remedy suggests it instead of saying libse can't.
+  - CapMaker Plus keeps a zero-length cue at 00:00:00 (5.1 dropped it).
+  - iTunes Timed Text output needs a frame rate (`target.fps` or the source's): it is written with SMPTE frame time
+    codes at that rate.
+  - The SubRip reader was rewritten upstream (more tolerant of damaged files); the API's SRT, encoding and
+    hardening tests pass unchanged. The PAC code-page probe no longer counts one- and two-letter words from libse's
+    larger Greek word list, which Latin text read through PAC's Greek table also forms.
 - CI: GitHub Actions moved to their Node 24 releases; the size comparison against the old `-chiseled-extra` base is
   gone (the size budget on the shipped image stays).
 

@@ -743,16 +743,18 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
 
     /// <summary>
     /// Frame-based targets that need a rate to write frame numbers: every frame-based format except EBU STL (its header
-    /// sets the rate) and SCC drop-frame (29.97 by definition).
+    /// sets the rate) and SCC drop-frame (29.97 by definition). iTunes Timed Text counts too: libse reads it as time-based
+    /// (its header's ttp:frameRate), but writes SMPTE frame time codes at the current rate and declares that rate.
     /// </summary>
-    internal static bool NeedsWriteRate(FormatInfo info, SubtitleFormat f) => IsFrameBasedSource(info, f) && f is not (Ebu or ScenaristClosedCaptionsDropFrame);
+    internal static bool NeedsWriteRate(FormatInfo info, SubtitleFormat f) =>
+        (IsFrameBasedSource(info, f) || f is ItunesTimedText) && f is not (Ebu or ScenaristClosedCaptionsDropFrame);
 
     /// <summary>
     /// Frame numbers carry over unchanged between frame-based formats that record no rate (PAC, Cavena 890, MicroDVD, ...)
     /// when nothing converts frames to time: no target.fps and no millisecond timing changes. SCC is excluded (its
     /// readers take 29.97), and so is EBU STL (its header declares a rate).
     /// </summary>
-    private static bool FramePassthrough(FormatInfo info, SubtitleFormat f) => NeedsWriteRate(info, f) && f is not ScenaristClosedCaptions;
+    private static bool FramePassthrough(FormatInfo info, SubtitleFormat f) => NeedsWriteRate(info, f) && f is not (ScenaristClosedCaptions or ItunesTimedText);
 
     private static bool TimingInMs(TimingOptions? t) =>
         t != null && (t.OffsetMs is { } o && o != 0 || t.AdjustDurationMs is { } a && a != 0 || t.BridgeGapsMs is > 0 || t.MinGapMs is > 0);
@@ -782,7 +784,10 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         {
             if (!NeedsWriteRate(info, format)) continue;
             throw FrameRateRequired("/target/fps",
-                $"{info.Name} stores cue times as frame numbers and doesn't record its frame rate, so the API needs the rate to write it; the source ({source.Name}) doesn't give one.",
+                (format is ItunesTimedText
+                    ? $"{info.Name} is written with SMPTE frame time codes and declares their frame rate, so the API needs the rate to write it"
+                    : $"{info.Name} stores cue times as frame numbers and doesn't record its frame rate, so the API needs the rate to write it") +
+                $"; the source ({source.Name}) doesn't give one.",
                 $"Set profile.target.fps to the rate the {info.Name} file is for: 25 for PAL/European broadcast, 29.97 for NTSC" +
                 (format is ScenaristClosedCaptions ? " (the usual SCC rate)" : "") + ", 23.976 or 24 for film. Setting source.fps instead also works: the output then uses that rate.",
                 info.Id);

@@ -243,7 +243,9 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         var j = await Json(new { content = SccDropFrame, fileName = "a.scc", target = "srt" });
         Assert.Equal(29.97, (double)Details(j)["frameRate"]!, 2);
         Assert.Equal("inferred", (string)Details(j)["frameRateSource"]!);
-        Assert.Contains("00:00:01,50", Text(j)); // 15 frames at 29.97 ≈ 500 ms (at 23.976 it would be 626 ms)
+        // libse 5.4 shows a pop-on caption at its end-of-caption code, 9 words (frames) after 00:00:01;15: frame 24 at
+        // 29.97 ≈ 801 ms (at 23.976 it would be 1001 ms). libse 5.1 used the line's timecode (1.500 s).
+        Assert.Contains("00:00:01,801", Text(j));
         Assert.DoesNotContain("frame-rate-assumed", Codes(j));
     }
 
@@ -255,7 +257,7 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         Assert.Equal("/source/fps", (string)p["errors"]![0]!["pointer"]!);
         var j = await Json(new { content = SccLowFrames, fileName = "a.scc", target = "srt", profile = new { source = new { fps = 29.97 } } });
         Assert.Equal("profile", (string)Details(j)["frameRateSource"]!);
-        Assert.Contains("00:00:01,50", Text(j));
+        Assert.Contains("00:00:01,801", Text(j)); // displayed at the end-of-caption code (libse 5.4)
     }
 
     // 8. Source-cue warnings
