@@ -6,6 +6,32 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Tagged releases publish multi-arch images to GHCR
 (`ghcr.io/wauter/smart-subtitle-converter-api`); every green push to `main` also publishes `:edge`.
 
+## Unreleased
+
+- Breaking (frame rates): the API no longer assumes libse's 23.976 fps for frame-based formats that don't record a
+  frame rate (PAC, PAC Unicode, Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL, MicroDVD and similar, and SCC
+  whose timecodes don't reveal it). When a rate is needed and neither the file nor the request gives one, the
+  conversion stops with the new `422 frame-rate-required`, whose `errors[0].pointer` names `/source/fps` or
+  `/target/fps`. The `frame-rate-assumed` warning is gone, and `detected.formatDetails.frameRateSource` is
+  `unknown` (without `frameRate`) instead of `assumed`.
+- The output now uses the source's rate when `target.fps` isn't set: `source.fps`, the EBU STL header, or the rate
+  SCC timecodes imply. A fresh EBU STL header (from a non-EBU source, or `headerFromSource:false`) takes that rate
+  when it is an EBU rate, instead of always 25. EBU STL sources are reported at the rate they were read at (header
+  or `readFrameRate`), never `source.fps`, which libse doesn't apply to them.
+- No rate is needed to convert between frame-based formats that record none (PAC to PAC, PAC to Cavena 890, …)
+  without `target.fps` or millisecond timing settings: frame numbers carry over. SCC drop-frame output is 29.97.
+- `GET /v1/formats`: `frameBased` is now true for every format that stores frames (it followed libse's flag, which
+  is false for PAC, EBU STL and most binary formats).
+- `/healthz` and `/readyz` report `revision`, the short git commit the image was built from (stamped at build time
+  from the `REVISION` build argument; `unknown` for local builds).
+- `409 output-exists` names the output, and a sidecar's `output` is a `file://` URI for filesystem outputs.
+- The `zero-length-cue` hint no longer says EBU STL can't store zero-length cues: it keeps them, except one at
+  00:00:00 (as CapMaker Plus).
+- Docs: EBU STL and PAC round a time halfway between two frames in opposite directions (within one frame); the API
+  reference (`/docs`, `/openapi/v1.json`) needs no key; `.env.example` quick start sets the key file's owner and mode.
+- CI: GitHub Actions moved to their Node 24 releases; the size comparison against the old `-chiseled-extra` base is
+  gone (the size budget on the shipped image stays).
+
 ## 1.4.1 — 2026-11-12
 
 - Security hardening: client-influenced values (HTTP method, path, request id, format, preset, key name, error code,

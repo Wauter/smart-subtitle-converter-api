@@ -55,6 +55,25 @@ public static class Samples
         </tt>
         """;
 
+    /// <summary>
+    /// Frame-based formats that record no rate need source.fps or target.fps (frame-rate-required). Tests that aren't
+    /// about frame rates get source.fps 23.976 (libse's default, which these tests were written against) unless the
+    /// profile already sets a rate or the target is EBU STL (its header sets the rate; default 25).
+    /// </summary>
+    public static System.Text.Json.Nodes.JsonObject WithFps(object? profile, string? target = null)
+    {
+        var j = profile switch
+        {
+            null => new System.Text.Json.Nodes.JsonObject(),
+            string s => (System.Text.Json.Nodes.JsonObject)System.Text.Json.Nodes.JsonNode.Parse(s)!,
+            _ => (System.Text.Json.Nodes.JsonObject)System.Text.Json.JsonSerializer.SerializeToNode(profile)!,
+        };
+        if (j["source"]?["fps"] != null || j["target"]?["fps"] != null || target is "ebustl" or "stl" or "ebu") return j;
+        if (j["source"] is System.Text.Json.Nodes.JsonObject src) src["fps"] = 23.976;
+        else j["source"] = new System.Text.Json.Nodes.JsonObject { ["fps"] = 23.976 };
+        return j;
+    }
+
     public static byte[] Zip(params (string Name, byte[] Bytes)[] entries)
     {
         var ms = new MemoryStream();

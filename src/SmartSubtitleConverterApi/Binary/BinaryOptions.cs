@@ -191,10 +191,10 @@ public static class BinaryOptions
     /// <summary>
     /// The GSI for an EBU write. EBU source + headerFromSource (default): the source GSI with the
     /// explicit options on top, written back into <paramref name="copy"/>.Header so libse keeps the
-    /// teletext rows. Otherwise a fresh GSI: code page 850, DFC from frameRate/target.fps/25, language
+    /// teletext rows. Otherwise a fresh GSI: code page 850, DFC from frameRate/target.fps/source rate/25, language
     /// auto-detected like libse, teletext level 1 when the subtitle has colours.
     /// </summary>
-    public static Ebu.EbuGeneralSubtitleInformation BuildEbuHeader(Subtitle copy, EbuStlOptions? o, double? targetFps, List<Warning> warnings)
+    public static Ebu.EbuGeneralSubtitleInformation BuildEbuHeader(Subtitle copy, EbuStlOptions? o, double? targetFps, List<Warning> warnings, double? sourceFps = null)
     {
         o ??= new EbuStlOptions();
         if (IsStlHeader(copy.Header))
@@ -211,7 +211,9 @@ public static class BinaryOptions
             copy.Header = string.Empty;
         }
         var h = new Ebu.EbuGeneralSubtitleInformation { CodePageNumber = "850" };
-        ApplyExplicit(h, o, copy, fresh: true, o.FrameRate ?? targetFps ?? 25);
+        // A fresh header takes the source's rate (source.fps, EBU header, SCC timecodes) when it is an EBU rate; else 25.
+        var inherited = sourceFps is { } sf && EbuFrameRates.Any(x => Math.Abs(x - sf) < 0.01) ? sourceFps : null;
+        ApplyExplicit(h, o, copy, fresh: true, o.FrameRate ?? targetFps ?? inherited ?? 25);
         return h;
     }
 

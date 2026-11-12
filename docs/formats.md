@@ -62,16 +62,39 @@ heuristic (`"heuristic"`) plus an `encoding-guessed` warning.
 
 ## Frame rates and `target.fps`
 
-`target.fps` is the rate the output is written at. Times are rescaled from one rate to the other only from a known
-source rate: `source.fps`, or a rate the file states or implies (the EBU STL header; SCC drop-frame `;` timecodes or
-frame numbers of 25 and above, which mean 29.97). Time-based sources (SRT, WebVTT, TTML, ASS, …) keep their
-wall-clock times when only `target.fps` is set: a one-hour WebVTT written as SCC with `target.fps: 29.97` still ends
-at one hour. Set `source.fps` as well to rescale on purpose (for example `25` → `23.976`). An EBU STL source written
-with a different `target.fps` is rescaled from its header rate. Frame-based
-sources that state no rate (PAC, Cavena 890, Cheetah, CapMaker, MicroDVD, SCC with only low frame numbers) are read
-at libse's default 23.976 with a `frame-rate-assumed` warning, unless the output is also a frame-based file
-(other than EBU STL) and no `target.fps` is set, so frame numbers carry over unchanged. `detected.formatDetails.frameRate` / `frameRateSource` (`profile`, `header`, `inferred`, `assumed`) say
-which rate was used.
+Frame-based formats store cue times as frame numbers, so a frame rate is needed to turn them into times. Where the
+rate comes from:
+
+- **The request:** `source.fps` for the source, `target.fps` for the output.
+- **The file:** EBU STL records its rate in the header (Disk Format Code; `formatOptions.ebuStl.readFrameRate`
+  overrides it). SCC timecodes can imply 29.97: drop-frame `;` separators, or frame numbers of 25 and above.
+- **Nowhere:** PAC, PAC Unicode (FPC), Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL, MicroDVD and a few other
+  frame-based text formats have no frame-rate field, and neither do SCC files whose timecodes don't reveal it.
+
+The output is written at `target.fps`, else at the source's rate (`source.fps`, or the rate the file records or
+implies). Set only `source.fps` and the output uses the same rate, which is what you want in most cases. Times are
+rescaled from one rate to the other only when `target.fps` differs from a known source rate (for example `25` →
+`23.976`). Time-based sources (SRT, WebVTT, TTML, ASS, …) keep their wall-clock times when only `target.fps` is
+set: a one-hour WebVTT written as SCC with `target.fps: 29.97` still ends at one hour.
+
+The API doesn't guess a rate. When one is needed and neither the file nor the request gives it, the conversion stops
+with [`frame-rate-required`](errors.md#frame-rate-required):
+
+- a source with no recorded rate needs `source.fps` when its frames have to become times: a time-based or SCC
+  output, `target.fps`, or millisecond timing settings (`timing.offsetMs`, `adjustDurationMs`, `bridgeGapsMs`,
+  `minGapMs`);
+- a frame-based output with no rate field (or SCC) needs `target.fps` or `source.fps` when the source is time-based.
+
+No rate is needed to convert between formats that record none (PAC to PAC, PAC to Cavena 890, …) without those
+settings: frame numbers carry over unchanged. SCC drop-frame output is always 29.97. `GET /v1/formats` marks every
+format that stores frames with `frameBased: true`. EBU STL output never needs a rate from the request: its rate is
+`formatOptions.ebuStl.frameRate`, else `target.fps`, else the source's rate when it is an EBU rate, else 25.
+`detected.formatDetails.frameRate` / `frameRateSource` (`profile`, `header`, `inferred`, or `unknown` with no
+`frameRate`) say which rate was used.
+
+**Rounding.** A time exactly halfway between two frames can land on either side: EBU STL rounds it down and PAC
+rounds it up, so 3.500 s at 25 fps becomes 3.480 s in EBU STL and 3.520 s in PAC. Both are within one frame
+(`frame-quantised`).
 
 **EBU STL programme start.** A non-zero Time Code Start of Programme (often `10:00:00:00`) is reported as
 `programme-start-not-applied`; cue times stay as stored. Use `timing.offsetMs` to subtract it.

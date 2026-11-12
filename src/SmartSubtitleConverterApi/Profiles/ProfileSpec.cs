@@ -37,12 +37,12 @@ public static class ProfileSpec
         ["source"] = new ObjSpec(new()
         {
             ["format"] = new StrSpec("'auto' (default) or a format id/alias from GET /v1/formats."),
-            ["fps"] = new NumSpec("Source frame rate, for frame-based inputs and target.fps conversion (seconv --fps).", Min: 0, ExclusiveMin: true, Max: 1000),
+            ["fps"] = new NumSpec("Source frame rate. Required for frame-based sources that record no rate (PAC, FPC, Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL, MicroDVD, ...), unless the output is another such format and no target.fps or millisecond timing change is set. Overrides the rate SCC timecodes imply; EBU STL is read at its header rate (formatOptions.ebuStl.readFrameRate overrides it). The output uses it when target.fps isn't set.", Min: 0, ExclusiveMin: true, Max: 1000),
         }, "How to read the input."),
         ["target"] = new ObjSpec(new()
         {
             ["format"] = new StrSpec("Output format id/alias (required after merging; seconv <format>)."),
-            ["fps"] = new NumSpec("Target frame rate (seconv --target-fps).", Min: 0, ExclusiveMin: true, Max: 1000),
+            ["fps"] = new NumSpec("Output frame rate. Defaults to the source's rate (source.fps, EBU STL header, SCC timecodes). Times are rescaled when it differs from a known source rate. Needed for a frame-based target (PAC, SCC, MicroDVD, ...) when the source is time-based (SRT, WebVTT, ...) and source.fps isn't set.", Min: 0, ExclusiveMin: true, Max: 1000),
             ["fileName"] = new StrSpec("Output name template. Tokens: {stem}, {ext}, {format}. Default '{stem}.{ext}'."),
             ["additional"] = new ArrSpec(new StrSpec(), "Extra output formats; the multipart response becomes JSON.", MaxItems: 10),
         }, "What to write."),
@@ -96,7 +96,7 @@ public static class ProfileSpec
                 ["codePage"] = new StrSpec("GSI code page number (CPN). Default 850.", Enum: BinaryOptions.EbuCodePages),
                 ["characterTable"] = new StrSpec("Character code table (CCT 00..04). Default latin.", Enum: [.. BinaryOptions.EbuCharacterTables.Keys]),
                 ["displayStandard"] = new StrSpec("Display standard (DSC 0|1|2). Default: open, or teletext1 when the subtitle has colours.", Enum: [.. BinaryOptions.EbuDisplayStandards.Keys]),
-                ["frameRate"] = new NumSpec("23.976 (or 23), 24, 25, 29.97 or 30; sets the disk format code. Default target.fps, else 25.", Min: 0, ExclusiveMin: true, Max: 120),
+                ["frameRate"] = new NumSpec("23.976 (or 23), 24, 25, 29.97 or 30; sets the disk format code. Default target.fps, else the source's rate when it is one of these, else 25.", Min: 0, ExclusiveMin: true, Max: 120),
                 ["language"] = new StrSpec("ISO 639-1 code (mapped to the EBU code), a two-digit EBU hex code, or 'auto' (default)."),
                 ["originalProgrammeTitle"] = new StrSpec("GSI OPT, up to 32 bytes in the code page."),
                 ["originalEpisodeTitle"] = new StrSpec("GSI OET, up to 32 bytes."),

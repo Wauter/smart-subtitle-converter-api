@@ -10,7 +10,9 @@ them before you put the API anywhere others can reach.
 
 ### Defaults
 
-- An API key is required for everything under `/v1`. `/healthz`, `/readyz` and `/metrics` stay open for probes.
+- An API key is required for everything under `/v1`. `/healthz`, `/readyz` and `/metrics` stay open for probes,
+  and the API reference (`/docs` and `/openapi/v1.json`) needs no key either: it describes the API, never your files
+  or settings.
 - The reference Compose and the quick start publish the port on `127.0.0.1` only.
 - The API answers only to known host names (`ALLOWED_HOSTS`) and refuses browser requests from other sites.
 - Error responses are short (`ERRORS_VERBOSE=false`); details go to the server log under the request id.

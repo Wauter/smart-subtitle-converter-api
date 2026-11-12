@@ -38,12 +38,12 @@ public class FollowUpTests : IClassFixture<ApiFactory>
 
     private async Task<byte[]> Binary(string srt, string target, object? profile = null, string fileName = "movie.srt")
     {
-        var j = await Json(new { content = srt, fileName, target, profile });
+        var j = await Json(new { content = srt, fileName, target, profile = Samples.WithFps(profile, target) });
         return Convert.FromBase64String((string)j["outputs"]![0]!["content"]!);
     }
 
     private Task<JsonObject> Read(byte[] bytes, string fileName, string target = "srt", object? profile = null, HttpStatusCode expected = HttpStatusCode.OK) =>
-        Json(new { content = Convert.ToBase64String(bytes), contentEncoding = "base64", fileName, target, profile }, expected);
+        Json(new { content = Convert.ToBase64String(bytes), contentEncoding = "base64", fileName, target, profile = Samples.WithFps(profile, target) }, expected);
 
     private static List<string> Codes(JsonObject j) => j["warnings"]!.AsArray().Select(w => (string)w!["code"]!).ToList();
     private static JsonObject Warning(JsonObject j, string code) => (JsonObject)j["warnings"]!.AsArray().Single(w => (string)w!["code"]! == code)!;
@@ -231,17 +231,6 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         Assert.Contains("00:10:25,", Text(j)); // 600 s × 25 / 23.976 = 625.6 s
     }
 
-    [Fact]
-    public async Task Frame_based_source_without_a_rate_warns_frame_rate_assumed()
-    {
-        var pac = await (await BinaryFormatTests.ToBinary(_c, "pac")).Content.ReadAsByteArrayAsync();
-        var j = await Read(pac, "show.pac", "vtt");
-        Assert.Equal("assumed", (string)Details(j)["frameRateSource"]!);
-        Assert.Contains("frame-rate-assumed", Codes(j));
-        var withRate = await Read(pac, "show.pac", "vtt", new { source = new { fps = 25 } });
-        Assert.DoesNotContain("frame-rate-assumed", Codes(withRate));
-        Assert.Equal("profile", (string)Details(withRate)["frameRateSource"]!);
-    }
 
     // 7. SCC drop-frame
 
@@ -259,12 +248,14 @@ public class FollowUpTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Scc_without_a_telling_timecode_warns()
+    public async Task Scc_without_a_telling_timecode_needs_source_fps()
     {
-        var j = await Json(new { content = SccLowFrames, fileName = "a.scc", target = "srt" });
-        Assert.Contains("frame-rate-assumed", Codes(j));
-        var w = Warning(j, "frame-rate-assumed");
-        Assert.Equal(23.976, (double)w["details"]!["frameRate"]!, 3);
+        var p = await Json(new { content = SccLowFrames, fileName = "a.scc", target = "srt" }, HttpStatusCode.UnprocessableEntity);
+        Assert.Equal("frame-rate-required", (string)p["code"]!);
+        Assert.Equal("/source/fps", (string)p["errors"]![0]!["pointer"]!);
+        var j = await Json(new { content = SccLowFrames, fileName = "a.scc", target = "srt", profile = new { source = new { fps = 29.97 } } });
+        Assert.Equal("profile", (string)Details(j)["frameRateSource"]!);
+        Assert.Contains("00:00:01,50", Text(j));
     }
 
     // 8. Source-cue warnings
@@ -326,11 +317,11 @@ public class FollowUpTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Cavena_title_and_language_defaults_are_reported()
     {
-        var j = await Json(new { content = BinaryFormatTests.Srt, fileName = "episode.srt", target = "cavena890" });
+        var j = await Json(new { content = BinaryFormatTests.Srt, fileName = "episode.srt", target = "cavena890", profile = new { target = new { fps = 25 } } });
         var fields = Warning(j, "format-defaults-applied")["details"]!["fields"]!.AsObject();
         Assert.Equal("episode", (string)fields["title"]!);
         Assert.NotNull(fields["language"]);
-        var set = await Json(new { content = BinaryFormatTests.Srt, fileName = "episode.srt", target = "cavena890", profile = new { formatOptions = new { cavena890 = new { title = "EPISODE", language = "en" } } } });
+        var set = await Json(new { content = BinaryFormatTests.Srt, fileName = "episode.srt", target = "cavena890", profile = new { target = new { fps = 25 }, formatOptions = new { cavena890 = new { title = "EPISODE", language = "en" } } } });
         Assert.DoesNotContain("format-defaults-applied", Codes(set));
     }
 }

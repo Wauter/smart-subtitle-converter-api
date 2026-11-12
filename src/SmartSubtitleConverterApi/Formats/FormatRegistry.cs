@@ -28,6 +28,17 @@ public static class FormatKinds
 /// </summary>
 public sealed partial class FormatRegistry
 {
+    /// <summary>
+    /// Cue times stored as frames, so a frame rate is needed to read or write them: binary formats except the few whose
+    /// libse reader stores milliseconds or ticks, SCC (timecodes with a frame part) and libse's frame-based text formats
+    /// (MicroDVD, ...). libse itself flags only some of these (PAC and EBU STL report time-based).
+    /// </summary>
+    internal static bool IsFrameBased(string id, bool binary, SubtitleFormat f) =>
+        binary ? !TimeBasedBinary.Contains(id) : f.IsFrameBased || f is ScenaristClosedCaptions;
+
+    private static readonly HashSet<string> TimeBasedBinary = ["cmaftext", "hbogo", "timelinemvt", "videocddat"];
+
+
     // seconv aliases (LibSEIntegration.NormalizeFormatName), plus a few common ones.
     private static readonly Dictionary<string, string> AliasToName = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -102,7 +113,7 @@ public sealed partial class FormatRegistry
             var canRead = !ReadDisabled.Contains(id);
             var canWrite = binary ? typeof(IBinaryPersistableSubtitle).IsAssignableFrom(type) && !WriteDisabled.Contains(id) : true;
             var info = new FormatInfo(id, f.Name, aliases, f.Extension, f.AlternateExtensions?.ToArray() ?? [],
-                !binary, f.IsFrameBased, f.HasStyleSupport, PositionFormats.Contains(id),
+                !binary, IsFrameBased(id, binary, f), f.HasStyleSupport, PositionFormats.Contains(id),
                 CanRead: canRead, CanWrite: canWrite, Source: "libse", MediaType: binary ? BinaryMediaType : MediaTypeFor(id),
                 Kind: binary ? FormatKinds.Binary : FormatKinds.Text, Lossy: LossyFormats.Contains(id), Options: OptionsBlockFor(id));
             _byId[id] = (info, () => (SubtitleFormat)Activator.CreateInstance(type)!);

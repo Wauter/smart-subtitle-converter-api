@@ -40,6 +40,7 @@ Setting names are profile fields, written as a path: `source.format` means
 | [`ambiguous-format`](#ambiguous-format) | 422 | Could be PAC or Unicode PAC (FPC) |
 | [`ambiguous-encoding`](#ambiguous-encoding) | 422 | The character set could not be decided |
 | [`input-limits-exceeded`](#input-limits-exceeded) | 422 | Too many cues or a line that is far too long |
+| [`frame-rate-required`](#frame-rate-required) | 422 | The conversion needs a frame rate the file doesn't record |
 | [`conversion-failed`](#conversion-failed) | 422 | An operation or the format writer failed |
 | [`rate-limited`](#rate-limited) | 429 | Too many requests |
 | [`queue-full`](#queue-full) | 503 | The converter is busy |
@@ -73,7 +74,6 @@ Setting names are profile fields, written as a path: `source.format` means
 | [`lossy-format`](#lossy-format) | The target couldn't keep everything (cues, times or styling) |
 | [`frame-quantised`](#frame-quantised) | Times were rounded to whole frames |
 | [`frame-rate-changed`](#frame-rate-changed) | EBU STL stores a different frame rate than intended |
-| [`frame-rate-assumed`](#frame-rate-assumed) | The source's frame rate was not known and a default was used |
 | [`verification-failed`](#verification-failed) | The written binary file couldn't be checked |
 | [`format-defaults-applied`](#format-defaults-applied) | Header fields were filled with defaults you didn't set |
 | [`zero-length-cue`](#zero-length-cue) | Source cues with no duration |
@@ -450,6 +450,29 @@ _For integrators:_ 422. `probe`; `candidates` (PAC: code page name strings, may 
 `errors` pointers `/formatOptions/pac/inputCodePage` or `/encoding/input` and `/encoding/language`;
 `debug.scores` (verbose only) has the word counts per candidate. How the probes work: [formats.md](formats.md#detection).
 
+### <a id="frame-rate-required"></a>`frame-rate-required`
+
+**What:** The conversion needs a frame rate, and neither the file nor the request gives one.
+
+**Why:** Some formats store cue times as frame numbers and have no field for the frame rate: PAC, PAC Unicode (FPC),
+Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL, MicroDVD and a few other frame-based text formats, and SCC files
+whose timecodes don't reveal the rate. Frame 50 is 2 seconds at 25 fps but 2.085 seconds at 23.976, so the API asks
+instead of guessing. `errors[0].pointer` says which field is missing:
+
+- `/source/fps`: the source is such a format and its frames have to become times (a time-based or SCC output,
+  `target.fps`, or millisecond timing settings such as `timing.offsetMs`).
+- `/target/fps`: the output is such a format (or SCC), and the source is time-based (SRT, WebVTT, TTML, ...), so it
+  gives no rate to write at.
+
+**What to do:** Set `source.fps` to the rate the file was made at (25 for PAL and most European broadcast, 29.97
+for NTSC, 23.976 or 24 for film). The output is written at the same rate unless `target.fps` says otherwise. For a
+time-based source, set `target.fps` (or `source.fps`, which the output then uses). No rate is needed to convert
+between formats that record none (for example PAC to PAC or PAC to Cavena 890) without `target.fps` or millisecond
+timing settings: frame numbers then carry over unchanged. EBU STL never needs it: its header records the rate.
+
+_For integrators:_ 422. `errors[0].pointer`: `/source/fps` or `/target/fps`. `detected.formatDetails.frameRateSource`
+is `unknown` for such a source on `/v1/detect`.
+
 ### <a id="conversion-failed"></a>`conversion-failed`
 
 **What:** An operation or the target format's writer failed on this file.
@@ -691,7 +714,6 @@ and the sidecar. `details` never contains subtitle text, only positions, code po
 | `durations` | `[{cue, durationMs}]` (first 20) | `long-cue` |
 | `fields` | `{field: value written}` | `format-defaults-applied` |
 | `timecode` | `"HH:MM:SS:FF"` | `programme-start-not-applied` |
-| `frameRate` | number | `frame-rate-assumed` |
 
 Cue numbers in source warnings (`zero-length-cue`, `overlapping-cues`, `long-cue`, `source-replacement-chars`) are
 positions in the source. In read-back warnings (`characters-replaced`, `text-truncated`, `lossy-format`) they are
@@ -746,7 +768,9 @@ _For integrators:_ `count` and `details.cues` where cues are involved; also refl
 
 **What:** Times were rounded to whole frames of the target's frame rate, by less than one frame each.
 
-**Why:** Frame-based formats store times as frames, not milliseconds.
+**Why:** Frame-based formats store times as frames, not milliseconds. A time that falls exactly halfway between two
+frames can land on either side depending on the format: EBU STL rounds it down and PAC rounds it up (3.500 s at
+25 fps is 3.480 s in EBU STL and 3.520 s in PAC). Both stay within one frame of the original.
 
 **What to do:** Usually nothing; this is expected. If the frame rate is wrong, set `target.fps` (or the format's
 own frame-rate option).
@@ -796,20 +820,6 @@ _For integrators:_ `count` = number of fields; `details.fields` maps each field 
 back from the output). Covered: a freshly built EBU STL header's title fields, translator, publisher, country, and
 `language` when unset (with `language: "auto"`, only when detection fell back); Cavena 890 `title` and `language`.
 Not raised for header fields copied from an EBU STL source (`headerFromSource`).
-
-### <a id="frame-rate-assumed"></a>`frame-rate-assumed`
-
-**What:** The source stores times as frames but doesn't say its frame rate, so a default of 23.976 fps was used to
-read it.
-
-**Why:** Formats such as PAC, Cavena 890, Cheetah CAP, CapMaker Plus, MicroDVD, and SCC without telling
-timecodes have no frame-rate field. If the assumption is wrong, every time in the output is off.
-
-**What to do:** Set `source.fps` to the file's real frame rate (25 for PAL, 29.97 for NTSC, ...).
-
-_For integrators:_ `details.frameRate`. Not raised when the output is the same kind of frame-based file without
-`target.fps` (frame numbers carry over unchanged). `detected.formatDetails.frameRateSource` is `assumed`. When
-`target.fps` was set, it was applied as the output rate only, without rescaling.
 
 ### <a id="encoding-guessed"></a>`encoding-guessed`
 

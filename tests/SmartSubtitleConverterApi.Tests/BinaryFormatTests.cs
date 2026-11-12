@@ -33,7 +33,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     internal static async Task<HttpResponseMessage> ToBinary(HttpClient c, string target, string? profile = null, string srt = "")
     {
         var fields = new List<(string, string)> { ("target", target) };
-        if (profile != null) fields.Add(("profile", profile));
+        fields.Add(("profile", Samples.WithFps(profile, target).ToJsonString()));
         return await c.PostAsync("/v1/convert", Samples.Form(srt.Length > 0 ? srt : Srt, "movie.srt", [.. fields]));
     }
 
@@ -50,7 +50,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
         Assert.NotEmpty(bin);
         Assert.Equal(lossy, r.Header("X-Warnings").Contains("lossy-format"));
 
-        var back = await _c.PostAsync("/v1/convert", Samples.Form(bin, "movie" + ext, ("target", "srt"), ("profile", "{\"source\":{\"format\":\"" + id + "\"}}")));
+        var back = await _c.PostAsync("/v1/convert", Samples.Form(bin, "movie" + ext, ("target", "srt"), ("profile", "{\"source\":{\"format\":\"" + id + "\",\"fps\":23.976}}")));
         Assert.Equal(HttpStatusCode.OK, back.StatusCode);
         Assert.Equal(id, back.Header("X-Detected-Format"));
         Assert.Equal("binary", back.Header("X-Detected-Encoding"));
@@ -77,7 +77,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     public async Task Lossy_targets_report_replaced_characters(string id, string text)
     {
         var srt = $"1\r\n00:00:01,000 --> 00:00:02,000\r\n{text}\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nplain\r\n";
-        var j = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = srt, fileName = "a.srt", target = id })).Json();
+        var j = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = srt, fileName = "a.srt", target = id, profile = Samples.WithFps(null, id) })).Json();
         var codes = j["warnings"]!.AsArray().Select(w => (string)w!["code"]!).ToList();
         Assert.Contains("lossy-format", codes);
         Assert.Contains("characters-replaced", codes);
@@ -105,7 +105,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
         Assert.Equal(8, (int)j["paragraphs"]!);
         Assert.InRange(j["candidates"]!.AsArray().Count, 1, 5);
         // and through the conversion path, with no source.format
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(bin, name ?? "upload", ("target", "srt")));
+        var r = await _c.PostAsync("/v1/convert", Samples.Form(bin, name ?? "upload", ("target", "srt"), ("profile", """{"source":{"fps":23.976}}""")));
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         Assert.Equal(id, r.Header("X-Detected-Format"));
     }
@@ -129,7 +129,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     public async Task Text_formats_with_binary_extensions_stay_text()
     {
         var microDvd = "{25}{50}Hello there\r\n{75}{100}Second|line\r\n";
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(microDvd, "movie.sub", ("target", "srt")));
+        var r = await _c.PostAsync("/v1/convert", Samples.Form(microDvd, "movie.sub", ("target", "srt"), ("profile", """{"source":{"fps":23.976}}""")));
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         Assert.Equal("microdvd", r.Header("X-Detected-Format"));
         Assert.NotEqual("binary", r.Header("X-Detected-Encoding"));
@@ -176,7 +176,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Encoding_options_are_ignored_for_binary_with_a_warning()
     {
-        var j = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = Srt, target = "pac", profile = new { encoding = new { output = "windows-1252" } } })).Json();
+        var j = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = Srt, target = "pac", profile = new { source = new { fps = 23.976 }, encoding = new { output = "windows-1252" } } })).Json();
         Assert.Contains(j["warnings"]!.AsArray(), w => (string)w!["code"]! == "encoding-ignored");
         Assert.Equal("pac-latin", (string)j["outputs"]![0]!["encoding"]!);
     }
@@ -294,11 +294,11 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     public async Task Pac_code_page_is_written_and_read()
     {
         var greek = "1\r\n00:00:01,000 --> 00:00:02,000\r\nΚαλημέρα κόσμε\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nΔεύτερη γραμμή\r\n";
-        var r = await _c.PostAsJsonAsync("/v1/convert/json", new { content = greek, target = "pac", profile = new { formatOptions = new { pac = new { codePage = "greek" } } } });
+        var r = await _c.PostAsJsonAsync("/v1/convert/json", new { content = greek, target = "pac", profile = new { source = new { fps = 25 }, formatOptions = new { pac = new { codePage = "greek" } } } });
         var o = (await r.Json())["outputs"]![0]!;
         Assert.Equal("pac-greek", (string)o["encoding"]!);
         var back = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = (string)o["content"]!, contentEncoding = "base64", fileName = "g.pac", target = "srt",
-            profile = new { formatOptions = new { pac = new { inputCodePage = 1 } } } })).Json();
+            profile = new { source = new { fps = 25 }, formatOptions = new { pac = new { inputCodePage = 1 } } } })).Json();
         Assert.Contains("Καλημέρα κόσμε", (string)back["outputs"]![0]!["content"]!);
         Assert.Equal("pac-greek", (string)back["detected"]!["codePage"]!);
         Assert.Equal("forced", (string)back["detected"]!["formatDetails"]!["codePageConfidence"]!);
@@ -384,7 +384,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
             rnd.NextBytes(random);
             foreach (var bytes in new[] { truncated, flipped, random })
             {
-                foreach (var profile in new[] { "{\"source\":{\"format\":\"" + id + "\"}}", "{}" })
+                foreach (var profile in new[] { "{\"source\":{\"format\":\"" + id + "\",\"fps\":25}}", "{\"source\":{\"fps\":25}}" })
                 {
                     var r = await _c.PostAsync("/v1/convert", Samples.Form(bytes, "x" + ext, ("target", "srt"), ("profile", profile)));
                     Assert.True(r.StatusCode is HttpStatusCode.OK or HttpStatusCode.UnprocessableEntity, $"{id} {(int)r.StatusCode} {await r.Content.ReadAsStringAsync()}");
@@ -402,7 +402,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
         await ToBinary(_c, "ebustl", """{"formatOptions":{"ebuStl":{"readFrameRate":30,"teletext":{"useBox":false,"marginBottom":5}}}}""");
         await ToBinary(_c, "cavena890", """{"formatOptions":{"cavena890":{"title":"Leak?","language":"ru"}}}""");
         await ToBinary(_c, "pac", """{"formatOptions":{"pac":{"codePage":"greek","verticalTop":3}}}""");
-        var pac = (string)(await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = Srt, target = "pac" })).Json())["outputs"]![0]!["encoding"]!;
+        var pac = (string)(await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = Srt, target = "pac", profile = new { target = new { fps = 25 } } })).Json())["outputs"]![0]!["encoding"]!;
         Assert.Equal(0, Ebu.OverrideReadFrameRate);
         var defaults = new Nikse.SubtitleEdit.Core.Settings.SubtitleSettings();
         var now = Configuration.Settings.SubtitleSettings;
@@ -411,7 +411,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
         Assert.Equal(defaults.CurrentCavena89Title, now.CurrentCavena89Title);
         Assert.Equal(defaults.PacVerticalTop, now.PacVerticalTop);
         Assert.Equal("pac-latin", pac);
-        var cav = await (await _c.PostAsync("/v1/convert", Samples.Form(Srt, "m.srt", ("target", "cavena890")))).Content.ReadAsByteArrayAsync();
+        var cav = await (await _c.PostAsync("/v1/convert", Samples.Form(Srt, "m.srt", ("target", "cavena890"), ("profile", """{"source":{"fps":23.976}}""")))).Content.ReadAsByteArrayAsync();
         Assert.DoesNotContain("Leak?", Encoding.ASCII.GetString(cav));
     }
 
@@ -419,7 +419,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     public async Task Temp_files_are_removed_after_each_job()
     {
         var bin = await (await ToBinary(_c, "cavena890")).Content.ReadAsByteArrayAsync();
-        Assert.Equal(HttpStatusCode.OK, (await _c.PostAsync("/v1/convert", Samples.Form(bin, "x.890", ("target", "srt")))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _c.PostAsync("/v1/convert", Samples.Form(bin, "x.890", ("target", "srt"), ("profile", """{"source":{"fps":23.976}}""")))).StatusCode);
         Assert.Equal(0, BinaryIO.CountEntries());
         Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _c.PostAsync("/v1/convert", Samples.Form(bin[..100], "x.890", ("target", "srt"), ("profile", """{"source":{"format":"cavena890"}}""")))).StatusCode);
         Assert.Equal(0, BinaryIO.CountEntries());

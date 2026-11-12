@@ -39,7 +39,7 @@ Every error and warning has a stable code, an explanation and a suggested fix ([
 
 ### What a verdict looks like
 
-Greek SRT written as PAC with the default Latin code page (code points shortened):
+Greek SRT written as PAC at 23.976 fps (`target.fps`) with the default Latin code page (code points shortened):
 
 ```json
 {
@@ -77,7 +77,7 @@ With Docker. The API needs a key, so first create an empty key file it can write
 touch api_keys.txt && chmod 600 api_keys.txt && sudo chown 1654 api_keys.txt
 docker run -d --name smart-subtitle-converter -p 127.0.0.1:8080:8080 \
   -v "$PWD/api_keys.txt:/api_keys.txt" ghcr.io/wauter/smart-subtitle-converter-api:latest
-curl localhost:8080/healthz   # {"status":"ok","version":"…","libse":"…"}
+curl localhost:8080/healthz   # {"status":"ok","version":"…","revision":"…","libse":"…"}
 ```
 
 On first start the API writes a new key into `api_keys.txt` (it never prints it). Then convert something:

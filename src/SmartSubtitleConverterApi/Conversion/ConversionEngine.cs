@@ -60,9 +60,10 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             var targetIds = new List<string> { profile.Target!.Format! };
             targetIds.AddRange(profile.Target.Additional ?? []);
             var (knownFps, fpsSource) = SourceFrameRate(loaded, profile);
-            loaded = loaded with { Details = WithFrameRate(loaded.Details, knownFps ?? Configuration.Settings.General.CurrentFrameRate, fpsSource) };
-            if (fpsSource == FpsAssumed && !FrameExactRoundTrip(targetIds, profile))
-                warnings.Add(FrameRateAssumed(sourceInfo, Configuration.Settings.General.CurrentFrameRate, profile.Target.Fps));
+            loaded = loaded with { Details = WithFrameRate(loaded.Details, knownFps, fpsSource) };
+            // The output is written at target.fps, else at the source's rate (source.fps, EBU header, SCC timecodes).
+            var writeFps = profile.Target.Fps is > 0 ? profile.Target.Fps : knownFps;
+            RequireFrameRates(sourceInfo, fpsSource, targetIds, profile, writeFps);
             ApplyTiming(subtitle, profile, fpsSource == FpsTimeBased ? null : knownFps);
             foreach (var op in profile.Operations ?? [])
             {
@@ -101,7 +102,7 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
                     {
                         if (profile.Encoding?.Output != null)
                             warnings.Add(new("encoding-ignored", $"encoding.output doesn't apply to binary target '{info.Id}'; its character set comes from formatOptions."));
-                        var (data, encName, verification) = WriteBinary(copy, info, format, loaded, profile, name, temp, language, warnings);
+                        var (data, encName, verification) = WriteBinary(copy, info, format, loaded, profile, name, temp, language, warnings, writeFps, knownFps);
                         outputs.Add(new ConvertedOutput(name, info, data, encName, false, copy.Paragraphs.Count, verification));
                         continue;
                     }
@@ -113,8 +114,9 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
                     string text;
                     try
                     {
-                        // target.fps is the rate frame-based text writers (SCC, MicroDVD, ...) write at.
-                        if (profile.Target.Fps is > 0 and { } wfps) g.CurrentFrameRate = wfps;
+                        // Frame-based text writers (SCC, MicroDVD, ...) write at target.fps, else at the source's rate.
+                        if (writeFps is > 0 and { } wfps) g.CurrentFrameRate = wfps;
+                        else if (format is ScenaristClosedCaptionsDropFrame) g.CurrentFrameRate = 29.97;
                         text = format.ToText(copy, stem);
                     }
                     finally
@@ -163,7 +165,7 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             var warnings = SourceChecks.Check(l.Subtitle, l.Decoded, l.IsBinary);
             warnings.AddRange(FormatSourceChecks(l, bytes));
             var (knownFps, fpsSource) = SourceFrameRate(l, new Profile());
-            l = l with { Details = WithFrameRate(l.Details, knownFps ?? Configuration.Settings.General.CurrentFrameRate, fpsSource) };
+            l = l with { Details = WithFrameRate(l.Details, knownFps, fpsSource) };
             return new DetectedInfo(l.Info.Name, l.Info.Id, l.Decoded.EncodingName, l.Decoded.Confidence, Language.DetectOrNull(l.Subtitle), l.Subtitle.Paragraphs.Count,
                 l.Candidates, l.Info.Kind, l.CodePage, l.Details,
                 Bom: l.IsBinary ? null : l.Decoded.HadBom, LineEndings: l.IsBinary ? null : SourceChecks.LineEndings(l.Decoded.Text),
@@ -500,14 +502,14 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         return total > 0 && good >= total * 0.9;
     }
 
-    private (byte[] Bytes, string EncodingName, Verification Verification) WriteBinary(Subtitle copy, FormatInfo info, SubtitleFormat format, Loaded source, Profile profile, string fileName, JobTemp temp, string? language, List<Warning> warnings)
+    private (byte[] Bytes, string EncodingName, Verification Verification) WriteBinary(Subtitle copy, FormatInfo info, SubtitleFormat format, Loaded source, Profile profile, string fileName, JobTemp temp, string? language, List<Warning> warnings, double? writeFps, double? sourceFps)
     {
         var g = Configuration.Settings.General;
         var savedFps = g.CurrentFrameRate;
         var fo = profile.FormatOptions;
         try
         {
-            if (profile.Target?.Fps is { } tfps) g.CurrentFrameRate = tfps;
+            if (writeFps is > 0 and { } wfps) g.CurrentFrameRate = wfps;
             Ebu.EbuGeneralSubtitleInformation? header = null;
             var freshEbuHeader = false;
             string encName;
@@ -516,11 +518,11 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             {
                 case Ebu:
                     freshEbuHeader = !(BinaryOptions.IsStlHeader(copy.Header) && fo?.EbuStl?.HeaderFromSource != false);
-                    header = BinaryOptions.BuildEbuHeader(copy, fo?.EbuStl, profile.Target?.Fps, warnings);
-                    var sourceFps = source.Format is Ebu
+                    header = BinaryOptions.BuildEbuHeader(copy, fo?.EbuStl, profile.Target?.Fps, warnings, sourceFps);
+                    var ebuSourceFps = source.Format is Ebu
                         ? fo?.EbuStl?.ReadFrameRate is > 20 and { } rfr ? rfr : source.Details?.GetValueOrDefault("frameRate") as double?
-                        : profile.Source?.Fps;
-                    if (BinaryOptions.FrameRateChanged(header.DiskFormatCode, fo?.EbuStl?.FrameRate ?? profile.Target?.Fps, sourceFps is { } sf ? BinaryOptions.EbuFps(sf) : null) is { } frw)
+                        : sourceFps;
+                    if (BinaryOptions.FrameRateChanged(header.DiskFormatCode, fo?.EbuStl?.FrameRate ?? profile.Target?.Fps, ebuSourceFps is { } sf ? BinaryOptions.EbuFps(sf) : null) is { } frw)
                         warnings.Add(frw);
                     encName = "cp" + (BinaryOptions.IsStlHeader(copy.Header) ? copy.Header![..3] : header.CodePageNumber);
                     g.CurrentFrameRate = header.FrameRate;
@@ -696,38 +698,42 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         return new string(s.Select(c => char.IsLetter(c) ? 'x' : c is >= ' ' and <= '~' ? c : '?').ToArray());
     }
 
-    internal const string FpsProfile = "profile", FpsHeader = "header", FpsInferred = "inferred", FpsAssumed = "assumed", FpsTimeBased = "time-based";
+    internal const string FpsProfile = "profile", FpsHeader = "header", FpsInferred = "inferred", FpsUnknown = "unknown", FpsTimeBased = "time-based";
 
     /// <summary>
     /// Frame-based sources store frames (timecodes with a frame part, frame counts): their times depend on a frame rate.
-    /// Binary formats, SCC and libse's frame-based text formats (MicroDVD, ...). SubRip, WebVTT, TTML, ASS store time.
+    /// See <see cref="FormatRegistry.IsFrameBased"/>. SubRip, WebVTT, TTML, ASS store time.
     /// </summary>
-    internal static bool IsFrameBasedSource(FormatInfo info, SubtitleFormat f) =>
-        info.Kind == FormatKinds.Binary || f.IsFrameBased || f is ScenaristClosedCaptions;
+    internal static bool IsFrameBasedSource(FormatInfo info, SubtitleFormat f) => info.FrameBased;
 
     /// <summary>
     /// The source frame rate and where it came from: profile (source.fps), header (EBU DFC or readFrameRate),
-    /// inferred (SCC timecodes), assumed (a frame-based source that states no rate: libse's current rate) or
-    /// time-based (no frame rate involved).
+    /// inferred (SCC timecodes), unknown (a frame-based source that states no rate) or time-based (no frame rate involved).
     /// </summary>
     internal static (double? Fps, string Source) SourceFrameRate(Loaded l, Profile p)
     {
-        if (p.Source?.Fps is > 0 and { } sfps) return (sfps, FpsProfile);
-        if (!IsFrameBasedSource(l.Info, l.Format)) return (null, FpsTimeBased);
+        // libse reads EBU STL at its header rate (or readFrameRate), whatever source.fps says: report the rate actually used.
         if (l.Format is Ebu)
         {
             if (p.FormatOptions?.EbuStl?.ReadFrameRate is > 20 and { } rfr) return (rfr, FpsProfile);
             if (l.Details?.GetValueOrDefault("frameRate") is double hf && hf > 0) return (hf, FpsHeader);
         }
+        if (p.Source?.Fps is > 0 and { } sfps) return (sfps, FpsProfile);
+        if (!IsFrameBasedSource(l.Info, l.Format)) return (null, FpsTimeBased);
         if (l.Details?.GetValueOrDefault("frameRateSource") as string == FpsInferred && l.Details["frameRate"] is double inf) return (inf, FpsInferred);
-        return (null, FpsAssumed);
+        return (null, FpsUnknown);
     }
 
-    private static Dictionary<string, object?>? WithFrameRate(Dictionary<string, object?>? details, double fps, string source)
+    private static Dictionary<string, object?>? WithFrameRate(Dictionary<string, object?>? details, double? fps, string source)
     {
         if (source == FpsTimeBased) return details;
         var d = details == null ? new Dictionary<string, object?>() : new Dictionary<string, object?>(details);
-        var rounded = Math.Round(fps, 3);
+        if (fps is not { } known)
+        {
+            d["frameRateSource"] = source;
+            return d;
+        }
+        var rounded = Math.Round(known, 3);
         // An EBU header's own frameRate stays as declared; a different read rate (source.fps, readFrameRate) is added beside it.
         if (d.GetValueOrDefault("frameRate") is double declared) { if (Math.Abs(declared - rounded) > 0.001) d["readFrameRate"] = rounded; }
         else d["frameRate"] = rounded;
@@ -735,20 +741,63 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         return d;
     }
 
-    /// <summary>Reading and writing the same frame-based format at the same (assumed) rate keeps every frame number: nothing to warn about.</summary>
-    /// <remarks>EBU STL targets are excluded: their writer uses the header's rate (default 25), not the rate the source was read at.</remarks>
-    private bool FrameExactRoundTrip(List<string> targets, Profile p) =>
-        p.Target?.Fps == null && targets.All(t => formats.Find(t) is { } ti && formats.Resolve(ti.Id, "/target/format").Format is var tf && IsFrameBasedSource(ti, tf) && tf is not Ebu);
+    /// <summary>
+    /// Frame-based targets that need a rate to write frame numbers: every frame-based format except EBU STL (its header
+    /// sets the rate) and SCC drop-frame (29.97 by definition).
+    /// </summary>
+    internal static bool NeedsWriteRate(FormatInfo info, SubtitleFormat f) => IsFrameBasedSource(info, f) && f is not (Ebu or ScenaristClosedCaptionsDropFrame);
 
-    internal const string FrameRateAssumedCode = "frame-rate-assumed";
+    /// <summary>
+    /// Frame numbers carry over unchanged between frame-based formats that record no rate (PAC, Cavena 890, MicroDVD, ...)
+    /// when nothing converts frames to time: no target.fps and no millisecond timing changes. SCC is excluded (its
+    /// readers take 29.97), and so is EBU STL (its header declares a rate).
+    /// </summary>
+    private static bool FramePassthrough(FormatInfo info, SubtitleFormat f) => NeedsWriteRate(info, f) && f is not ScenaristClosedCaptions;
 
-    private static Warning FrameRateAssumed(FormatInfo source, double assumed, double? targetFps) =>
-        new(FrameRateAssumedCode,
-            $"{source.Name} stores times as frames, and the file doesn't say its frame rate; it was read at {assumed.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} fps (libse's default)." +
-            (targetFps is > 0 ? " target.fps was applied as the output rate only, without rescaling, because the source rate is unknown." : ""),
-            null,
-            "Set profile.source.fps to the file's frame rate (e.g. 25 for PAL, 29.97 for NTSC); cue times are wrong if the assumption is.",
-            new WarningDetails(FrameRate: Math.Round(assumed, 3)));
+    private static bool TimingInMs(TimingOptions? t) =>
+        t != null && (t.OffsetMs is { } o && o != 0 || t.AdjustDurationMs is { } a && a != 0 || t.BridgeGapsMs is > 0 || t.MinGapMs is > 0);
+
+    /// <summary>
+    /// frame-rate-required (Wauter, 2026-11-12: require the rate instead of assuming libse's 23.976). A frame-based source
+    /// that records no rate needs source.fps unless frame numbers carry over (<see cref="FramePassthrough"/>); a frame-based
+    /// target needs a rate to write at: target.fps, else the source's (source.fps, EBU header, SCC timecodes).
+    /// </summary>
+    private void RequireFrameRates(FormatInfo source, string fpsSource, List<string> targetIds, Profile p, double? writeFps)
+    {
+        var targets = targetIds.Select((t, i) => formats.Resolve(t, i == 0 ? "/target/format" : $"/target/additional/{i - 1}")).ToList();
+        if (fpsSource == FpsUnknown)
+        {
+            if (p.Target?.Fps == null && !TimingInMs(p.Timing) && targets.All(t => FramePassthrough(t.Info, t.Format))) return;
+            var why = p.Target?.Fps != null ? "target.fps is set, and rescaling needs the rate the source frames are at"
+                : TimingInMs(p.Timing) ? "the timing settings are in milliseconds"
+                : $"the output ({string.Join(", ", targets.Where(t => !FramePassthrough(t.Info, t.Format)).Select(t => t.Info.Name).Distinct())}) needs real times, not frame numbers";
+            throw FrameRateRequired("/source/fps",
+                $"{source.Name} stores cue times as frame numbers and doesn't record its frame rate, so the API can't turn them into times: {why}.",
+                "Set profile.source.fps to the rate the file was made at: 25 for PAL/European broadcast, 29.97 for NTSC, 23.976 or 24 for film. " +
+                "The output is written at the same rate unless target.fps is set. No rate is needed to convert to a frame-based format that records no rate (PAC, Cavena 890, ...) without target.fps or millisecond timing changes: frame numbers then carry over.",
+                source.Id);
+        }
+        if (writeFps != null) return;
+        foreach (var (info, format) in targets)
+        {
+            if (!NeedsWriteRate(info, format)) continue;
+            throw FrameRateRequired("/target/fps",
+                $"{info.Name} stores cue times as frame numbers and doesn't record its frame rate, so the API needs the rate to write it; the source ({source.Name}) doesn't give one.",
+                $"Set profile.target.fps to the rate the {info.Name} file is for: 25 for PAL/European broadcast, 29.97 for NTSC" +
+                (format is ScenaristClosedCaptions ? " (the usual SCC rate)" : "") + ", 23.976 or 24 for film. Setting source.fps instead also works: the output then uses that rate.",
+                info.Id);
+        }
+    }
+
+    private static ApiException FrameRateRequired(string pointer, string detail, string hint, string formatId)
+    {
+        var ex = new ApiException(422, ErrorCodes.FrameRateRequired, detail, hint)
+        {
+            Errors = [new FieldError(pointer, "Required for this conversion.", "Common values: 23.976, 24, 25, 29.97, 30.")],
+        };
+        ex.Debug["format"] = formatId;
+        return ex;
+    }
 
     /// <summary>
     /// SCC timecodes: a ';' (drop-frame) separator means 29.97 fps; a frame number of 25 or more rules out 23.976/24/25

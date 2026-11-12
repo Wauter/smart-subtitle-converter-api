@@ -30,7 +30,7 @@ public sealed record Verification(
 
 /// <summary>Structured warning details (JSON body only, never the X-Warnings header).</summary>
 public sealed record WarningDetails(int? CueCount = null, int[]? Cues = null, int? DistinctCodePoints = null, List<CodePointCount>? CodePoints = null, RemedyInfo? Remedy = null,
-    List<CueDuration>? Durations = null, Dictionary<string, string>? Fields = null, string? Timecode = null, double? FrameRate = null);
+    List<CueDuration>? Durations = null, Dictionary<string, string>? Fields = null, string? Timecode = null);
 
 /// <summary>long-cue details: 1-based cue number and its duration in milliseconds.</summary>
 public sealed record CueDuration(int Cue, double DurationMs);
@@ -454,7 +454,7 @@ public static class SourceChecks
             warnings.Add(new(ZeroLengthCue,
                 $"{zero.Count} cue(s) in the source have zero or negative duration: cue(s) {Verifier.List(zero)}. These are often metadata or placeholder cues.",
                 zero.Count,
-                "Check them: remove them (operations DeleteFirst / DeleteContains) or give them a duration (operations ApplyDurationLimits with rules.minDurationMs). EBU STL and CapMaker Plus can't store them.",
+                "Check them: remove them (operations DeleteFirst / DeleteContains) or give them a duration (operations ApplyDurationLimits with rules.minDurationMs). Most targets keep them, but EBU STL and CapMaker Plus can't store one at 00:00:00; the output's verification reports any cue a target loses.",
                 Verifier.Details(zero)));
         }
         if (fffd > 0)

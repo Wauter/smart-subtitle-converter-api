@@ -105,7 +105,7 @@ Every accepted conversion receives `X-Job-Id` (also `id` in JSON). `GET /v1/jobs
 ## Filesystem locations and sidecars
 
 ```json
-{"input":"file:///data/in/show.srt","output":"/data/out/show.pac","target":"pac","sidecar":true}
+{"input":"file:///data/in/show.srt","output":"/data/out/show.pac","target":"pac","profile":{"target":{"fps":25}},"sidecar":true}
 ```
 
 `input` is mutually exclusive with JSON `content` or multipart `file`. `output` is optional; with it the response contains output metadata and verification, not file bytes. With `output`, `outputs[].fileName` is the name the file was stored under (the last path segment of `output`), not the name the converter would generate from the source. An explicit `output` requires exactly one target; `target.additional` remains available for inline results. `detect` accepts `input` too. A path must name a file: no trailing slash, dot segments, symlinks or control characters (also when percent-encoded, such as `%00`). Hidden files and folders are never read as input ([hidden files](#hidden-files-and-folders)). Only Linux server filesystem storage is supported; directory handles and no-follow opens prevent path-component symlink swaps. Missing folders below an allowed root are created for outputs and sidecars (mode 0755, narrowed by the umask), one level at a time without following symlinks; hidden folders are never created and the root itself must exist. Existing filesystem and S3 outputs are rejected by default; `ifExists:"replace"` explicitly permits replacement.
