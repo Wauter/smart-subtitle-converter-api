@@ -6,7 +6,7 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Tagged releases publish multi-arch images to GHCR
 (`ghcr.io/wauter/smart-subtitle-converter-api`); every green push to `main` also publishes `:edge`.
 
-## Unreleased
+## 1.4.0 — 2026-11-12
 
 - Fixed: `GET /v1/formats` without parameters now lists text **and** binary formats (EBU STL, PAC, …); it used to
   list text formats only, so clients never saw the binary broadcast formats unless they asked. `textOnly=true`
