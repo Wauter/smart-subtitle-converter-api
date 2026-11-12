@@ -6,8 +6,8 @@
 **An HTTP API for converting and checking subtitles, built on Subtitle Edit's conversion engine.**
 
 It handles SRT, WebVTT, TTML, ASS and broadcast formats such as EBU STL, PAC and Cavena 890, and runs as a single
-container. Each conversion reports whether anything was lost and which setting fixes it, so it can run unattended
-in a media workflow or be handed to an AI agent.
+container. Each conversion attempts to report whether anything was lost and which setting fixes it, which makes it
+more robust to run in a media workflow or to hand to an AI agent.
 
 > **Built on Subtitle Edit.** All format reading and writing is done by `libse`, the library behind
 > [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) by **Nikolaj Olsson** (MIT). This is a community
@@ -128,7 +128,7 @@ endpoint is in [`postman/`](postman) ([how to use it](docs/development.md#postma
 | **Text, read and write** | SRT, WebVTT, ASS/SSA, TTML/DFXP, SBV, SMI and Subtitle Edit's other text formats |
 | **Editing and post-production** | Final Cut Pro XML captions (`.fcpxml`), and marker lists from Avid and EDIUS |
 | **Binary broadcast, read and write** | EBU STL, PAC, FPC, Cavena 890, CapMaker Plus, Cheetah CAP |
-| **Binary, read only** | Avid STL, Ayato, Spruce STL and others |
+| **Binary, read only** | Avid STL, Ayato and others |
 | **Not supported** | Image-based and container formats (Blu-ray sup, VobSub, Matroska, MP4) |
 
 `GET /v1/formats` has the live list for your version; Subtitle Edit's
@@ -167,7 +167,7 @@ The defaults are meant for one machine or an internal network.
 
 - **Authentication is on by default.** A key is generated on first start and is never printed or logged. Rate
   limits are optional.
-- **It answers only to host names you list**, and refuses requests that come from other web pages.
+- **It answers only to localhost and host names you list**, and refuses requests that come from other web pages.
 - **Access is limited to the folders, buckets and hosts you allow.** Hidden files and folders are blocked,
   symlinks are never followed, and only subtitle file types are touched.
 - **The container is minimal.** A chiseled ASP.NET Core base with no shell, running as a non-root user, for amd64
@@ -176,18 +176,6 @@ The defaults are meant for one machine or an internal network.
 
 It has not been independently audited, and it is meant for a trusted environment, not the public internet.
 Details and how to change the defaults: [docs/security.md](docs/security.md).
-
-## Good to know
-
-- **One job at a time.** `libse` uses global settings, so one worker runs one job at a time from a bounded queue.
-  Settings are reset after every job, and a full queue answers `503` with `Retry-After`.
-- **Job history is not a file archive.** It is kept in memory only, holds metadata (never file bytes), expires,
-  and is cleared on restart.
-- **One subtitle per request.** ZIP and batch conversion are not supported.
-- **A verdict is a read-back, not a playout test.** It proves the file is self-consistent through `libse`'s own
-  reader; it does not prove that the target playout or editing software accepts it.
-- **Tested.** An automated test suite covers the formats, the error handling and the storage backends, and
-  problems found along the way became regression tests ([docs/development.md](docs/development.md)).
 
 ## Documentation
 
