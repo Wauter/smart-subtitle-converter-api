@@ -128,7 +128,7 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - Fix: a percent-encoded control character in a file or S3 location (for example `file:///data/a.srt%00.txt`) is
   `422 storage-location-rejected` before any filesystem call, instead of `500 internal-error`.
 
-## 1.3.1 — Unreleased
+## 1.3.1 — not tagged (shipped in 1.4.0, 2026-11-12)
 
 - Job and storage errors have their own problem `title` instead of the generic "Internal error": `job-not-found`, `job-input-not-stored`, `job-output-not-stored`, `job-not-ready`, `job-file-gone`, `job-location-not-replayable`, `storage-location-rejected`, `storage-not-found`, `storage-io-failed` and `output-exists`. Codes and status codes are unchanged.
 - `job-output-not-stored` explains the usual cause: a conversion without an `output` location returns its result in the response and stores nothing, so to read a result later, convert with an `output` location. A failed conversion gets its own detail and hint. `job-input-not-stored` points to the original file or an `input` location. See [errors](docs/errors.md#job-output-not-stored).
@@ -165,7 +165,7 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - Docs: [S3 permissions](docs/deployment.md#s3-permissions) lists each S3 call, its IAM action and resource, what
   fails without it, per input/output access pattern, plus SSE-KMS, a minimal policy and MinIO notes.
 
-## 1.3.0 — Unreleased
+## 1.3.0 — 2026-11-06
 
 Broadcast-tester follow-ups:
 
@@ -199,7 +199,7 @@ Broadcast-tester follow-ups:
 - Breaking: remove ZIP batch input/output and failFast. Submit one subtitle per request. Multiple targets from one subtitle return JSON rather than ZIP.
 - Paired with MCP 1.3.0.
 
-## 1.2.1 (unreleased)
+## 1.2.1 — not tagged (merged to main 2026-10-17; first tagged release 1.3.0)
 
 `characters-replaced` remedies state facts instead of guessing (approved by Wauter).
 
@@ -216,7 +216,7 @@ Broadcast-tester follow-ups:
   Latin languages share one table; PAC characters lost only next to certain neighbours (e.g. `ť` before `o`) can't
   be fixed by a code page.
 
-## 1.2.0 (unreleased)
+## 1.2.0 — not tagged (merged to main 2026-10-17; first tagged release 1.3.0)
 
 Conversion verification and diagnostics (client feedback 2026-10-17, approved by Wauter).
 
@@ -248,7 +248,7 @@ Conversion verification and diagnostics (client feedback 2026-10-17, approved by
 - Known libse 5.1.0 limits now visible through verification: Cavena 890 doesn't round-trip Greek,
   Cyrillic or Arabic (garbled, or its reader throws on its own Greek output); Hebrew and Chinese do.
 
-## 1.1.1 (unreleased)
+## 1.1.1 — not tagged (merged to main 2026-10-17; first tagged release 1.3.0)
 
 - Default host port is now **4041** instead of 8080 (8080 is often in use): `docker-compose.yml` publishes
   `127.0.0.1:4041:8080`, bound to localhost only by default (README "Ports" explains how to expose it on other
@@ -256,7 +256,7 @@ Conversion verification and diagnostics (client feedback 2026-10-17, approved by
   `http://localhost:4041`. The container still listens on 8080 internally (`ASPNETCORE_HTTP_PORTS`, `EXPOSE`,
   healthcheck unchanged). No API contract change.
 
-## 1.1.0 (unreleased)
+## 1.1.0 — not tagged (merged to main 2026-10-17; first tagged release 1.3.0)
 
 Binary broadcast formats milestone (PR #4) plus the `frame-rate-changed` warning.
 
@@ -273,7 +273,7 @@ Binary broadcast formats milestone (PR #4) plus the `frame-rate-changed` warning
   ([docs/errors.md](docs/errors.md#warning-codes), design §13 row 23).
 - `/healthz` and OpenAPI `info.version` now report `1.1.0`; OpenAPI `info.version` follows the csproj.
 
-## 1.0.0 (unreleased)
+## 1.0.0 — not tagged (merged to main 2026-10-17; first tagged release 1.3.0)
 
 First text-to-text version: `/v1/convert`, `/v1/convert/json`, `/v1/detect`, formats, presets,
 profiles and schema endpoints, FIFO conversion queue, optional API keys.

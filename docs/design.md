@@ -306,8 +306,8 @@ Validation notes:
 
 ## 6. Security and auth
 
-### 6.1 Authentication (optional API keys)
-- **Off by default**: if no keys are configured, the API is open. That suits local and sidecar use, and startup logs a `WARN auth.disabled` line.
+### 6.1 Authentication (API keys, required by default)
+- **On by default**: the API needs a key. With an empty key file it writes a random key into it on first start; with no key and no writable file it refuses to start (exit code 78). `API_AUTH_DISABLED=true` opens it for throwaway local tests, with a loud startup warning. Details: [security.md](security.md).
 - **Bearer keys**: `Authorization: Bearer <key>`. Keys come from `API_KEYS` (comma-separated) and/or `API_KEYS_FILE` (a mounted file, for example a Kubernetes Secret, with one key per line, `#` comments, and an optional `name:key` form so logs and metrics carry a key **name**, never the key itself).
 - **Rotation**: the file is watched and reloaded without a restart. Overlapping old and new keys allows zero-downtime rotation. Keys are compared in constant time against SHA-256 hashes held in memory.
 - **Scope**: when auth is enabled, every `/v1/*` endpoint requires a key. `/healthz`, `/readyz`, `/metrics`, `/openapi/v1.json` and `/docs` stay open (the docs can be disabled with `DOCS_ENABLED=false`).
@@ -389,7 +389,7 @@ Scope: **our layer only**. libse's parsing, writing and operation logic is trust
 | Auth | Open mode when no keys are set, 401 with a wrong or missing key, both keys accepted during rotation (file reload), health and docs left open | xUnit |
 | Concurrency / queue | N parallel requests with conflicting `rules` give the same outputs as serial runs (proves the single worker and settings restore). Full queue → `503` + `Retry-After`. Timeout → `504` and the worker recovers. A cancelled queued request never runs. | xUnit + `WebApplicationFactory`, fake slow operation |
 | OpenAPI contract | The generated `/openapi/v1.json` is diffed against the committed `openapi.v1.json` (oasdiff, breaking changes fail CI), and example responses are validated against the schema | oasdiff |
-| Docker smoke | A buildx image per architecture (amd64 natively, arm64 under QEMU). It boots, reaches `/readyz`, converts 3 corpus files, checks auth on and off, lists, reads and writes filesystem storage (new sub-folders, symlink and hidden-folder refusal), runs the Postman collection with newman, reports exact compressed/uncompressed sizes for the shipped image and the `-chiseled-extra` variant, and enforces the per-arch size budget | GitHub Actions matrix |
+| Docker smoke | A buildx image per architecture (amd64 natively, arm64 under QEMU). It boots, reaches `/readyz`, converts 3 corpus files, checks auth on and off, lists, reads and writes filesystem storage (new sub-folders, symlink and hidden-folder refusal), runs the Postman collection with newman, reports exact compressed/uncompressed sizes for the shipped image, and enforces the per-arch size budget | GitHub Actions matrix |
 
 **CI gates (required for merge):** build with warnings as errors, all of the above, `dotnet list package --vulnerable`, and a Trivy image scan (high or critical findings fail). There are no nightly jobs.
 

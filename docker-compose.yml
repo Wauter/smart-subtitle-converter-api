@@ -4,7 +4,7 @@
 services:
   smart-subtitle-converter-api:
     # :edge is pushed by CI on every green push to main (private package: docker login ghcr.io with a read:packages token).
-    # Switch to a version tag (e.g. :1.2.0) once releases exist.
+    # For a fixed version, pin a release tag instead (e.g. API_IMAGE=ghcr.io/wauter/smart-subtitle-converter-api:1.4.1 in .env).
     # API_IMAGE in .env picks another image or tag (e.g. a local build: API_IMAGE=smart-subtitle-converter-api:dev).
     image: ${API_IMAGE:-ghcr.io/wauter/smart-subtitle-converter-api:edge}
     build: .                                   # `docker compose up --build` builds this checkout and tags it as image:
