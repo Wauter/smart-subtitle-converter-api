@@ -1368,7 +1368,7 @@
           "formats"
         ],
         "summary": "List subtitle formats.",
-        "description": "Use \u0060id\u0060 or an alias as source/target format. \u0060textOnly\u0060 defaults to true (text formats only, as in earlier versions). \u0060kind\u0060 is a comma list of text|binary|image|container and wins over \u0060textOnly\u0060; image/container formats are listed only via \u0060kind\u0060 and can\u0027t be converted. \u0060writable=true\u0060 keeps formats that can be a target.",
+        "description": "Use \u0060id\u0060 or an alias as source/target format. By default lists every convertible format, text and binary. \u0060textOnly=true\u0060 keeps text formats only. \u0060kind\u0060 is a comma list of text|binary|image|container and wins over \u0060textOnly\u0060; image/container formats are listed only via \u0060kind\u0060 and can\u0027t be converted. \u0060writable=true\u0060 keeps formats that can be a target.",
         "operationId": "listFormats",
         "parameters": [
           {

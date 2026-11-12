@@ -119,7 +119,7 @@
                 "formats"
               ]
             },
-            "description": "Every libse format with id, aliases, extensions and capabilities."
+            "description": "Every convertible format (text and binary) with id, aliases, extensions and capabilities. Image and container formats only via kind=; textOnly=true for text only."
           },
           "event": [
             {
@@ -128,7 +128,8 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"many formats\", () => pm.expect(pm.response.json().length).to.be.above(200));"
+                  "pm.test(\"many formats\", () => pm.expect(pm.response.json().length).to.be.above(200));",
+                  "pm.test(\"binary included, no image/container\", () => { const k = pm.response.json().map(f => f.kind); pm.expect(k).to.include(\"binary\"); pm.expect(k).to.not.include(\"image\"); pm.expect(k).to.not.include(\"container\"); });"
                 ]
               }
             }

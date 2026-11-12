@@ -149,7 +149,7 @@ curl -F file=@movie.srt -F target=webvtt -F 'profile={"timing":{"offsetMs":-1500
 Output content comes back as `text` when the target encoding is a Unicode encoding, and as `base64` otherwise. A client can force base64 with `"responseEncoding": "base64"`.
 
 ### 4.3 `GET /v1/formats`
-`?q=` filter, `?textOnly=true` (default `true` in V1). Each item:
+`?q=` filter; text and binary formats by default, `?textOnly=true` for text only, `?kind=` for an exact set. Each item:
 `{ "id": "webvtt", "name": "WebVTT", "aliases": ["vtt"], "extension": ".vtt", "alternateExtensions": [], "textBased": true, "frameBased": false, "styleSupport": true, "positionSupport": true, "canRead": true, "canWrite": true, "source": "libse" | "plugin" }`
 
 ### 4.4 `POST /v1/detect`

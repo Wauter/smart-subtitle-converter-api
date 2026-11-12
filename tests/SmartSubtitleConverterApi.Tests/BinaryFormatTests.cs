@@ -331,8 +331,21 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Formats_kind_and_writable_filters()
     {
+        // Regression: the default list must include binary broadcast formats (it used to be text only),
+        // but never image/container formats, which can't be converted.
         var def = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats"))!;
-        Assert.All(def, f => Assert.Equal("text", (string)f!["kind"]!));
+        Assert.Contains(def, f => (string)f!["id"]! == "ebustl" && (string)f["kind"]! == "binary");
+        Assert.Contains(def, f => (string)f!["id"]! == "subrip" && (string)f["kind"]! == "text");
+        Assert.DoesNotContain(def, f => (string)f!["kind"]! is "image" or "container");
+        var textOnly = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?textOnly=true"))!;
+        Assert.All(textOnly, f => Assert.Equal("text", (string)f!["kind"]!));
+        Assert.Equal(def.Count(f => (string)f!["kind"]! == "text"), textOnly.Count);
+        var kindWins = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?textOnly=true&kind=binary"))!;
+        Assert.NotEmpty(kindWins);
+        Assert.All(kindWins, f => Assert.Equal("binary", (string)f!["kind"]!));
+        var writableDefault = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?writable=true"))!;
+        Assert.Contains(writableDefault, f => (string)f!["id"]! == "ebustl");
+        Assert.DoesNotContain(writableDefault, f => (string)f!["id"]! == "avidstl");
         var bin = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?kind=binary"))!;
         JsonNode F(string id) => bin.First(f => (string)f!["id"]! == id)!;
         Assert.True((bool)F("ebustl")["canWrite"]!);

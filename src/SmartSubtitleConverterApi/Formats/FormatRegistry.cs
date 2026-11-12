@@ -169,12 +169,12 @@ public sealed partial class FormatRegistry
     {
         if (info.Kind is FormatKinds.Image or FormatKinds.Container)
             return (ErrorCodes.FormatNotSupported, $"'{info.Id}' is image-based or a container format.",
-                "Text and binary subtitle formats are supported (GET /v1/formats?kind=text,binary); OCR and container extraction are on the roadmap.");
+                "Text and binary subtitle formats are supported (GET /v1/formats); OCR and container extraction are on the roadmap.");
         if (!write && !info.CanRead)
             return (ErrorCodes.FormatNotSupported, $"'{info.Id}' can't be read (it needs companion files next to the input).", "Convert it with Subtitle Edit desktop first.");
         if (write && !info.CanWrite)
             return (ErrorCodes.FormatNotWritable, $"'{info.Id}' is read-only in this API.",
-                "Pick another target; GET /v1/formats?kind=text,binary&writable=true lists the writable formats.");
+                "Pick another target; GET /v1/formats?writable=true lists the writable formats.");
         return null;
     }
 
@@ -186,7 +186,7 @@ public sealed partial class FormatRegistry
         if (info == null && IsKnownUnsupported(idOrAlias))
         {
             throw new ApiException(422, ErrorCodes.FormatNotSupported, $"'{idOrAlias}' is image-based or a container format.",
-                "Text and binary subtitle formats are supported (GET /v1/formats?kind=text,binary); OCR and container extraction are on the roadmap.")
+                "Text and binary subtitle formats are supported (GET /v1/formats); OCR and container extraction are on the roadmap.")
             { Errors = [new FieldError(pointer, $"'{idOrAlias}' is not supported")] };
         }
         if (info == null)

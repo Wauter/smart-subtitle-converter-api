@@ -224,7 +224,7 @@ public static class ProfileSpec
         var info = formats.Find(id);
         if (info == null && FormatRegistry.IsKnownUnsupported(id))
         {
-            errors.Add(new(pointer, $"'{id}' is image-based or a container format.", "OCR/containers are on the roadmap; see GET /v1/formats?kind=text,binary."));
+            errors.Add(new(pointer, $"'{id}' is image-based or a container format.", "OCR/containers are on the roadmap; see GET /v1/formats."));
         }
         else if (info == null)
         {

@@ -69,7 +69,7 @@ public static class InfoEndpoints
                     { Errors = [new("/query/kind", $"Unknown kind '{bad[0]}'.")] };
                 list = list.Where(f => kinds.Contains(f.Kind)); // kind wins over textOnly
             }
-            else if (textOnly ?? true) list = list.Where(f => f.Kind == FormatKinds.Text);
+            else if (textOnly == true) list = list.Where(f => f.Kind == FormatKinds.Text);
             else list = list.Where(f => f.Kind is FormatKinds.Text or FormatKinds.Binary); // image/container only via kind=
             if (writable == true) list = list.Where(f => f.CanWrite);
             if (!string.IsNullOrWhiteSpace(q))
@@ -78,7 +78,7 @@ public static class InfoEndpoints
             return Results.Json(list.ToList(), Json.Options);
         }).WithName("listFormats").WithTags("formats")
           .WithSummary("List subtitle formats.")
-          .WithDescription("Use `id` or an alias as source/target format. `textOnly` defaults to true (text formats only, as in earlier versions). `kind` is a comma list of text|binary|image|container and wins over `textOnly`; image/container formats are listed only via `kind` and can't be converted. `writable=true` keeps formats that can be a target.")
+          .WithDescription("Use `id` or an alias as source/target format. By default lists every convertible format, text and binary. `textOnly=true` keeps text formats only. `kind` is a comma list of text|binary|image|container and wins over `textOnly`; image/container formats are listed only via `kind` and can't be converted. `writable=true` keeps formats that can be a target.")
           .Produces<List<FormatInfo>>().ProducesProblem(400);
 
         v1.MapGet("/limits", (HttpContext ctx, ApiOptions opts, ConversionQueue queue, ApiKeyStore keys, BrowseQueue browse) =>

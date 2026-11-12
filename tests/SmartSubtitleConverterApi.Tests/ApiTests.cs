@@ -191,7 +191,10 @@ public class ApiTests : IClassFixture<ApiFactory>
     {
         var formats = (await _c.GetFromJsonAsync<System.Text.Json.Nodes.JsonArray>("/v1/formats"))!;
         Assert.True(formats.Count > 200);
-        Assert.All(formats, f => Assert.True((bool)f!["textBased"]!));
+        Assert.Contains(formats, f => !(bool)f!["textBased"]!); // binary formats are listed by default
+        var textFormats = (await _c.GetFromJsonAsync<System.Text.Json.Nodes.JsonArray>("/v1/formats?textOnly=true"))!;
+        Assert.True(textFormats.Count > 200);
+        Assert.All(textFormats, f => Assert.True((bool)f!["textBased"]!));
         var srt = (await _c.GetFromJsonAsync<System.Text.Json.Nodes.JsonArray>("/v1/formats?q=srt"))!;
         Assert.Contains(srt, f => (string)f!["id"]! == "subrip");
 

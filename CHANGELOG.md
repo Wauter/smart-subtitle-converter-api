@@ -8,6 +8,10 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 
 ## Unreleased
 
+- Fixed: `GET /v1/formats` without parameters now lists text **and** binary formats (EBU STL, PAC, …); it used to
+  list text formats only, so clients never saw the binary broadcast formats unless they asked. `textOnly=true`
+  still gives text only, `kind=` still wins, and image/container formats are still listed only via `kind=`.
+  Hints that pointed at `GET /v1/formats?kind=text,binary` now point at `GET /v1/formats`.
 - `docker-compose.yml`: every tunable setting now comes from `.env` (documented in `.env.example`). The
   `environment:` block keeps only fixed wiring that matches the mounts and port (`API_KEYS_FILE`, `PROFILES_DIR`,
   `ASPNETCORE_HTTP_PORTS`) and `ALLOWED_HOSTS: ${ALLOWED_HOSTS:-smart-subtitle-converter-api}`, so `ALLOWED_HOSTS`
