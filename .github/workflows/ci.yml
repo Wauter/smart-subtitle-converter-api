@@ -116,7 +116,7 @@ jobs:
             REVISION=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
-      - name: Smoke test (boot, readyz incl. globalization, convert, auth, size budget)
+      - name: Smoke test (boot, readyz incl. globalization, convert, auth, file storage, size budget)
         run: scripts/smoke.sh smart-subtitle-converter-api:smoke ${{ matrix.platform }} ${{ matrix.max_uncompressed_mb }}
       - name: Postman collection (newman) against the container
         run: |

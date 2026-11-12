@@ -187,7 +187,12 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     public async Task Truncated_binary_with_source_format_is_invalid_binary_input()
     {
         var stl = await (await ToBinary(_c, "ebustl")).Content.ReadAsByteArrayAsync();
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(stl[..600], "x.stl", ("target", "srt"), ("profile", """{"source":{"format":"ebustl"}}""")));
+        // The default (ERRORS_VERBOSE=false, H9) carries no debug block; verbose mode shows it.
+        var quiet = await (await _c.PostAsync("/v1/convert", Samples.Form(stl[..600], "x.stl", ("target", "srt"), ("profile", """{"source":{"format":"ebustl"}}""")))).Json();
+        Assert.Equal("invalid-binary-input", (string)quiet["code"]!);
+        Assert.Null(quiet["debug"]);
+        using var verbose = ApiFactory.With(new() { ["ERRORS_VERBOSE"] = "true" });
+        var r = await verbose.CreateClient().PostAsync("/v1/convert", Samples.Form(stl[..600], "x.stl", ("target", "srt"), ("profile", """{"source":{"format":"ebustl"}}""")));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, r.StatusCode);
         var j = await r.Json();
         Assert.Equal("invalid-binary-input", (string)j["code"]!);
@@ -326,8 +331,21 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Formats_kind_and_writable_filters()
     {
+        // Regression: the default list must include binary broadcast formats (it used to be text only),
+        // but never image/container formats, which can't be converted.
         var def = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats"))!;
-        Assert.All(def, f => Assert.Equal("text", (string)f!["kind"]!));
+        Assert.Contains(def, f => (string)f!["id"]! == "ebustl" && (string)f["kind"]! == "binary");
+        Assert.Contains(def, f => (string)f!["id"]! == "subrip" && (string)f["kind"]! == "text");
+        Assert.DoesNotContain(def, f => (string)f!["kind"]! is "image" or "container");
+        var textOnly = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?textOnly=true"))!;
+        Assert.All(textOnly, f => Assert.Equal("text", (string)f!["kind"]!));
+        Assert.Equal(def.Count(f => (string)f!["kind"]! == "text"), textOnly.Count);
+        var kindWins = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?textOnly=true&kind=binary"))!;
+        Assert.NotEmpty(kindWins);
+        Assert.All(kindWins, f => Assert.Equal("binary", (string)f!["kind"]!));
+        var writableDefault = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?writable=true"))!;
+        Assert.Contains(writableDefault, f => (string)f!["id"]! == "ebustl");
+        Assert.DoesNotContain(writableDefault, f => (string)f!["id"]! == "avidstl");
         var bin = (await _c.GetFromJsonAsync<JsonArray>("/v1/formats?kind=binary"))!;
         JsonNode F(string id) => bin.First(f => (string)f!["id"]! == id)!;
         Assert.True((bool)F("ebustl")["canWrite"]!);
@@ -429,6 +447,7 @@ public class BinaryFormatTests : IClassFixture<ApiFactory>
         Assert.False(File.Exists(path));
         Assert.False(Directory.Exists(Path.GetDirectoryName(path)));
         stuck.Set();
+        for (var i = 0; i < 200 && q.IsStuck; i++) await Task.Delay(10); // the stuck conversion returns; the same worker resumes (H8)
         Assert.Equal("ok", (await q.RunAsync(() => "ok", default)).Result);
         Assert.Equal(0, BinaryIO.CountEntries());
     }

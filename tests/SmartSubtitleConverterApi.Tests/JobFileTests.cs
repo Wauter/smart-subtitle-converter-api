@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SmartSubtitleConverterApi.Endpoints;
 using SmartSubtitleConverterApi.Infrastructure;
 using SmartSubtitleConverterApi.Jobs;
 using SmartSubtitleConverterApi.Storage;
@@ -17,8 +18,33 @@ public sealed class JobFileTests : IDisposable
         var settings = extra ?? new(); settings["STORAGE_FILE_ROOTS"] = root; return ApiFactory.With(settings);
     }
     private static async Task<string> Code(HttpResponseMessage r, int status) {
-        Assert.Equal(status, (int)r.StatusCode); return (string)(await r.Json())["code"]!;
+        Assert.Equal(status, (int)r.StatusCode); var p = await r.Json(); var code = (string)p["code"]!;
+        // QA p7: job/storage problems used to fall back to the generic "Internal error" title.
+        Assert.NotEqual("Internal error", (string)p["title"]!); Assert.Equal(ErrorCodes.Title(code), (string)p["title"]!);
+        return code;
     }
+    [Fact]
+    public async Task Storage_output_reports_the_stored_file_name_not_the_generated_name()
+    {
+        using var f = Factory(); var c = f.CreateClient();
+        var output = Path.Combine(root, "delivery 145152.vtt");
+        var r = await c.PostAsJsonAsync("/v1/convert/json", new { input = Path.Combine(root, "in.srt"), output, target = "vtt" });
+        Assert.Equal(200, (int)r.StatusCode); var body = await r.Json();
+        Assert.Equal("delivery 145152.vtt", (string)body["outputs"]![0]!["fileName"]!);
+        var job = await (await c.GetAsync("/v1/jobs/" + r.Header("X-Job-Id"))).Json();
+        Assert.Equal("delivery 145152.vtt", (string)job["result"]!["outputs"]![0]!["fileName"]!);
+        var inline = await (await c.PostAsJsonAsync("/v1/convert/json", new { input = Path.Combine(root, "in.srt"), target = "vtt" })).Json();
+        Assert.Equal("in.vtt", (string)inline["outputs"]![0]!["fileName"]!);
+    }
+
+    [Theory]
+    [InlineData("s3://subs/qa-p6/test2-145152.srt", "test2-145152.srt")]
+    [InlineData("s3://subs/out/a%20b.srt", "a b.srt")]
+    [InlineData("https://store.example.com/out/show.pac?signature=x", "show.pac")]
+    [InlineData("file:///data/out/show.vtt", "show.vtt")]
+    [InlineData("/data/out/show.vtt", "show.vtt")]
+    public void Stored_name_is_the_last_location_segment(string output, string expected) => Assert.Equal(expected, ConvertEndpoints.StoredName(output));
+
     [Fact]
     public async Task Any_valid_key_reads_metadata_and_current_files_but_auth_still_applies()
     {
@@ -32,6 +58,10 @@ public sealed class JobFileTests : IDisposable
         Assert.DoesNotContain("Hello", job.ToJsonString());
         var input = await b.GetAsync("/v1/jobs/" + id + "/input");
         Assert.Equal(Samples.Srt, await input.Content.ReadAsStringAsync()); Assert.Contains("attachment", input.Content.Headers.ContentDisposition!.ToString());
+        // H7: job file reads carry an ETag; If-None-Match with it is 304 without the content.
+        var cond = new HttpRequestMessage(HttpMethod.Get, "/v1/jobs/" + id + "/input"); cond.Headers.TryAddWithoutValidation("If-None-Match", input.Headers.ETag!.Tag);
+        var notModified = await b.SendAsync(cond);
+        Assert.Equal(304, (int)notModified.StatusCode); Assert.Empty(await notModified.Content.ReadAsByteArrayAsync()); Assert.Equal(id, notModified.Header("X-Job-Id"));
         Assert.True((bool)job["inputReplayable"]!); Assert.True((bool)job["outputReplayable"]!);
         File.WriteAllText(output, "current bytes, not an archived result");
         var read = await b.GetAsync("/v1/jobs/" + id + "/output");
@@ -48,8 +78,16 @@ public sealed class JobFileTests : IDisposable
         using var f = Factory(); var c = f.CreateClient();
         var r = await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, target = "vtt" }); var id = r.Header("X-Job-Id");
         Assert.Equal("job-input-not-stored", await Code(await c.GetAsync($"/v1/jobs/{id}/input"), 409));
-        Assert.Equal("job-output-not-stored", await Code(await c.GetAsync($"/v1/jobs/{id}/output"), 409));
+        var notStored = await c.GetAsync($"/v1/jobs/{id}/output");
+        Assert.Equal("job-output-not-stored", await Code(notStored, 409));
+        var problem = await notStored.Json();
+        Assert.Equal("Job output not stored", (string)problem["title"]!);
+        Assert.Contains("returned in the convert response and not stored", (string)problem["detail"]!);
+        Assert.Contains("convert with an output location", (string)problem["hint"]!);
+        var inputProblem = await (await c.GetAsync($"/v1/jobs/{id}/input")).Json();
+        Assert.Equal("Job input not stored", (string)inputProblem["title"]!);
         Assert.Equal("job-not-found", await Code(await c.GetAsync("/v1/jobs/unknown"), 404));
+        Assert.Equal("Job not found", (string)(await (await c.GetAsync("/v1/jobs/unknown")).Json())["title"]!);
         Assert.Equal("job-not-found", await Code(await c.GetAsync("/v1/jobs/unknown/output"), 404));
     }
     [Fact]
@@ -61,7 +99,9 @@ public sealed class JobFileTests : IDisposable
         Assert.Equal(200, (int)(await c.GetAsync($"/v1/jobs/{id}/input")).StatusCode);
         Assert.Equal("job-not-ready", await Code(await c.GetAsync($"/v1/jobs/{id}/output"), 409));
         jobs.Finish(id, error: new() { ["code"] = "output-exists" });
-        Assert.Equal("job-output-not-stored", await Code(await c.GetAsync($"/v1/jobs/{id}/output"), 409));
+        var failed = await c.GetAsync($"/v1/jobs/{id}/output");
+        Assert.Equal("job-output-not-stored", await Code(failed, 409));
+        Assert.Contains("the conversion failed", (string)(await failed.Json())["detail"]!);
         File.Delete(Path.Combine(root, "in.srt"));
         Assert.Equal("job-file-gone", await Code(await c.GetAsync($"/v1/jobs/{id}/input"), 404));
     }

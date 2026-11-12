@@ -1,0 +1,97 @@
+using System.Diagnostics;
+using System.Net.Http.Json;
+using System.Net;
+using System.Net.Sockets;
+using Amazon.Runtime;
+using Amazon.S3;
+using Amazon.S3.Model;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using SmartSubtitleConverterApi.Infrastructure;
+using SmartSubtitleConverterApi.Storage;
+namespace SmartSubtitleConverterApi.Tests;
+
+/// Browse and read by location against a real, isolated MinIO (MINIO_BIN; required in CI): ListObjectsV2 continuation, prefixes, folders.
+public class MinioListTests
+{
+    [MinioFact]
+    public async Task Real_minio_listing_walks_every_key_once_and_reads_by_location()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "minio-list-" + Guid.NewGuid()); Directory.CreateDirectory(root);
+        var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
+        var endpoint = $"http://127.0.0.1:{port}";
+        var user = "test-" + Guid.NewGuid().ToString("N"); var password = Guid.NewGuid().ToString("N"); // throwaway, loopback only
+        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("MINIO_BIN")!) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        foreach (var arg in new[] { "server", Path.Combine(root, "objects"), "--address", $"127.0.0.1:{port}", "--console-address", "127.0.0.1:0" }) start.ArgumentList.Add(arg);
+        start.Environment["MINIO_ROOT_USER"] = user; start.Environment["MINIO_ROOT_PASSWORD"] = password;
+        using var process = Process.Start(start)!;
+        process.OutputDataReceived += (_, _) => { }; process.ErrorDataReceived += (_, _) => { }; process.BeginOutputReadLine(); process.BeginErrorReadLine();
+        try
+        {
+            using var health = new HttpClient(); var ready = false;
+            for (var i = 0; i < 300 && !ready; i++) // up to 30 s: MinIO starts slowly while the rest of the suite runs in parallel
+            {
+                try { ready = (await health.GetAsync(endpoint + "/minio/health/ready")).IsSuccessStatusCode; } catch (HttpRequestException) { }
+                if (!ready) await Task.Delay(100);
+            }
+            Assert.True(ready, "MinIO did not become ready.");
+            var opts = new ApiOptions { S3Endpoint = endpoint, S3Region = "us-east-1", S3ForcePathStyle = true, S3AllowedBuckets = ["subs"], S3AllowedPrefixes = ["in/"], StorageListEnabled = true };
+            var credentials = new BasicAWSCredentials(user, password);
+            using var client = new AmazonS3Client(credentials, S3Storage.Configuration(opts));
+            await client.PutBucketAsync(new PutBucketRequest { BucketName = "subs" });
+            var expected = new List<string>();
+            foreach (var i in Enumerable.Range(0, 420)) { var k = $"in/show_{i:000}.srt"; await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = k, ContentBody = Samples.Srt, UseChunkEncoding = false }); expected.Add($"show_{i:000}.srt"); }
+            await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "in/season1/ep1.srt", ContentBody = Samples.Srt, UseChunkEncoding = false }); expected.Add("season1/");
+            await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "private/secret.srt", ContentBody = "secret", UseChunkEncoding = false });
+            // Hidden keys (a segment starting with '.') are never listed or read; ordinary dotted names are.
+            foreach (var k in new[] { "in/.env", "in/.cache/x.srt", "in/notes.pdf", "in/run.sh" }) await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = k, ContentBody = "HIDDEN_SENTINEL", UseChunkEncoding = false });
+            await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "in/show.v2.final.srt", ContentBody = Samples.Srt, UseChunkEncoding = false }); expected.Add("show.v2.final.srt");
+            expected.Sort(StorageListing.Utf8Order);
+            using var factory = ApiFactory.With(new() { ["S3_ALLOWED_BUCKETS"] = "subs", ["S3_ALLOWED_PREFIXES"] = "in/", ["S3_ENDPOINT"] = endpoint, ["S3_FORCE_PATH_STYLE"] = "true", ["STORAGE_LIST_ENABLED"] = "true" },
+                services => { services.RemoveAll<S3Storage>(); services.AddSingleton(new S3Storage(opts, new AmazonS3Client(credentials, S3Storage.Configuration(opts)))); });
+            var c = factory.CreateClient();
+            var names = new List<string>(); string? cursor = null; var pages = 0;
+            do
+            {
+                var j = await (await c.GetAsync("/v1/storage/list?location=" + Uri.EscapeDataString("s3://subs/in/") + (cursor != null ? "&cursor=" + cursor : ""))).Json();
+                names.AddRange(j["items"]!.AsArray().Select(i => (string)i!["name"]!)); pages++;
+                cursor = (bool)j["truncated"]! ? (string)j["next"]! : null;
+                if (pages == 1) await client.DeleteObjectAsync("subs", "in/show_399.srt"); // removed before it was returned
+            } while (cursor != null);
+            Assert.Equal(expected.Where(n => n != "show_399.srt"), names);
+            Assert.Equal(3, pages);
+            var file = await c.GetAsync("/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/season1/ep1.srt"));
+            Assert.Equal(Samples.Srt, await file.Content.ReadAsStringAsync());
+            // H7 change check: the S3 ETag comes back, If-None-Match with it is 304 (HEAD only), a rewrite changes it.
+            var s3Tag = file.Headers.ETag!.Tag; Assert.StartsWith("\"s3-", s3Tag);
+            var cond = new HttpRequestMessage(HttpMethod.Get, "/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/season1/ep1.srt")); cond.Headers.TryAddWithoutValidation("If-None-Match", s3Tag);
+            Assert.Equal(304, (int)(await c.SendAsync(cond)).StatusCode);
+            await client.PutObjectAsync(new PutObjectRequest { BucketName = "subs", Key = "in/season1/ep1.srt", ContentBody = Samples.Srt + "\r\n", UseChunkEncoding = false });
+            var cond2 = new HttpRequestMessage(HttpMethod.Get, "/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/season1/ep1.srt")); cond2.Headers.TryAddWithoutValidation("If-None-Match", s3Tag);
+            var rewritten = await c.SendAsync(cond2);
+            Assert.Equal(200, (int)rewritten.StatusCode); Assert.NotEqual(s3Tag, rewritten.Headers.ETag!.Tag);
+            var denied = await c.GetAsync("/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/private/secret.srt"));
+            Assert.Equal(422, (int)denied.StatusCode);
+            var root2 = await c.GetAsync("/v1/storage/list?location=" + Uri.EscapeDataString("s3://subs/"));
+            Assert.Equal(422, (int)root2.StatusCode);
+            Assert.Equal(Samples.Srt, await (await c.GetAsync("/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/show.v2.final.srt"))).Content.ReadAsStringAsync());
+            foreach (var url in new[] { "/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/.env"), "/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/%2Ecache/x.srt"),
+                                        "/v1/storage/list?location=" + Uri.EscapeDataString("s3://subs/in/.cache/"), "/v1/storage/list?location=" + Uri.EscapeDataString("s3://subs/in/") + "&prefix=.cache/" })
+            {
+                var r = await c.GetAsync(url); var body = await r.Content.ReadAsStringAsync();
+                Assert.True((int)r.StatusCode == 422 && body.Contains("\"hidden-path\""), url + " " + body); Assert.DoesNotContain("HIDDEN_SENTINEL", body);
+            }
+            // H3: non-subtitle objects are not listed (asserted by the name walk above) and never read.
+            var pdf = await c.GetAsync("/v1/storage/file?location=" + Uri.EscapeDataString("s3://subs/in/notes.pdf"));
+            var pdfBody = await pdf.Content.ReadAsStringAsync();
+            Assert.True((int)pdf.StatusCode == 422 && pdfBody.Contains("\"extension-not-allowed\""), pdfBody); Assert.DoesNotContain("HIDDEN_SENTINEL", pdfBody);
+            var conv = await c.PostAsJsonAsync("/v1/convert/json", new { input = "s3://subs/in/.env", target = "vtt" });
+            Assert.Equal(422, (int)conv.StatusCode); Assert.DoesNotContain("HIDDEN_SENTINEL", await conv.Content.ReadAsStringAsync());
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
+            Directory.Delete(root, true);
+        }
+    }
+}

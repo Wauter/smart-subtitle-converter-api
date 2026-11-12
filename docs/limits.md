@@ -5,15 +5,27 @@ as other API routes. It exposes whether auth is enabled, not keys, roots, bucket
 
 - `maxUploadBytes`, `maxRequestBodyBytes`, `json`, `maxProfileBytes`, `maxCues`, `maxLineChars`:
   decoded source size, framing/base64 budgets and conversion input limits. URI downloads have the same cap.
-- `conversionTimeoutSeconds`, `queue.capacity`, `queue.depth`: conversion run/queue budgets and live depth.
+- `conversionTimeoutSeconds`, `queue.capacity`, `queue.depth`: conversion run/queue budgets and live depth. One
+  conversion runs at a time; after a timeout no other starts until the stuck one returns (`503
+  conversion-engine-stuck`), and after `CONVERSION_STUCK_GRACE_SECONDS` (default twice the timeout) the process exits
+  with code 70 for a clean restart.
 - `requestMaxWaitSeconds`: maximum accepted caller wait.
 - `requestWaitSeconds`: default caller wait (per-request `Prefer: wait` accepts 0..60).
 - `io.timeoutSeconds`, `io.retries`: per-attempt timeout and number of **extra** transient attempts.
 - `jobs.maxEntries`, `jobs.ttlSeconds`: history cap and TTL from creation, not from completion.
 - `jobs.maxActive`: cap on work, including transfers, unaffected by history eviction.
 - `jobs.maxMetadataBytes`: result/error metadata budget; exceeding it replaces detail with a summary.
+- `storage.list`: `STORAGE_LIST_ENABLED` (browse and read by location on `GET /v1/storage/*`); `storage.listSchemes`:
+  the enabled schemes that can be listed (`file`, `s3`; never `https`), empty when listing is off.
+- `storage.extensions`: the subtitle extensions allowed for file and S3 locations (from libse);
+  `storage.listMaxEntries`: the per-folder listing cap (5000, then `422 folder-too-large`).
+- `storage.browse`: the browse queue for listing, read by location and job file reads: `concurrency`,
+  `queueCapacity`, `waitSeconds` and live `running`/`waiting`.
 - `storage.inputSchemes`, `storage.outputSchemes`: configured `file`, `https`, `s3` schemes. Filesystem
-  support is Linux-only. An enabled scheme still needs working permissions/credentials/network access.
+  support is Linux-only. An enabled scheme still needs working permissions/credentials/network access;
+  the scheme list is configuration only. Warning-only startup diagnostics log the effective settings,
+  malformed values, the AWS credential source, unreachable S3 buckets and missing filesystem roots (see
+  [startup storage diagnostics](configuration.md#startup-storage-diagnostics)).
 - `rateLimitPerMinute`, `auth.required`, `binary.ebuStlMaxBytes`: request rate, bearer requirement and
   the reader's EBU STL size bound.
 

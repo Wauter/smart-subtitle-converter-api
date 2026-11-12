@@ -69,6 +69,21 @@ public static partial class Problems
         return body;
     }
 
+    /// <summary>
+    /// H9: the details that ERRORS_VERBOSE=false keeps out of responses (inner exception, stack trace, debug fields such as
+    /// firstLineShape) go to the server log instead, keyed by request id. Exception messages of storage transports are not
+    /// logged (they may contain signed URLs); only their type and stack.
+    /// </summary>
+    public static void LogDetails(ILogger log, ApiException ex, string requestId)
+    {
+        if (ex.Debug.Count == 0 && ex.InnerException == null) return;
+        var debug = ex.Debug.Count == 0 ? "" : " debug=" + JsonSerializer.Serialize(ex.Debug, Json.Options);
+        var inner = ex.InnerException;
+        var transport = inner is HttpRequestException or Amazon.Runtime.AmazonServiceException or Amazon.Runtime.AmazonClientException;
+        var innerText = inner == null ? "" : $" exception={inner.GetType().FullName}" + (transport ? "" : $" message={Storage.StorageDiagnostics.Q(inner.Message)}") + $" stackTrace={Storage.StorageDiagnostics.Q(inner.StackTrace)}";
+        log.LogInformation("{Line}", $"error.details requestId={requestId} code={ex.Code} status={ex.Status}{debug}{innerText}");
+    }
+
     public static ApiException TooLarge(ApiOptions opts, Exception? ex = null) =>
         new(413, ErrorCodes.PayloadTooLarge, "The request body is larger than the configured limit.",
             $"Max upload is {opts.MaxUploadBytes / 1024.0 / 1024.0:0.##} MB (MAX_UPLOAD_BYTES).", ex);
@@ -153,6 +168,7 @@ public sealed class ErrorMiddleware(RequestDelegate next, ILogger<ErrorMiddlewar
                 return;
             }
             var api = Problems.Translate(ex, opts);
+            if (!(api.Status >= 500 && api.Code == ErrorCodes.InternalError) && !api.Extensions.ContainsKey("id")) Problems.LogDetails(log, api, RequestIdMiddleware.Get(ctx));
             if (api.Status >= 500 && api.Code == ErrorCodes.InternalError)
             {
                 log.LogError(ex, "Unhandled error {code}", api.Code);

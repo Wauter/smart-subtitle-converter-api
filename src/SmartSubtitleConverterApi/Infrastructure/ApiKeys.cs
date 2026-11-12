@@ -4,9 +4,10 @@ using System.Text;
 namespace SmartSubtitleConverterApi.Infrastructure;
 
 /// <summary>
-/// Optional bearer API keys (design §6.1). Keys come from API_KEYS (comma separated) and/or
-/// API_KEYS_FILE (one per line, '#' comments, optional 'name:key'). Only SHA-256 hashes are kept
-/// in memory; comparison is constant time. The file is re-read when its mtime changes.
+/// Bearer API keys (design §6.1), required by default. Keys come from API_KEYS (comma separated) and/or API_KEYS_FILE
+/// (one per line, '#' comments, optional 'name:key'). Only SHA-256 hashes are kept in memory; comparison is constant time.
+/// The file is re-read when its mtime changes. API_AUTH_DISABLED=true turns auth off. When the key file has no key,
+/// <see cref="ApiKeyBootstrap"/> generates one into it at startup.
 /// </summary>
 public sealed class ApiKeyStore
 {
@@ -21,17 +22,10 @@ public sealed class ApiKeyStore
         _opts = opts;
         _log = log;
         Reload(force: true);
-        if (!Enabled)
-        {
-            log.LogWarning("auth.disabled: no API keys configured; /v1 endpoints are open");
-        }
-        else
-        {
-            log.LogInformation("auth.enabled with {count} key(s)", _keys.Count);
-        }
     }
 
-    public bool Enabled => _keys.Count > 0 || !string.IsNullOrEmpty(_opts.ApiKeysFile);
+    public bool Enabled => !_opts.ApiAuthDisabled;
+    public int Count => _keys.Count;
 
     private void Reload(bool force)
     {
@@ -46,7 +40,7 @@ public sealed class ApiKeyStore
             {
                 list.Add(Parse(k));
             }
-            if (!string.IsNullOrEmpty(path))
+            if (!string.IsNullOrEmpty(path) && (File.Exists(path) || _opts.ApiKeys is not { Length: > 0 }))
             {
                 try
                 {
@@ -117,5 +111,131 @@ public sealed class ApiKeyMiddleware(RequestDelegate next, ILogger<ApiKeyMiddlew
         }
         ctx.Items["keyName"] = name;
         await next(ctx);
+    }
+}
+
+/// <summary>Thrown when startup can't continue because of the API key configuration; the message is the operator-facing explanation.</summary>
+public sealed class StartupConfigException(string message) : Exception(message);
+
+/// <summary>
+/// Startup check for API keys (H1). Auth is on unless API_AUTH_DISABLED=true. With no key anywhere, the key file
+/// (API_KEYS_FILE, /api_keys.txt in the container image) must exist as a writable regular file: a strong random key is
+/// written into it in place (it may be a single bind-mounted file, so no rename) and the file is set to 0600.
+/// The key itself is never logged, not even masked.
+/// </summary>
+public static class ApiKeyBootstrap
+{
+    public const string HostFileExample = "./api_keys.txt";
+
+    public static int CountKeys(string? envKeys, IEnumerable<string> fileLines) =>
+        (envKeys ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length
+        + fileLines.Select(l => l.Trim()).Count(l => l.Length > 0 && !l.StartsWith('#'));
+
+    /// <summary>A new key: "ssc_" + 32 random bytes, base64url (no ':' so it is never read as name:key).</summary>
+    public static string NewKey() => "ssc_" + Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    /// <summary>Validates the key setup and generates a key when needed. Logs the outcome; throws <see cref="StartupConfigException"/> when startup must stop.</summary>
+    public static void Ensure(ApiOptions opts, ILogger log)
+    {
+        var storage = opts.StorageFileRoots.Length > 0 || opts.S3AllowedBuckets.Length > 0 || opts.HttpAllowedHosts.Length > 0;
+        if (opts.ApiAuthDisabled)
+        {
+            var banner = new string('!', 100);
+            log.LogWarning("{Line}", banner);
+            log.LogWarning("{Line}", "auth.disabled API_AUTH_DISABLED=true: every /v1 endpoint is open to anyone who can reach this port. No API key is checked. "
+                + "Use this only for throwaway local experiments. Fix: remove API_AUTH_DISABLED (or set it to false) and mount an api_keys.txt (see docs/security.md, Securing the API).");
+            if (storage)
+                log.LogWarning("{Line}", "auth.disabled DANGER: storage is configured (STORAGE_FILE_ROOTS / S3_ALLOWED_BUCKETS / HTTP_ALLOWED_HOSTS), so anyone who can reach this port can read and write those locations. "
+                    + "Turn auth back on before you use this API with real files.");
+            log.LogWarning("{Line}", banner);
+            return;
+        }
+        var envCount = CountKeys(opts.ApiKeys, []);
+        var path = opts.ApiKeysFile;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            if (envCount > 0) { log.LogInformation("{Line}", $"auth.enabled keys={envCount} source=API_KEYS (requests to /v1 need Authorization: Bearer <key>)"); return; }
+            throw new StartupConfigException(
+                "No API key is configured and API_KEYS_FILE is not set, so the API can't start safely.\n"
+                + "  Why: the API requires a key by default, so web pages and other programs can't use it without permission.\n"
+                + "  Fix (recommended): create an empty file on the host (touch api_keys.txt), mount it read-write at /api_keys.txt and set API_KEYS_FILE=/api_keys.txt. "
+                + "On first start the API writes a new key into that file.\n"
+                + "  Or: put your own key in that file (one per line), or set API_KEYS=<key>.\n"
+                + "  Or, only for throwaway local tests: set API_AUTH_DISABLED=true.");
+        }
+        if (envCount > 0 && !File.Exists(path) && !Directory.Exists(path))
+        {
+            log.LogInformation("{Line}", $"auth.enabled keys={envCount} source=API_KEYS (API_KEYS_FILE={path} is not present, so only API_KEYS is used; requests to /v1 need Authorization: Bearer <key>)");
+            return;
+        }
+        if (Directory.Exists(path))
+            throw new StartupConfigException(
+                $"API_KEYS_FILE={path} is a directory, not a file.\n"
+                + "  Why: this usually means the file did not exist on the host when the container started, so Docker created an empty directory with that name instead of mounting a file.\n"
+                + $"  Fix: stop the container, remove that directory on the host (rmdir {HostFileExample}), create an empty file (touch {HostFileExample}), "
+                + $"make it writable for the container user (UID 1654), for example: chmod 600 {HostFileExample} && sudo chown 1654 {HostFileExample}, then start again. "
+                + $"The volume line should look like: - {HostFileExample}:{path}");
+        if (!File.Exists(path))
+            throw new StartupConfigException(
+                $"API_KEYS_FILE={path} does not exist.\n"
+                + "  Why: the API requires an API key by default and reads it from this file.\n"
+                + $"  Fix: create an empty file on the host (touch {HostFileExample}), make it writable for the container user (UID 1654): chmod 600 {HostFileExample} && sudo chown 1654 {HostFileExample}, "
+                + $"and mount it read-write: - {HostFileExample}:{path}. On first start the API writes a new key into it. "
+                + "Or put your own key in it, or set API_KEYS=<key>, or (only for throwaway local tests) API_AUTH_DISABLED=true.");
+        string[] lines;
+        try { lines = File.ReadAllLines(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new StartupConfigException(
+                $"API_KEYS_FILE={path} can't be read ({ex.GetType().Name}).\n"
+                + $"  Fix: make the file readable for the container user (UID 1654), for example: chmod 600 {HostFileExample} && sudo chown 1654 {HostFileExample}.");
+        }
+        var fileCount = CountKeys(null, lines);
+        if (fileCount + envCount > 0)
+        {
+            log.LogInformation("{Line}", $"auth.enabled keys={fileCount + envCount} fromFile={fileCount} fromApiKeys={envCount} file={path} (requests to /v1 need Authorization: Bearer <key>; the file is re-read when it changes)");
+            return;
+        }
+        // No key anywhere: generate one into the existing file, in place.
+        var key = NewKey();
+        try
+        {
+            // FileMode.Open: never create (a missing file is reported above) and never replace the inode (bind mounts).
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            stream.Seek(0, SeekOrigin.End);
+            var prefix = stream.Length > 0 && !EndsWithNewline(stream) ? "\n" : "";
+            stream.Seek(0, SeekOrigin.End);
+            var text = prefix
+                + $"# Generated by smart-subtitle-converter-api on {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC because this file had no key.\n"
+                + "# Clients send it as: Authorization: Bearer <key>. Keep this file private. Add more keys one per line (optional name:key).\n"
+                + key + "\n";
+            stream.Write(Encoding.UTF8.GetBytes(text));
+            stream.Flush(flushToDisk: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new StartupConfigException(
+                $"API_KEYS_FILE={path} has no key and the API could not write a new one into it ({ex.GetType().Name}).\n"
+                + "  Why: when the key file is empty the API generates a key into it on first start, which needs write access.\n"
+                + $"  Fix: mount the file read-write (no :ro on the volume line, not as a Docker secret) and make it writable for the container user (UID 1654): chmod 600 {HostFileExample} && sudo chown 1654 {HostFileExample}. "
+                + "Or put your own key in the file yourself (one per line) and keep the read-only mount.");
+        }
+        var modeNote = "";
+        try { if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { modeNote = " (could not set the file to owner-only 0600; do it on the host: chmod 600 " + HostFileExample + ")"; }
+        log.LogWarning("{Line}", new string('=', 100));
+        log.LogWarning("{Line}", $"auth.key-generated No API key was configured, so a new random key was generated and written to {path} inside the container{modeNote}. The key is not printed here.");
+        log.LogWarning("{Line}", $"auth.key-generated Where to find it: in the file you mounted at {path} (for example {HostFileExample} next to docker-compose.yml). Open it on the host; the key is the line that does not start with '#'.");
+        log.LogWarning("{Line}", "auth.key-generated Clients send it as the header: Authorization: Bearer <key>.");
+        log.LogWarning("{Line}", "auth.key-generated MCP server: give it the key with SUBTITLE_API_KEY_FILE=<a file holding the key, readable by the MCP's user> (for example a copy of this file) or SUBTITLE_API_KEY=<key>. The MCP re-reads that file when it changes.");
+        log.LogWarning("{Line}", "auth.key-generated Postman: set the apiKey environment variable to the key.");
+        log.LogWarning("{Line}", new string('=', 100));
+    }
+
+    private static bool EndsWithNewline(FileStream s)
+    {
+        s.Seek(-1, SeekOrigin.End);
+        return s.ReadByte() == '\n';
     }
 }

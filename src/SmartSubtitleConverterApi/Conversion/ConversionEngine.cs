@@ -681,7 +681,7 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
         ex.Debug["detected"] = new Dictionary<string, object?>
         {
             ["encoding"] = decoded.EncodingName, ["encodingConfidence"] = decoded.Confidence,
-            ["lineCount"] = lines.Count, ["firstLineShape"] = opts.ErrorsVerbose ? Shape(first) : null,
+            ["lineCount"] = lines.Count, ["firstLineShape"] = Shape(first), // Debug only: in the response with ERRORS_VERBOSE=true, otherwise only in the server log
         };
         return ex;
     }

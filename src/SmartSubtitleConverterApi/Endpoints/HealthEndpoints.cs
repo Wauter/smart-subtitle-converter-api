@@ -72,7 +72,7 @@ public static class HealthEndpoints
                     { Count: 0 } => "ok",
                     var f => "failed: " + string.Join(", ", f),
                 },
-                ["worker"] = q.Healthy ? "ok" : "unhealthy: repeated conversion timeouts",
+                ["worker"] = q.WorkerStatus,
                 ["queue"] = q.IsFull ? "full" : "ok",
             };
             var ready = checks.Values.All(v => (string?)v == "ok");
@@ -102,6 +102,7 @@ public static class HealthEndpoints
                 }
                 Line("subtitleedit_queue_depth", "gauge", "Jobs waiting in the conversion queue.", q.Depth);
                 Line("subtitleedit_queue_capacity", "gauge", "Queue capacity.", q.Capacity);
+                Line("subtitleedit_conversion_engine_stuck", "gauge", "1 while a timed-out conversion is still running (no new conversions start).", q.IsStuck ? 1 : 0);
                 Line("subtitleedit_conversions_total", "counter", "Completed queue jobs.", q.Completed);
                 Line("subtitleedit_conversion_seconds_sum", "counter", "Total job run time.", q.TotalJobSeconds);
                 Line("subtitleedit_queue_wait_seconds_sum", "counter", "Total queue wait time.", q.TotalWaitSeconds);
@@ -109,6 +110,7 @@ public static class HealthEndpoints
                 sb.AppendLine("# TYPE subtitleedit_rejected_total counter");
                 sb.Append("subtitleedit_rejected_total{reason=\"queue-full\"} ").AppendLine(q.Rejected.ToString());
                 sb.Append("subtitleedit_rejected_total{reason=\"timeout\"} ").AppendLine(q.TimedOut.ToString());
+                sb.Append("subtitleedit_rejected_total{reason=\"conversion-engine-stuck\"} ").AppendLine(q.StuckRejected.ToString());
                 foreach (var (code, n) in m.Snapshot())
                     sb.Append("subtitleedit_rejected_total{reason=\"").Append(code).Append("\"} ").AppendLine(n.ToString());
                 return Results.Text(sb.ToString(), "text/plain; version=0.0.4");
@@ -123,5 +125,5 @@ public sealed class Metrics
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _codes = new();
     public void Count(string code) => _codes.AddOrUpdate(code, 1, (_, n) => n + 1);
-    public IEnumerable<KeyValuePair<string, long>> Snapshot() => _codes.Where(c => c.Key is not ("queue-full" or "conversion-timeout"));
+    public IEnumerable<KeyValuePair<string, long>> Snapshot() => _codes.Where(c => c.Key is not ("queue-full" or "conversion-timeout" or "conversion-engine-stuck"));
 }

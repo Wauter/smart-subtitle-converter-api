@@ -41,6 +41,9 @@ public static class ErrorCodes
     public const string StorageLocationRejected = "storage-location-rejected";
     public const string StorageNotFound = "storage-not-found";
     public const string StorageIoFailed = "storage-io-failed";
+    public const string StorageListDisabled = "storage-list-disabled";
+    public const string StorageNotListable = "storage-not-listable";
+    public const string StorageCursorInvalid = "storage-cursor-invalid";
     public const string OutputExists = "output-exists";
     public const string InvalidRequest = "invalid-request";
     public const string InvalidProfile = "invalid-profile";
@@ -65,9 +68,29 @@ public static class ErrorCodes
     public const string QueueFull = "queue-full";
     public const string ConversionTimeout = "conversion-timeout";
     public const string InternalError = "internal-error";
+    public const string HiddenPath = "hidden-path";
+    public const string ExtensionNotAllowed = "extension-not-allowed";
+    public const string HostNotAllowed = "host-not-allowed";
+    public const string OriginNotAllowed = "origin-not-allowed";
+    public const string FolderTooLarge = "folder-too-large";
+    public const string BrowseBusy = "browse-busy";
+    public const string ConversionEngineStuck = "conversion-engine-stuck";
 
     public static string Title(string code) => code switch
     {
+        JobNotFound => "Job not found",
+        JobInputNotStored => "Job input not stored",
+        JobOutputNotStored => "Job output not stored",
+        JobNotReady => "Job not ready",
+        JobFileGone => "Job file gone",
+        JobLocationNotReplayable => "Job location not replayable",
+        StorageLocationRejected => "Storage location rejected",
+        StorageNotFound => "Storage file not found",
+        StorageIoFailed => "Storage I/O failed",
+        StorageListDisabled => "Storage listing disabled",
+        StorageNotListable => "Storage location not listable",
+        StorageCursorInvalid => "Storage cursor invalid",
+        OutputExists => "Output exists",
         InvalidRequest => "Invalid request",
         InvalidProfile => "Invalid profile",
         EmptyInput => "Empty input",
@@ -90,6 +113,15 @@ public static class ErrorCodes
         RateLimited => "Rate limited",
         QueueFull => "Queue full",
         ConversionTimeout => "Conversion timeout",
+        InternalError => "Internal error",
+        HiddenPath => "Hidden path",
+        ExtensionNotAllowed => "Extension not allowed",
+        HostNotAllowed => "Host not allowed",
+        OriginNotAllowed => "Origin not allowed",
+        FolderTooLarge => "Folder too large",
+        BrowseBusy => "Browse busy",
+        ConversionEngineStuck => "Conversion engine stuck",
+        // Every code above has its own title; anything else is an unexpected server error.
         _ => "Internal error",
     };
 }

@@ -1,8 +1,8 @@
 # Formats
 
 The API reads and writes every text format libse supports (SRT, WebVTT, ASS/SSA, TTML/DFXP, SBV, SMI, …) and
-a set of binary broadcast formats. `GET /v1/formats` always has the current list; filter with `q`, `kind` and
-`writable`.
+a set of binary broadcast formats. `GET /v1/formats` always has the current list of text and binary formats; filter with `q`, `kind`,
+`textOnly` and `writable`.
 
 ## Binary broadcast formats
 

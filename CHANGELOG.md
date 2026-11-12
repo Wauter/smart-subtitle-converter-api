@@ -6,7 +6,86 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Tagged releases publish multi-arch images to GHCR
 (`ghcr.io/wauter/smart-subtitle-converter-api`); every green push to `main` also publishes `:edge`.
 
+## 1.4.0 — 2026-11-12
+
+- Fixed: `GET /v1/formats` without parameters now lists text **and** binary formats (EBU STL, PAC, …); it used to
+  list text formats only, so clients never saw the binary broadcast formats unless they asked. `textOnly=true`
+  still gives text only, `kind=` still wins, and image/container formats are still listed only via `kind=`.
+  Hints that pointed at `GET /v1/formats?kind=text,binary` now point at `GET /v1/formats`.
+- `docker-compose.yml`: every tunable setting now comes from `.env` (documented in `.env.example`). The
+  `environment:` block keeps only fixed wiring that matches the mounts and port (`API_KEYS_FILE`, `PROFILES_DIR`,
+  `ASPNETCORE_HTTP_PORTS`) and `ALLOWED_HOSTS: ${ALLOWED_HOSTS:-smart-subtitle-converter-api}`, so `ALLOWED_HOSTS`
+  in `.env` is no longer silently overridden. The hard-coded `QUEUE_CAPACITY`, `CONVERSION_TIMEOUT_SECONDS` and
+  `MAX_UPLOAD_BYTES` (equal to the defaults) are gone. New Compose-only variables: `API_IMAGE`, `PUBLISH_ADDRESS`
+  and `PUBLISH_PORT` (default `127.0.0.1:8080`).
+- Fixed: filesystem storage failed on arm64 Linux (for example Docker on Apple silicon) with `502 storage-io-failed`
+  "Invalid argument" for every listing, read and write. The folder-open and no-follow flags now use the right values
+  for the CPU architecture, so symlinks are refused on arm64 too. Supported: `linux/amd64` and `linux/arm64`; any
+  other architecture with `STORAGE_FILE_ROOTS` set stops startup with an `Invalid configuration` message. The Docker
+  smoke test on both architectures now lists, reads and writes filesystem storage and checks symlink refusal.
+- Filesystem outputs and sidecars create missing sub-folders below an allowed root, one level at a time on the opened
+  parent folder (mode 0755, narrowed by the umask), never through a symlink, never a hidden (`.`) folder and never
+  the root itself. Reads of a missing file or folder stay `404 storage-not-found`.
+- New, on by default: browse storage and read files by location (`STORAGE_LIST_ENABLED`, default `true`), limited
+  to the same allowlists, hidden-file and extension rules as conversions.
+  `GET /v1/storage/locations` lists the allowed file roots, S3 buckets and prefixes (HTTPS hosts as not listable);
+  `GET /v1/storage/list?location=&prefix=&cursor=` lists one folder, up to 200 items a page in name order, with a
+  stateless `next` cursor; `GET /v1/storage/file?location=` returns one file's current bytes. Same allowlists and
+  checks as conversions. `STORAGE_LIST_ENABLED=false` makes the routes answer `403 storage-list-disabled`. See
+  [browsing storage](docs/usage.md#browsing-storage-and-reading-by-location).
+- New error codes `storage-list-disabled` (403), `storage-not-listable` (422) and `storage-cursor-invalid` (400).
+- `GET /v1/limits` adds `storage.list` and `storage.listSchemes`; the startup log says whether listing is on.
+- Listing S3 uses `ListObjectsV2` and needs `s3:ListBucket` ([S3 permissions](docs/deployment.md#s3-permissions)).
+- **Breaking:** hidden files and folders are never read, listed, written, replaced or used as a conversion source,
+  output or sidecar, with listing on or off: any path or S3 key component starting with `.` (a dotfile, anything
+  inside a dot-named folder, or anything under a hidden allowed root or prefix) is `422 hidden-path` on
+  `GET /v1/storage/file`, `GET /v1/storage/list` (also a `prefix` starting with `.`), convert and detect `input`,
+  convert `output` and job file reads. A location outside the allowed folders still gets
+  `422 storage-location-rejected` first. Checked on the decoded location, before any storage call. Hidden roots and
+  prefixes are left out of `GET /v1/storage/locations`. Dotted names (`show.en.srt`) are unaffected. HTTPS URLs are
+  not checked. See [hidden files](docs/usage.md#hidden-files-and-folders).
+- **Breaking:** an API key is required by default. The image sets `API_KEYS_FILE=/api_keys.txt`; mount an empty,
+  writable file there and a strong key is generated into it on first start (in place, mode 0600, never logged).
+  A missing file, a folder, an unreadable file or a read-only empty file stops startup with exit code 78 and an
+  explanation. `API_AUTH_DISABLED=true` opts out, with a loud startup warning. See
+  [Securing the API](docs/security.md#securing-the-api).
+- **Breaking:** `ALLOWED_HOSTS`: the API answers only to `localhost`, `127.0.0.1`, `[::1]` and the listed host names
+  (`*` for any, with a warning); other `Host` headers get `400 host-not-allowed`. A browser `Origin` header, when
+  present, must match the request's own host and port (scheme ignored; missing ports default to 80 or 443) and that
+  host must be allowed: `403 origin-not-allowed`. Health probes are exempt.
+- **Breaking:** CORS support is removed. `CORS_ORIGINS` is ignored (with a startup warning) and the API never sends
+  CORS headers: a browser front end should not hold an API key, so it calls its own backend instead.
+- **Breaking:** only subtitle files are read, listed or written by file and S3 location: the extension must be one
+  libse reads or writes (`GET /v1/limits` `storage.extensions`), and an output must use an extension of its target
+  format (the `{output}.json` sidecar is exempt). Otherwise `422 extension-not-allowed`. Listings show only those
+  files. Job file reads follow the same rule.
+- **Breaking:** `ERRORS_VERBOSE` defaults to `false`: error responses no longer carry stack traces or internals;
+  they are logged as `error.details requestId=...` instead.
+- A folder listing stops at 5000 matching entries: `422 folder-too-large` (narrow it with `prefix`).
+- Browse queue: listing, reading by location and job file reads run at most `BROWSE_CONCURRENCY` (4) at a time,
+  `BROWSE_QUEUE_CAPACITY` (32) wait up to `BROWSE_WAIT_SECONDS` (30), then `503 browse-busy` with `Retry-After`.
+  Separate from the conversion queue. Reported in `GET /v1/limits` `storage.browse`.
+- After a conversion timeout no other conversion starts beside the stuck one: `503 conversion-engine-stuck` with
+  `Retry-After` and `/readyz` not ready, until it returns. Still running after `CONVERSION_STUCK_GRACE_SECONDS`
+  (default twice the timeout), the process logs why and exits with code 70 so the restart policy starts a clean one.
+  New metric `subtitleedit_conversion_engine_stuck`.
+- XML is screened after stripping leading byte-order marks, zero-width characters and whitespace; any DOCTYPE or
+  ENTITY is `422 unsafe-xml`, and XML parsing prohibits DTDs, uses no resolver and limits entity expansion.
+- Reads by file location open a path handle and check it is a regular file before opening it, so a FIFO or device
+  named like a subtitle can't hang a request. Writes, replaces, sidecars and deletes never follow symlinks.
+- `GET /v1/storage/file` and job file reads send an `ETag` (file: size, mtime, ctime, inode; S3: object ETag) and
+  answer `If-None-Match` with `304 Not Modified` without reading the content: a cheap change check for caches.
+- New error codes: `hidden-path`, `extension-not-allowed`, `folder-too-large` (422), `host-not-allowed` (400),
+  `origin-not-allowed` (403), `browse-busy`, `conversion-engine-stuck` (503).
+- Fix: a percent-encoded control character in a file or S3 location (for example `file:///data/a.srt%00.txt`) is
+  `422 storage-location-rejected` before any filesystem call, instead of `500 internal-error`.
+
 ## 1.3.1 — Unreleased
+
+- Job and storage errors have their own problem `title` instead of the generic "Internal error": `job-not-found`, `job-input-not-stored`, `job-output-not-stored`, `job-not-ready`, `job-file-gone`, `job-location-not-replayable`, `storage-location-rejected`, `storage-not-found`, `storage-io-failed` and `output-exists`. Codes and status codes are unchanged.
+- `job-output-not-stored` explains the usual cause: a conversion without an `output` location returns its result in the response and stores nothing, so to read a result later, convert with an `output` location. A failed conversion gets its own detail and hint. `job-input-not-stored` points to the original file or an `input` location. See [errors](docs/errors.md#job-output-not-stored).
+
+- Storage outputs report the stored file's name: with `output`, `outputs[].fileName` (in the response, job metadata and sidecar) is now the last path segment of the output location (for example `test2-145152.srt` for `s3://bucket/qa/test2-145152.srt`) instead of the name generated from the source (`show.srt`). Inline results are unchanged.
 
 - Rename the product to **Smart Subtitle Converter** and update repository, container image, assembly and project identifiers. Versions and existing release tags are unchanged.
 
@@ -15,6 +94,28 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - Default published host port is **8080** again (`127.0.0.1:8080:8080` in Compose and the docs). The container still
   listens on 8080; change only the host side if 8080 is taken. Keep the `127.0.0.1` bind by default. No API contract
   change.
+- Startup storage diagnostics (warning-only; `/readyz` unchanged, nothing written, HTTPS hosts not contacted): after
+  start the API logs every storage setting as given and as used (`storage.config var=... value=... effective=...`),
+  warns about malformed values with the variable, the value, the problem and a fix (`storage.config warning=<code>`:
+  quotes/whitespace/CRLF, s3:// or paths in bucket names, invalid bucket names, missing or unknown `S3_REGION`,
+  endpoints without scheme or with a path, clamped timeouts, comma-separated file roots, incomplete or mismatched AWS
+  keys and session tokens, missing credential files), reports the credential source the AWS SDK resolved
+  (`storage.s3 credentials ok source=env|profile|web-identity|container-role|instance-role`), runs one `HeadBucket`
+  per allowlisted bucket (with the bucket's real region on a 301), checks each `STORAGE_FILE_ROOTS` entry, and ends
+  with `storage.check done ok=N warnings=M`. AWS key ids, secret keys and session tokens are only printed masked
+  (`AKI***MPLE`).
+- Malformed numeric or boolean settings (for example `IO_TIMEOUT_SECONDS=10s`, `S3_FORCE_PATH_STYLE=yes`) and an
+  invalid `STORAGE_FILE_ROOTS` JSON array still stop startup, now with a message naming the variable, the value and
+  the fix.
+- **Console log format changed:** the default is now plain text, one line per entry
+  (`2026-11-09T13:40:51.531Z info  Storage.StorageCheck  storage.s3 bucket=subs ok`). Set `LOG_FORMAT=json` to
+  restore the previous JSON console output. An invalid `LOG_FORMAT` falls back to text with a
+  `logging.config warning=invalid-log-format` line.
+- `docker-compose.yml` loads `.env` into the container with `env_file` (`required: false`). Compose's `.env` alone
+  only feeds `${...}` interpolation, so settings such as `S3_ALLOWED_BUCKETS` in `.env` never reached the container.
+  The startup log always prints the allowlists, as `(unset — S3 off)` and similar when empty.
+- Docs: [S3 permissions](docs/deployment.md#s3-permissions) lists each S3 call, its IAM action and resource, what
+  fails without it, per input/output access pattern, plus SSE-KMS, a minimal policy and MinIO notes.
 
 ## 1.3.0 — Unreleased
 
