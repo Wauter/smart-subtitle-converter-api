@@ -102,19 +102,19 @@ Open <http://localhost:8080/docs> for the interactive API reference.
 
 ## More examples
 
-Add the `Authorization` header from the quick start to each call.
+These use the `$KEY` variable from the quick start.
 
 ```bash
 # a built-in preset, with overrides
-curl -F file=@movie.srt -F preset=netflix-en-vtt \
+curl -H "Authorization: Bearer $KEY" -F file=@movie.srt -F preset=netflix-en-vtt \
      -F 'profile={"rules":{"maxLineLength":37}}' localhost:8080/v1/convert -OJ
 
 # SRT -> EBU STL at 25 fps
-curl -F file=@movie.srt -F target=ebustl \
+curl -H "Authorization: Bearer $KEY" -F file=@movie.srt -F target=ebustl \
      -F 'profile={"formatOptions":{"ebuStl":{"frameRate":25}}}' localhost:8080/v1/convert -OJ
 
 # what is this file?
-curl -F file=@mystery.txt localhost:8080/v1/detect
+curl -H "Authorization: Bearer $KEY" -F file=@mystery.txt localhost:8080/v1/detect
 ```
 
 Errors are `application/problem+json` with a stable `code` and a `hint`:
@@ -125,18 +125,22 @@ Errors are `application/problem+json` with a stable `code` and a `hint`:
   "hint": "Did you mean 'webvtt'? See GET /v1/formats." }
 ```
 
-Every endpoint with curl examples: [docs/usage.md](docs/usage.md).
+Every endpoint with curl examples: [docs/usage.md](docs/usage.md). A Postman collection that covers every
+endpoint is in [`postman/`](postman) ([how to use it](docs/development.md#postman--newman)).
 
 ## Supported subtitle formats
 
 | | Formats |
 |---|---|
 | **Text, read and write** | SRT, WebVTT, ASS/SSA, TTML/DFXP, SBV, SMI and Subtitle Edit's other text formats |
+| **Editing and post-production** | Final Cut Pro XML captions (`.fcpxml`), and marker lists from Avid and EDIUS |
 | **Binary broadcast, read and write** | EBU STL, PAC, FPC, Cavena 890, CapMaker Plus, Cheetah CAP |
 | **Binary, read only** | Avid STL, Ayato, Spruce STL and others |
 | **Not supported** | Image-based and container formats (Blu-ray sup, VobSub, Matroska, MP4) |
 
-`GET /v1/formats` has the live list, and `/v1/detect` names a file's format, encoding, code page and, for
+`GET /v1/formats` has the live list for your version; Subtitle Edit's
+[supported formats](https://subtitleedit.github.io/subtitleedit/reference/supported-formats.html) page describes
+the formats themselves. In addition, `/v1/detect` names a file's format, encoding, code page and, for
 frame-based files, the frame rate used. Code pages, frame rates and detection rules:
 [docs/formats.md](docs/formats.md).
 
@@ -223,6 +227,6 @@ workflow automation for broadcasters, sports organisations and streaming platfor
 ## Credits and license
 
 All subtitle format support comes from [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) and its
-`libse` library by Nikolaj Olsson and contributors, used under the MIT license. Thank you.
+`libse` library by Nikolaj Olsson and contributors, used under the MIT license.
 
 This project is MIT licensed, see [LICENSE](LICENSE).
