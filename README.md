@@ -63,14 +63,7 @@ With `formatOptions.pac.codePage: "greek"` the same input is `"verdict": "quanti
 
 ## Two ways to use it
 
-```mermaid
-flowchart LR
-    A["AI client or agent<br/>(Claude, Cursor, other MCP clients)"] --> M["Smart Subtitle Converter MCP"]
-    W["Your platform<br/>(scripts, MAM, workflow automation)"] -->|HTTP and JSON| API
-    M -->|HTTP and JSON| API["Smart Subtitle Converter API<br/>(this repo, one container)"]
-    API --> E["libse<br/>(Subtitle Edit's engine)"]
-    API <--> S["Folders, S3-compatible buckets,<br/>HTTPS and presigned URLs"]
-```
+![How it fits together: an AI client goes through the MCP server to the API, your own platform calls the API directly, and the API uses libse and your storage](docs/architecture.svg)
 
 - **From an AI client or coding agent:** start the API with the quick start below, then add the
   [Smart Subtitle Converter MCP](https://github.com/Wauter/smart-subtitle-converter-mcp).
