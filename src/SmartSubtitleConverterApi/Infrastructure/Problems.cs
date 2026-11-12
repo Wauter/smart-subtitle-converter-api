@@ -81,7 +81,7 @@ public static partial class Problems
         var inner = ex.InnerException;
         var transport = inner is HttpRequestException or Amazon.Runtime.AmazonServiceException or Amazon.Runtime.AmazonClientException;
         var innerText = inner == null ? "" : $" exception={inner.GetType().FullName}" + (transport ? "" : $" message={Storage.StorageDiagnostics.Q(inner.Message)}") + $" stackTrace={Storage.StorageDiagnostics.Q(inner.StackTrace)}";
-        log.LogInformation("{Line}", $"error.details requestId={requestId} code={ex.Code} status={ex.Status}{debug}{innerText}");
+        log.LogInformation("{Line}", LogSafe.Clean($"error.details requestId={requestId} code={ex.Code} status={ex.Status}{debug}{innerText}"));
     }
 
     public static ApiException TooLarge(ApiOptions opts, Exception? ex = null) =>
