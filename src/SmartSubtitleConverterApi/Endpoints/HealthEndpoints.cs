@@ -55,7 +55,7 @@ public static class HealthEndpoints
 {
     public static void Map(WebApplication app, ApiOptions opts)
     {
-        app.MapGet("/healthz", () => Results.Json(new { status = "ok", version = LibseInfo.AppVersion, libse = LibseInfo.Version }, Json.Options))
+        app.MapGet("/healthz", () => Results.Json(new { status = "ok", version = LibseInfo.AppVersion, revision = LibseInfo.Revision, libse = LibseInfo.Version }, Json.Options))
             .WithTags("health").WithSummary("Liveness: the process is up.").ExcludeFromDescription();
 
         app.MapGet("/readyz", (SelfTest st, ConversionQueue q, PresetStore store, Formats.FormatRegistry reg) =>
@@ -84,6 +84,7 @@ public static class HealthEndpoints
                 queue = new { depth = q.Depth, capacity = q.Capacity },
                 profiles = new { valid, invalid },
                 version = LibseInfo.AppVersion,
+                revision = LibseInfo.Revision,
                 libse = LibseInfo.Version,
             };
             return Results.Json(body, Json.Options, statusCode: ready ? 200 : 503);

@@ -30,6 +30,8 @@
 
   <ItemGroup>
     <AssemblyMetadata Include="LibseVersion" Value="$(LibseVersion)" />
+    <!-- Git commit for /healthz and /readyz: the Dockerfile passes -p:SourceRevision=$REVISION. Unset locally ("unknown"). -->
+    <AssemblyMetadata Include="SourceRevision" Value="$(SourceRevision)" Condition="'$(SourceRevision)' != ''" />
   </ItemGroup>
 
   <ItemGroup>

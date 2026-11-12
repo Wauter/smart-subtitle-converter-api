@@ -220,6 +220,7 @@ public class ApiTests : IClassFixture<ApiFactory>
     {
         var h = await (await _c.GetAsync("/healthz")).Json();
         Assert.Equal("5.1.0", (string)h["libse"]!);
+        Assert.Equal("unknown", (string)h["revision"]!); // test builds aren't stamped
         for (var i = 0; i < 50; i++)
         {
             var ready = await _c.GetAsync("/readyz");

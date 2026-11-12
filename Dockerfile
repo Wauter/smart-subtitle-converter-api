@@ -12,6 +12,8 @@ ARG RUNTIME_BASE=base-slim
 
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-noble AS build
 ARG TARGETARCH
+# Git commit, stamped into the assembly for /healthz and /readyz (CI passes github.sha). No git at runtime.
+ARG REVISION=unknown
 WORKDIR /src
 COPY src/SmartSubtitleConverterApi/SmartSubtitleConverterApi.csproj src/SmartSubtitleConverterApi/
 RUN RID=$([ "$TARGETARCH" = "arm64" ] && echo linux-arm64 || echo linux-x64) \
@@ -19,7 +21,7 @@ RUN RID=$([ "$TARGETARCH" = "arm64" ] && echo linux-arm64 || echo linux-x64) \
 COPY src/ src/
 RUN RID=$([ "$TARGETARCH" = "arm64" ] && echo linux-arm64 || echo linux-x64) \
  && dotnet publish src/SmartSubtitleConverterApi/SmartSubtitleConverterApi.csproj -c Release -r $RID --no-self-contained --no-restore \
-      -p:UseAppHost=false -p:DebugType=none -o /app
+      -p:UseAppHost=false -p:DebugType=none "-p:SourceRevision=$REVISION" -o /app
 
 # ICU + tzdata source: the target-arch chiseled-extra image (only files are copied out of it).
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-noble-chiseled-extra AS icu-source

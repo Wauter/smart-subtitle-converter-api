@@ -103,4 +103,15 @@ public static class LibseInfo
 
     public static readonly string AppVersion =
         typeof(LibseInfo).Assembly.GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{v.Build}" : "0.0.0";
+
+    /// <summary>
+    /// Short git commit (7 hex characters) the image was built from: the Dockerfile passes the REVISION build argument
+    /// to dotnet publish as assembly metadata. "unknown" for local builds or anything that isn't a commit hash.
+    /// </summary>
+    public static readonly string Revision = ShortRevision(
+        typeof(LibseInfo).Assembly.GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "SourceRevision")?.Value);
+
+    internal static string ShortRevision(string? value) =>
+        value is { Length: >= 7 and <= 64 } && value.All(char.IsAsciiHexDigit) ? value[..7].ToLowerInvariant() : "unknown";
 }
