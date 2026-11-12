@@ -44,7 +44,7 @@ public sealed partial class RequestIdMiddleware(RequestDelegate next, ILogger<Re
         ctx.Response.OnStarting(() => { ApplyHeaders(ctx); return Task.CompletedTask; });
 
         var sw = Stopwatch.StartNew();
-        using var scope = log.BeginScope(new Dictionary<string, object> { [Key] = id });
+        using var scope = log.BeginScope(new Dictionary<string, object> { [Key] = LogSafe.Clean(id) ?? "" });
         try
         {
             await next(ctx);
@@ -58,11 +58,11 @@ public sealed partial class RequestIdMiddleware(RequestDelegate next, ILogger<Re
                 var items = ctx.Items;
                 log.LogInformation(
                     "request {method} {route} {status} {durationMs}ms queueWaitMs={queueWaitMs} bytesIn={bytesIn} bytesOut={bytesOut} format={format} encoding={encoding} cues={cues} preset={preset} operations={operations} keyName={keyName} file={file} code={code}",
-                    ctx.Request.Method, (ctx.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? path,
+                    LogSafe.Clean(ctx.Request.Method), LogSafe.Clean((ctx.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? path),
                     ctx.Response.StatusCode, sw.ElapsedMilliseconds,
-                    items["queueWaitMs"], ctx.Request.ContentLength, ctx.Response.ContentLength ?? items["bytesOut"],
-                    items["format"], items["encoding"], items["cues"], items["preset"], items["operations"],
-                    items["keyName"], items["fileHash"], items["errorCode"]);
+                    LogSafe.Number(items["queueWaitMs"]), ctx.Request.ContentLength, ctx.Response.ContentLength ?? LogSafe.Number(items["bytesOut"]),
+                    LogSafe.Clean(items["format"]), LogSafe.Clean(items["encoding"]), LogSafe.Number(items["cues"]), LogSafe.Clean(items["preset"]),
+                    LogSafe.Clean(items["operations"]), LogSafe.Clean(items["keyName"]), LogSafe.Clean(items["fileHash"]), LogSafe.Clean(items["errorCode"]));
             }
         }
     }

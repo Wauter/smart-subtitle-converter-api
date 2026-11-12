@@ -208,7 +208,7 @@ public static class ConvertEndpoints
             if (ex is not ApiException)
             {
                 // Do not log exception messages: a transport may include a signed URL.
-                logger.LogError("Job {jobId} request {requestId} failed: {exceptionType} {stackTrace}", id, requestId, ex.GetType().FullName, ex.StackTrace);
+                logger.LogError("Job {jobId} request {requestId} failed: {exceptionType} {stackTrace}", id, LogSafe.Clean(requestId), ex.GetType().FullName, ex.StackTrace);
                 problem.Debug["exceptionType"] = ex.GetType().FullName;
                 problem.Debug["stackTrace"] = ex.StackTrace;
             }
