@@ -18,8 +18,7 @@ more robust to run in a media workflow or to hand to an AI agent.
 
 ## What it adds to the engine
 
-`libse` already reads and writes the formats. This project adds what you need before a conversion can run without
-someone checking the result by hand.
+`libse` already reads and writes the formats. This project adds the checks, storage and job handling around it.
 
 - **Verified output.** Every binary broadcast output (EBU STL, PAC, FPC, Cavena 890, CapMaker Plus, Cheetah CAP)
   is read back and reported as `lossless`, `quantised`, `lossy` or `unverified`. The report names cue numbers and
