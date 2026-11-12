@@ -31,7 +31,17 @@ public sealed record StorageLocation(string Scheme, string Value, Uri? Uri, stri
         return new(uri.Scheme, value, uri, Path.GetFileName(System.Uri.UnescapeDataString(uri.AbsolutePath)));
     }
     private static ApiException DecodedControl() => Rejected("The decoded location contains control characters (for example an encoded NUL, %00); file names can't contain them.");
-    public static ApiException OutputExists() => new(409, "output-exists", "The storage output already exists or a concurrent conditional write won; it was not replaced.", "Valid ifExists values: error | replace. Choose another output or explicitly replace. A previous job or attempt may have written, or still be writing, this location; inspect it first.");
+    public static ApiException OutputExists(StorageLocation? location = null) => new(409, "output-exists",
+        (location == null ? "The storage output" : $"The output {location.Display}") + " already exists or a concurrent conditional write won; it was not replaced.",
+        "Valid ifExists values: error | replace. Choose another output or explicitly replace. A previous job or attempt may have written, or still be writing, this location; inspect it first.");
+
+    /// <summary>How the location is shown in responses and sidecars: filesystem paths as file:// URIs, HTTPS without its query (signatures).</summary>
+    public string Display => Scheme switch
+    {
+        "file" => new Uri(Value).AbsoluteUri,
+        "https" => Jobs.JobStore.Redact(Value)!,
+        _ => Value,
+    };
     public static ApiException Rejected(string message) => new(422, "storage-location-rejected", message,
         "Check the URI and the server's storage allowlists. Empty allowlists disable that scheme.");
 }

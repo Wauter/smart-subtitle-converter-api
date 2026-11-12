@@ -311,7 +311,14 @@ public static class ConvertEndpoints
         if (output != null)
         {
             var o = r.Outputs.Single();
-            await storage.WriteAsync(output, o.Bytes, o.Format.MediaType, ct, replace);
+            try
+            {
+                await storage.WriteAsync(output, o.Bytes, o.Format.MediaType, ct, replace);
+            }
+            catch (ApiException ex) when (ex.Code == ErrorCodes.OutputExists)
+            {
+                throw StorageLocation.OutputExists(output); // name the file (README example run: the 409 didn't say which)
+            }
             if (!sidecar && output.Scheme != "https")
             {
                 // The subtitle at this location is new, so a companion {output}.json left from an earlier job describes a file
@@ -333,7 +340,7 @@ public static class ConvertEndpoints
                 {
                     try
                     {
-                        var metadata = ToJson(r, resolved, wait, null, output.Value) with { Id = id };
+                        var metadata = ToJson(r, resolved, wait, null, output.Display) with { Id = id };
                         await storage.WriteAsync(StorageLocation.Parse(output.Value + ".json") with { Sidecar = true }, JsonSerializer.SerializeToUtf8Bytes(metadata, Json.Options), "application/json", ct, replace);
                     }
                     catch (Exception ex) when (ex is not OutOfMemoryException)
