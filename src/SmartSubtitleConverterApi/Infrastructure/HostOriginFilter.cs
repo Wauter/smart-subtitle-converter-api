@@ -92,7 +92,7 @@ public sealed class HostOriginMiddleware(RequestDelegate next, HostOriginFilter 
             if (!filter.HostAllowed(host))
             {
                 var shown = Sanitize(host);
-                log.LogWarning("security.host-rejected host={host} path={path}", shown, ctx.Request.Path.Value);
+                log.LogWarning("security.host-rejected host={host} path={path}", shown, LogSafe.Clean(ctx.Request.Path.Value));
                 throw new ApiException(400, ErrorCodes.HostNotAllowed, $"The Host header '{shown}' is not an allowed host for this API.",
                     $"Call the API by an allowed name ({string.Join(", ", filter.Effective)}), or ask the operator to add '{HostOriginFilter.Normalize(host ?? "")}' to ALLOWED_HOSTS (comma separated) and restart the API.");
             }
@@ -100,7 +100,7 @@ public sealed class HostOriginMiddleware(RequestDelegate next, HostOriginFilter 
             if (ctx.Request.Headers.ContainsKey("Origin") && !filter.OriginAllowed(origin, host, ctx.Request.Scheme))
             {
                 var shown = Sanitize(origin);
-                log.LogWarning("security.origin-rejected origin={origin} method={method} path={path}", shown, ctx.Request.Method, ctx.Request.Path.Value);
+                log.LogWarning("security.origin-rejected origin={origin} method={method} path={path}", shown, LogSafe.Clean(ctx.Request.Method), LogSafe.Clean(ctx.Request.Path.Value));
                 throw new ApiException(403, ErrorCodes.OriginNotAllowed, $"Requests from the web page origin '{shown}' are not accepted.",
                     "This API refuses browser requests from other sites, to protect your files. Call it from a server-side client (curl, an SDK, the MCP) without an Origin header, "
                     + "or open the page from the same host and port the API was called on (see ALLOWED_HOSTS).");

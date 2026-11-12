@@ -6,6 +6,13 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Tagged releases publish multi-arch images to GHCR
 (`ghcr.io/wauter/smart-subtitle-converter-api`); every green push to `main` also publishes `:edge`.
 
+## 1.4.1 — 2026-11-12
+
+- Security hardening: client-influenced values (HTTP method, path, request id, format, preset, key name, error code,
+  job info) are stripped of line breaks and control characters before they are logged, so a crafted request can't
+  forge a log line. Both log formats already escaped line breaks; this closes the CodeQL `cs/log-forging` alerts at
+  the call sites. No change to the API contract or log fields.
+
 ## 1.4.0 — 2026-11-12
 
 - Fixed: `GET /v1/formats` without parameters now lists text **and** binary formats (EBU STL, PAC, …); it used to

@@ -182,7 +182,7 @@ public sealed class ConversionQueue : IDisposable
                 if (_stuck is { } s && s.Job == job)
                 {
                     _stuck = null;
-                    _log.LogWarning("{Line}", $"conversion.recovered the timed-out conversion returned after {sw.Elapsed.TotalSeconds:0.0}s; accepting conversions again. {job.Info}");
+                    _log.LogWarning("{Line}", LogSafe.Clean($"conversion.recovered the timed-out conversion returned after {sw.Elapsed.TotalSeconds:0.0}s; accepting conversions again. {job.Info}"));
                 }
             }
         }
@@ -290,7 +290,7 @@ public sealed class ConversionQueue : IDisposable
         }
         var elapsed = Stopwatch.GetElapsedTime(job.StartedTicks).TotalSeconds;
         _log.LogError("{Line}", new string('#', 100));
-        _log.LogError("{Line}", $"conversion.stuck A conversion exceeded CONVERSION_TIMEOUT_SECONDS={_opts.ConversionTimeoutSeconds} and is still running (elapsed={elapsed:0.0}s). {job.Info}");
+        _log.LogError("{Line}", LogSafe.Clean($"conversion.stuck A conversion exceeded CONVERSION_TIMEOUT_SECONDS={_opts.ConversionTimeoutSeconds} and is still running (elapsed={elapsed:0.0}s). {job.Info}"));
         _log.LogError("{Line}", $"conversion.stuck libse settings are process-global, so no other conversion may run beside it: new conversions get 503 conversion-engine-stuck and /readyz reports not ready. "
             + $"Rejected {drained} queued conversion(s) now.");
         _log.LogError("{Line}", $"conversion.stuck If it has not returned by {state.ExitAt:yyyy-MM-ddTHH:mm:ssZ} (grace {grace.TotalSeconds:0}s, CONVERSION_STUCK_GRACE_SECONDS), the API exits with code {StuckExitCode} "
@@ -311,7 +311,7 @@ public sealed class ConversionQueue : IDisposable
         var elapsed = Stopwatch.GetElapsedTime(state.Job.StartedTicks).TotalSeconds;
         var reason = $"conversion.stuck-exit The conversion engine has been stuck for {elapsed:0.0}s (timeout {_opts.ConversionTimeoutSeconds}s + grace {_opts.EffectiveStuckGraceSeconds}s). "
             + $"Exiting with code {StuckExitCode} so the restart policy starts a clean process. {state.Job.Info} queueDepth={Depth} rejectedWhileStuck={StuckRejected}";
-        _log.LogCritical("{Line}", reason);
+        _log.LogCritical("{Line}", LogSafe.Clean(reason));
         _log.LogCritical("{Line}", "conversion.stuck-exit Jobs are in memory only: running and finished job records are lost with this restart. Make sure the container has restart: unless-stopped (or always).");
         await Task.Delay(500); // let the console logger flush
         _exit.Exit(StuckExitCode, reason);
