@@ -43,7 +43,10 @@ internal static class FormatDefaults
             if (o?.Language == null || !fromDetection)
             {
                 fields["language"] = h.LanguageCode.Trim();
-                languageNote = fromDetection ? $"language {h.LanguageCode} (auto-detected: {detected})" : $"language {h.LanguageCode} (fallback: no supported language detected)";
+                languageNote = $"language {h.LanguageCode} " + (fromDetection ? $"(auto-detected: {detected})"
+                    : detected == null ? "(fallback: no language detected)"
+                    : !BinaryOptions.EbuLanguages.ContainsKey(detected) ? $"(fallback: detected {detected} is not in the ISO 639-1 table; set formatOptions.ebuStl.language to its two-digit EBU code from EBU Tech 3264 Appendix 3)"
+                    : $"(fallback; detected: {detected})");
             }
         }
         if (fields.Count == 0) return null;

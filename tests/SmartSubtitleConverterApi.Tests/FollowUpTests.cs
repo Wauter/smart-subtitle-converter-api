@@ -309,6 +309,29 @@ public class FollowUpTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Stl_language_fallback_names_a_detected_language_outside_the_iso_table()
+    {
+        // Greek is detected but has no ISO 639-1 entry in EbuLanguages: the note must not claim nothing was detected.
+        var j = await Json(new { content = Greek, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = new { characterTable = "greek" } } } });
+        var w = Warning(j, "format-defaults-applied");
+        Assert.Equal("09", (string)w["details"]!["fields"]!["language"]!);
+        Assert.Contains("language 09 (fallback: detected el is not in the ISO 639-1 table; set formatOptions.ebuStl.language to its two-digit EBU code from EBU Tech 3264 Appendix 3)", (string)w["message"]!);
+        Assert.DoesNotContain("no supported language", (string)w["message"]!);
+    }
+
+    [Fact]
+    public async Task Stl_language_error_lists_every_iso_code_and_the_hex_route()
+    {
+        var j = await Json(new { content = Samples.Srt, target = "ebustl", profile = new { formatOptions = new { ebuStl = new { language = "el" } } } }, HttpStatusCode.BadRequest);
+        var hint = (string)j["errors"]![0]!["hint"]!;
+        Assert.Equal("'el' has no EBU STL language code.", (string)j["errors"]![0]!["message"]!);
+        Assert.Contains($"Use one of these ISO 639-1 codes: {string.Join(", ", SmartSubtitleConverterApi.Binary.BinaryOptions.EbuLanguages.Keys)}.", hint);
+        Assert.Contains("sv, tr.", hint);
+        Assert.Contains("EBU Tech 3264 Appendix 3 (for example Greek \"70\")", hint);
+        Assert.DoesNotContain("...", hint);
+    }
+
+    [Fact]
     public async Task Stl_header_copied_from_the_source_is_not_reported()
     {
         var stl = await Binary(Samples.Srt, "ebustl", new { formatOptions = new { ebuStl = new { originalProgrammeTitle = "Show", countryOfOrigin = "BEL", language = "en" } } });

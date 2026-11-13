@@ -79,7 +79,7 @@ public static class BinaryOptions
             if (e.ReadFrameRate is { } rfr && rfr <= 20)
                 errors.Add(new($"{b}/readFrameRate", "readFrameRate must be > 20.", "Typical values: 23.976, 24, 25, 29.97, 30."));
             if (e.Language is { } lang && !lang.Equals("auto", StringComparison.OrdinalIgnoreCase) && !EbuLanguages.ContainsKey(lang) && !IsEbuHex(lang))
-                errors.Add(new($"{b}/language", $"'{lang}' has no EBU STL language code.", $"Use an ISO 639-1 code ({string.Join(", ", EbuLanguages.Keys.Take(12))}, ...), a two-digit EBU hex code like \"0A\", or \"auto\"."));
+                errors.Add(new($"{b}/language", $"'{lang}' has no EBU STL language code.", $"Use one of these ISO 639-1 codes: {string.Join(", ", EbuLanguages.Keys)}. For any other language, use its two-digit EBU code in upper case from EBU Tech 3264 Appendix 3 (for example Greek \"70\"), or \"auto\"."));
             var cp = Encoding.GetEncoding(int.Parse(e.CodePage ?? "850", CultureInfo.InvariantCulture));
             foreach (var (name, value) in new[] { ("originalProgrammeTitle", e.OriginalProgrammeTitle), ("originalEpisodeTitle", e.OriginalEpisodeTitle),
                          ("translatedProgrammeTitle", e.TranslatedProgrammeTitle), ("translatorsName", e.TranslatorsName), ("publisher", e.Publisher) })

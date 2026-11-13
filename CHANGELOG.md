@@ -25,6 +25,10 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - `/healthz` and `/readyz` report `revision`, the short git commit the image was built from (stamped at build time
   from the `REVISION` build argument; `unknown` for local builds).
 - `409 output-exists` names the output, and a sidecar's `output` is a `file://` URI for filesystem outputs.
+- EBU STL language: the `format-defaults-applied` note no longer says "no supported language detected" when it
+  detected a language outside the ISO 639-1 table (Greek, Russian, …); it names that language and points to the
+  two-digit EBU code from EBU Tech 3264 Appendix 3. The `format-option-invalid` hint for a rejected `language`
+  lists every accepted ISO 639-1 code instead of the first twelve.
 - The `zero-length-cue` hint no longer says EBU STL can't store zero-length cues: it keeps them, except one at
   00:00:00 (as Cheetah CAP).
 - Docs: EBU STL and PAC round a time halfway between two frames in opposite directions (within one frame); the API
