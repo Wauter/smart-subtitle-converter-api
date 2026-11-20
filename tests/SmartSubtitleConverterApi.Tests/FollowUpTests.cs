@@ -386,6 +386,110 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain("...", hint);
     }
 
+    private Task<JsonObject> StlWith(object ebu, string? content = null, HttpStatusCode? status = null) =>
+        Json(new { content = content ?? Samples.Srt, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = ebu } } }, status ?? HttpStatusCode.OK);
+
+    private static JsonNode Header(JsonObject j) => j["outputs"]![0]!["header"]!;
+
+    [Theory]
+    [InlineData("el")]
+    [InlineData("EL")]
+    [InlineData(" el ")]
+    [InlineData("\n70\n")]
+    [InlineData("70")]
+    [InlineData("  Auto ")]
+    public async Task Stl_language_ignores_case_and_surrounding_whitespace(string lang)
+    {
+        var j = await StlWith(new { language = lang, originalProgrammeTitle = "T", countryOfOrigin = "GRC" }, Greek);
+        Assert.Equal("70", GsiLanguage(j));
+        Assert.Equal("70 (Greek)", (string)Header(j)["language"]!);
+        Assert.DoesNotContain("ebu-language-mismatch", Codes(j));
+    }
+
+    [Fact]
+    public async Task Stl_hex_language_is_written_upper_case()
+    {
+        var j = await StlWith(new { language = " 6c ", originalProgrammeTitle = "T", countryOfOrigin = "ISR" });
+        Assert.Equal("6C", GsiLanguage(j));
+        Assert.Equal("6C (Hebrew)", (string)Header(j)["language"]!);
+    }
+
+    private static string GsiCountry(JsonObject j) => Encoding.ASCII.GetString(Convert.FromBase64String((string)j["outputs"]![0]!["content"]!), 274, 3);
+
+    [Theory]
+    [InlineData("BEL", "BEL")]
+    [InlineData("bel", "BEL")]
+    [InlineData("BE", "BEL")]
+    [InlineData("be", "BEL")]
+    [InlineData(" Belgium ", "BEL")]
+    [InlineData("belgium", "BEL")]
+    [InlineData("\nBELGIUM\t", "BEL")]
+    [InlineData("Cote d'Ivoire", "CIV")]
+    [InlineData("Côte d’Ivoire", "CIV")]
+    [InlineData("United Kingdom", "GBR")]
+    [InlineData("UK", "GBR")]
+    [InlineData("Korea, Republic of", "KOR")]
+    [InlineData("Türkiye", "TUR")]
+    public async Task Stl_country_resolves_to_alpha_3(string input, string alpha3)
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = input, language = "en" });
+        Assert.Equal(alpha3, GsiCountry(j));
+        Assert.StartsWith(alpha3 + " (", (string)Header(j)["countryOfOrigin"]!);
+    }
+
+    [Fact]
+    public async Task Stl_unknown_country_is_rejected_with_suggestions()
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "Belgum" }, status: HttpStatusCode.BadRequest);
+        var e = j["errors"]![0]!;
+        Assert.Equal("format-option-invalid", (string)j["code"]!);
+        Assert.Equal("/formatOptions/ebuStl/countryOfOrigin", (string)e["pointer"]!);
+        Assert.Equal("'Belgum' is not an ISO 3166-1 country.", (string)e["message"]!);
+        var hint = (string)e["hint"]!;
+        Assert.Contains("alpha-3 code (BEL), an alpha-2 code (BE) or the English country name (Belgium)", hint);
+        Assert.Contains("Did you mean Belgium (BEL)?", hint);
+        var none = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "Qwxzv" }, status: HttpStatusCode.BadRequest);
+        Assert.DoesNotContain("Did you mean", (string)none["errors"]![0]!["hint"]!);
+        Assert.True(hint.Split("(").Length - 1 <= 5);
+    }
+
+    [Theory]
+    [InlineData("Germny", "Germany (DEU)")]
+    [InlineData("Untied States", "United States (USA)")]
+    [InlineData("Portugl", "Portugal (PRT)")]
+    [InlineData("Brasil", "Brazil (BRA)")]
+    public async Task Stl_country_suggestions_name_the_likely_country(string typo, string suggestion)
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = typo }, status: HttpStatusCode.BadRequest);
+        Assert.Contains(suggestion, (string)j["errors"]![0]!["hint"]!);
+    }
+
+    [Fact]
+    public async Task Stl_result_echoes_the_header_that_was_written()
+    {
+        var gr = await StlWith(new { language = "el", originalProgrammeTitle = "Show", originalEpisodeTitle = "Ep 1", translatedProgrammeTitle = "Εκπομπή", translatorsName = "A. B.", publisher = "Pub", countryOfOrigin = "GRC" }, Greek);
+        var h = Header(gr);
+        Assert.Equal("70 (Greek)", (string)h["language"]!);
+        Assert.Equal("GRC (Greece)", (string)h["countryOfOrigin"]!);
+        Assert.Equal("Show", (string)h["originalProgrammeTitle"]!);
+        Assert.Equal("Ep 1", (string)h["originalEpisodeTitle"]!);
+        Assert.Equal("A. B.", (string)h["translatorsName"]!);
+        Assert.Equal("Pub", (string)h["publisher"]!);
+
+        var es = await StlWith(new { language = "es", originalProgrammeTitle = "Show", countryOfOrigin = "Spain" });
+        Assert.Equal("ESP (Spain)", (string)Header(es)["countryOfOrigin"]!);
+        Assert.Equal("0A (Spanish)", (string)Header(es)["language"]!);
+        // Empty fields are left out.
+        Assert.Null(Header(es)["publisher"]); Assert.Null(Header(es)["translatorsName"]);
+    }
+
+    [Fact]
+    public async Task Non_ebu_outputs_have_no_header_echo()
+    {
+        var j = await Json(new { content = Samples.Srt, target = "webvtt" });
+        Assert.Null(j["outputs"]![0]!["header"]);
+    }
+
     [Fact]
     public async Task Stl_header_copied_from_the_source_is_not_reported()
     {

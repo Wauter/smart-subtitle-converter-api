@@ -34,6 +34,15 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
   accepted ISO 639-1 code.
 - New warning `ebu-language-mismatch`: `formatOptions.ebuStl.language` writes a code that differs from the language
   detected in the text. It names both and never changes the output.
+- EBU STL language and country input is normalised. `formatOptions.ebuStl.language` ignores case and surrounding
+  whitespace (`" EL "`, `"6c"`); the file gets the upper-case hex code. `countryOfOrigin` accepts an ISO 3166-1
+  alpha-3 code, an alpha-2 code (`BE`) or the English short name (`Belgium`, `Côte d'Ivoire`), in any case, and writes
+  alpha-3. The `^[A-Z]{3}$` schema pattern is gone. A value that matches no country now gives
+  `400 format-option-invalid` with up to three suggestions (the pattern used to reject anything but three capitals as
+  `invalid-profile`).
+  The table is the current ISO 3166-1 list (Debian iso-codes, 249 entries); the field descriptions were shortened.
+- EBU STL results carry `outputs[].header`: the language (`70 (Greek)`), country (`PRT (Portugal)`) and the title,
+  publisher and translator fields that were written, read back from the output bytes. Empty fields are left out.
 - The `zero-length-cue` hint no longer says EBU STL can't store zero-length cues: it keeps them, except one at
   00:00:00 (as Cheetah CAP).
 - Docs: EBU STL and PAC round a time halfway between two frames in opposite directions (within one frame); the API

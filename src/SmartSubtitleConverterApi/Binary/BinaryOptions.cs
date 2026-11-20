@@ -39,6 +39,52 @@ public static class BinaryOptions
         ["te"] = "4B", ["th"] = "4A", ["uk"] = "49", ["ur"] = "48", ["uz"] = "47", ["vi"] = "46", ["zu"] = "45",
     };
 
+    /// <summary>
+    /// Every language code of EBU Tech 3264 Appendix 3 (00-2B, 45-7F), by the spec's names. Spelling slips in the spec are corrected
+    /// (Portugese, Wallon, Tadzhik, Pushtu, Papamiento, Malagasay, Gurani, Gujurati, Churash, Bielorussian, Bambora).
+    /// </summary>
+    public static readonly Dictionary<string, string> EbuLanguageNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["00"] = "Unknown/not applicable", ["01"] = "Albanian", ["02"] = "Breton", ["03"] = "Catalan",
+        ["04"] = "Croatian", ["05"] = "Welsh", ["06"] = "Czech", ["07"] = "Danish",
+        ["08"] = "German", ["09"] = "English", ["0A"] = "Spanish", ["0B"] = "Esperanto",
+        ["0C"] = "Estonian", ["0D"] = "Basque", ["0E"] = "Faroese", ["0F"] = "French",
+        ["10"] = "Frisian", ["11"] = "Irish", ["12"] = "Gaelic", ["13"] = "Galician",
+        ["14"] = "Icelandic", ["15"] = "Italian", ["16"] = "Lappish", ["17"] = "Latin",
+        ["18"] = "Latvian", ["19"] = "Luxembourgian", ["1A"] = "Lithuanian", ["1B"] = "Hungarian",
+        ["1C"] = "Maltese", ["1D"] = "Dutch", ["1E"] = "Norwegian", ["1F"] = "Occitan",
+        ["20"] = "Polish", ["21"] = "Portuguese", ["22"] = "Romanian", ["23"] = "Romansh",
+        ["24"] = "Serbian", ["25"] = "Slovak", ["26"] = "Slovenian", ["27"] = "Finnish",
+        ["28"] = "Swedish", ["29"] = "Turkish", ["2A"] = "Flemish", ["2B"] = "Walloon",
+        ["45"] = "Zulu", ["46"] = "Vietnamese", ["47"] = "Uzbek", ["48"] = "Urdu",
+        ["49"] = "Ukrainian", ["4A"] = "Thai", ["4B"] = "Telugu", ["4C"] = "Tatar",
+        ["4D"] = "Tamil", ["4E"] = "Tajik", ["4F"] = "Swahili", ["50"] = "Sranan Tongo",
+        ["51"] = "Somali", ["52"] = "Sinhalese", ["53"] = "Shona", ["54"] = "Serbo-croat",
+        ["55"] = "Ruthenian", ["56"] = "Russian", ["57"] = "Quechua", ["58"] = "Pashto",
+        ["59"] = "Punjabi", ["5A"] = "Persian", ["5B"] = "Papiamento", ["5C"] = "Oriya",
+        ["5D"] = "Nepali", ["5E"] = "Ndebele", ["5F"] = "Marathi", ["60"] = "Moldavian",
+        ["61"] = "Malaysian", ["62"] = "Malagasy", ["63"] = "Macedonian", ["64"] = "Laotian",
+        ["65"] = "Korean", ["66"] = "Khmer", ["67"] = "Kazakh", ["68"] = "Kannada",
+        ["69"] = "Japanese", ["6A"] = "Indonesian", ["6B"] = "Hindi", ["6C"] = "Hebrew",
+        ["6D"] = "Hausa", ["6E"] = "Guarani", ["6F"] = "Gujarati", ["70"] = "Greek",
+        ["71"] = "Georgian", ["72"] = "Fulani", ["73"] = "Dari", ["74"] = "Chuvash",
+        ["75"] = "Chinese", ["76"] = "Burmese", ["77"] = "Bulgarian", ["78"] = "Bengali",
+        ["79"] = "Belarusian", ["7A"] = "Bambara", ["7B"] = "Azerbaijani", ["7C"] = "Assamese",
+        ["7D"] = "Armenian", ["7E"] = "Arabic", ["7F"] = "Amharic",
+    };
+
+    public static bool IsAutoLanguage(string? s) => s != null && s.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The two-digit upper-case EBU code for an ISO 639-1 code or an EBU hex code, ignoring case and surrounding whitespace; null for "auto", nothing, or an unknown value.</summary>
+    public static string? NormalizeLanguage(string? s)
+    {
+        if (s == null || IsAutoLanguage(s)) return null;
+        var t = s.Trim();
+        if (EbuLanguages.TryGetValue(t, out var code)) return code;
+        var up = t.ToUpperInvariant();
+        return IsEbuHex(up) ? up : null;
+    }
+
     public static readonly string[] PacCodePages =
         ["latin", "greek", "czech", "arabic", "hebrew", "thai", "cyrillic", "chinese-traditional", "chinese-simplified", "korean", "japanese", "turkish", "portuguese"];
 
@@ -88,8 +134,15 @@ public static class BinaryOptions
                 errors.Add(new("/target/fps", $"target.fps {t2} is not an EBU STL frame rate.", "Use 23.976, 24, 25, 29.97 or 30, or set formatOptions.ebuStl.frameRate."));
             if (e.ReadFrameRate is { } rfr && rfr <= 20)
                 errors.Add(new($"{b}/readFrameRate", "readFrameRate must be > 20.", "Typical values: 23.976, 24, 25, 29.97, 30."));
-            if (e.Language is { } lang && !lang.Equals("auto", StringComparison.OrdinalIgnoreCase) && !EbuLanguages.ContainsKey(lang) && !IsEbuHex(lang))
-                errors.Add(new($"{b}/language", $"'{lang}' has no EBU STL language code.", $"Use one of these ISO 639-1 codes: {string.Join(", ", EbuLanguages.Keys)}. For any other language, use its two-digit upper-case hex code from EBU Tech 3264 Appendix 3 (for example Dari \"73\"), or \"auto\"."));
+            if (e.Language is { } lang && !IsAutoLanguage(lang) && NormalizeLanguage(lang) == null)
+                errors.Add(new($"{b}/language", $"'{lang.Trim()}' has no EBU STL language code.", $"Use one of these ISO 639-1 codes: {string.Join(", ", EbuLanguages.Keys)}. For any other language, use its two-digit upper-case hex code from EBU Tech 3264 Appendix 3 (for example Dari \"73\"), or \"auto\"."));
+            if (e.CountryOfOrigin is { } country && CountryCodes.Resolve(country) == null)
+            {
+                var near = CountryCodes.Suggest(country);
+                errors.Add(new($"{b}/countryOfOrigin", $"'{country.Trim()}' is not an ISO 3166-1 country.",
+                    "Use an alpha-3 code (BEL), an alpha-2 code (BE) or the English country name (Belgium)." +
+                    (near.Count > 0 ? $" Did you mean {string.Join(", ", near.Select(c => $"{c.DisplayName} ({c.Alpha3})"))}?" : "")));
+            }
             var cp = Encoding.GetEncoding(int.Parse(e.CodePage ?? "850", CultureInfo.InvariantCulture));
             foreach (var (name, value) in new[] { ("originalProgrammeTitle", e.OriginalProgrammeTitle), ("originalEpisodeTitle", e.OriginalEpisodeTitle),
                          ("translatedProgrammeTitle", e.TranslatedProgrammeTitle), ("translatorsName", e.TranslatorsName), ("publisher", e.Publisher) })
@@ -119,7 +172,7 @@ public static class BinaryOptions
         return errors;
     }
 
-    private static bool IsEbuHex(string s) => s.Length == 2 && s.All(ch => ch is >= '0' and <= '9' or >= 'A' and <= 'F');
+    internal static bool IsEbuHex(string s) => s.Length == 2 && s.All(ch => ch is >= '0' and <= '9' or >= 'A' and <= 'F');
 
     private static int? FrameOf(string tc) => tc.Length == 11 && int.TryParse(tc[9..], out var f) ? f : null;
 
@@ -239,8 +292,8 @@ public static class BinaryOptions
         if (o.DisplayStandard != null) h.DisplayStandardCode = EbuDisplayStandards[o.DisplayStandard];
         else if (fresh) h.DisplayStandardCode = s.Paragraphs.Any(p => p.Text?.Contains("<font color", StringComparison.OrdinalIgnoreCase) == true) ? "1" : "0";
         if (o.CharacterTable != null) h.CharacterCodeTableNumber = EbuCharacterTables[o.CharacterTable];
-        if (o.Language != null && !o.Language.Equals("auto", StringComparison.OrdinalIgnoreCase))
-            h.LanguageCode = EbuLanguages.TryGetValue(o.Language, out var code) ? code : o.Language;
+        if (o.Language != null && !IsAutoLanguage(o.Language))
+            h.LanguageCode = NormalizeLanguage(o.Language) ?? o.Language.Trim();
         else if (fresh)
             h.LanguageCode = s.Paragraphs.Count == 0 ? "00" : EbuLanguages.GetValueOrDefault(Language.DetectOrNull(s) ?? "", "09");
         if (o.OriginalProgrammeTitle != null) h.OriginalProgrammeTitle = Pad(o.OriginalProgrammeTitle, 32);
@@ -248,7 +301,7 @@ public static class BinaryOptions
         if (o.TranslatedProgrammeTitle != null) h.TranslatedProgrammeTitle = Pad(o.TranslatedProgrammeTitle, 32);
         if (o.TranslatorsName != null) h.TranslatorsName = Pad(o.TranslatorsName, 32);
         if (o.Publisher != null) h.Publisher = Pad(o.Publisher, 32);
-        if (o.CountryOfOrigin != null) h.CountryOfOrigin = Pad(o.CountryOfOrigin, 3);
+        if (o.CountryOfOrigin != null) h.CountryOfOrigin = Pad(CountryCodes.Resolve(o.CountryOfOrigin)?.Alpha3 ?? o.CountryOfOrigin.Trim(), 3);
         if (o.TimecodeStartOfProgramme != null) h.TimeCodeStartOfProgramme = o.TimecodeStartOfProgramme.Replace(":", "");
         if (o.MaxCharsPerRow is { } mc) h.MaximumNumberOfDisplayableCharactersInAnyTextRow = mc.ToString("D2", CultureInfo.InvariantCulture);
         if (o.MaxRows is { } mr) h.MaximumNumberOfDisplayableRows = mr.ToString("D2", CultureInfo.InvariantCulture);

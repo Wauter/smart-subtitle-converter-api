@@ -147,12 +147,13 @@ _For integrators:_ 400. `errors[]` with `pointer`, `message`, `hint`. The JSON S
 **What:** A format option has a well-formed but unusable value.
 
 **Why:** The value is valid JSON but not something the format can store: an EBU STL frame rate that conflicts with
-`target.fps`, a `target.fps` that EBU STL can't store, an unknown code page or language, an EBU header text field
-over 32 bytes, or a Cavena 890 title over 28 ASCII characters.
+`target.fps`, a `target.fps` that EBU STL can't store, an unknown code page or language, a
+`formatOptions.ebuStl.countryOfOrigin` that is not an ISO 3166-1 country, an EBU header text field over 32 bytes, or a Cavena 890 title over 28 ASCII characters.
 
 **What to do:** Use one of the values the hint lists. `GET /v1/formats` shows the options for each format.
 
-_For integrators:_ 400. `errors[]` points at the option, e.g. `/formatOptions/ebuStl/frameRate`.
+_For integrators:_ 400. `errors[]` points at the option, e.g. `/formatOptions/ebuStl/frameRate`. An unknown
+`countryOfOrigin` lists up to three close matches in the hint ("Did you mean Belgium (BEL)?").
 
 ### <a id="empty-input"></a>`empty-input`
 
@@ -1031,6 +1032,8 @@ _For integrators:_ the subtitle PUT itself is unaffected.
 Every binary output is read back with the same libse reader and compared with the cues that were meant
 to be written. The result is `outputs[].verification` in `POST /v1/convert/json`, the
 `X-Verification-Verdict` header for a single binary output from `POST /v1/convert`.
+EBU STL outputs also carry `outputs[].header`, a short summary of the GSI header that was written (see
+[formats.md](formats.md#ebu-stl-header-options)).
 
 Greek SRT written as PAC with the default latin code page (code points shortened):
 

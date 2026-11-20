@@ -106,6 +106,28 @@ Cavena's file-name title. These are reported as `format-defaults-applied` with t
 `formatOptions` for deliveries. A language you set that differs from the detected one is reported as
 `ebu-language-mismatch`.
 
+## EBU STL header options
+
+`formatOptions.ebuStl.language` takes an ISO 639-1 code (`el`) or an EBU Tech 3264 Appendix 3 hex code (`70`), in any
+case and with surrounding whitespace ignored; the file always gets the upper-case hex code. Leave it out to use the
+detected language. `auto` (any case) means the same.
+
+`formatOptions.ebuStl.countryOfOrigin` takes an ISO 3166-1 alpha-3 code (`BEL`), an alpha-2 code (`BE`) or the English
+short name (`Belgium`), in any case; accents, punctuation and whitespace are ignored. Common short forms such as
+`UK`, `Turkey` and `Ivory Coast` work too. The file gets the alpha-3 code. A value that matches no country is
+rejected with `400 format-option-invalid` and up to three suggestions. The country table is the current ISO 3166-1
+list (Debian iso-codes); EBU Tech 3264 Appendix 4 predates it and still lists a few retired codes.
+
+Every EBU STL result reports the header it wrote, read back from the output bytes, as `outputs[].header`. Only fields
+that are set appear:
+
+```json
+"header": { "language": "70 (Greek)", "countryOfOrigin": "PRT (Portugal)", "originalProgrammeTitle": "Show" }
+```
+
+The other fields are `originalEpisodeTitle`, `translatedProgrammeTitle`, `translatorsName` and `publisher`. A code
+without a known name appears alone.
+
 ## Format options
 
 Per-format options live in `profile.formatOptions.{ebuStl,pac,cavena890,cheetah}` (see `/v1/schemas/profile.json`).

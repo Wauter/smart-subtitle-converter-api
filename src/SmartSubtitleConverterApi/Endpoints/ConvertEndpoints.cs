@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Net.Http.Headers;
+using SmartSubtitleConverterApi.Binary;
 using SmartSubtitleConverterApi.Conversion;
 using SmartSubtitleConverterApi.Jobs;
 using SmartSubtitleConverterApi.Storage;
@@ -14,9 +15,9 @@ public sealed record ConvertJsonRequest(
     string? Content, string? ContentEncoding, string? FileName, string? Preset, JsonObject? Profile, string? Target,
     string? ResponseEncoding, string? Input = null, string? Output = null, bool Sidecar = false, string? IfExists = null);
 
-/// <summary>One output. <c>verification</c>: the read-back check, binary targets only .</summary>
+/// <summary>One output. <c>verification</c>: the read-back check, binary targets only. <c>header</c>: the GSI fields written, EBU STL only.</summary>
 public sealed record OutputDto(string FileName, string Format, string FormatId, string MediaType, string? Content, string ContentEncoding, string Encoding, int Cues,
-    string Kind = Formats.FormatKinds.Text, Verification? Verification = null, string? Output = null, int? Bytes = null);
+    string Kind = Formats.FormatKinds.Text, Verification? Verification = null, string? Output = null, int? Bytes = null, EbuHeaderEcho? Header = null);
 public sealed record StatsDto(int ParagraphsIn, int ParagraphsOut, long ElapsedMs, long QueueWaitMs);
 public sealed record ConvertJsonResponse(List<OutputDto> Outputs, DetectedInfo? Detected, StatsDto Stats, List<Warning> Warnings, JsonObject Profile, string? Id = null);
 
@@ -249,7 +250,8 @@ public static class ConvertEndpoints
             // With a storage output, report the name the file was stored under, not the converter's generated name.
             outputs.Add(new(output != null ? StoredName(output) ?? o.FileName : o.FileName, o.Format.Name, o.Format.Id, o.Format.MediaType,
                 output != null || !includeContent ? null : asText ? DecodeUnicode(o.Bytes) : Convert.ToBase64String(o.Bytes), asText ? "text" : "base64", o.EncodingName, o.Cues,
-                Kind: o.Format.Kind, Verification: o.Verification, Output: JobStore.Redact(output), Bytes: o.Bytes.Length));
+                Kind: o.Format.Kind, Verification: o.Verification, Output: JobStore.Redact(output), Bytes: o.Bytes.Length,
+                Header: o.Format.Id == "ebustl" ? EbuHeaderEcho.From(o.Bytes) : null));
         }
         return new(outputs, r.Detected, new(r.ParagraphsIn, r.Outputs[0].Cues, r.ElapsedMs, waitMs), warnings, resolved);
     }

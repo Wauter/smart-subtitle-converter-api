@@ -34,7 +34,7 @@ internal static class FormatDefaults
         Add("publisher", o?.Publisher, h.Publisher);
         Add("countryOfOrigin", o?.CountryOfOrigin, h.CountryOfOrigin);
         string? languageNote = null;
-        var explicitLanguage = o?.Language != null && !o.Language.Equals("auto", StringComparison.OrdinalIgnoreCase);
+        var explicitLanguage = o?.Language != null && !BinaryOptions.IsAutoLanguage(o.Language);
         if (!explicitLanguage && !string.IsNullOrWhiteSpace(h.LanguageCode))
         {
             var detected = Language.DetectOrNull(written);
@@ -63,8 +63,8 @@ internal static class FormatDefaults
     /// <summary>An explicit EBU STL language code that differs from the language detected in the text. Skipped when detection finds nothing or finds a language without a mapping.</summary>
     public static Warning? EbuLanguageMismatch(EbuStlOptions? o, Subtitle written)
     {
-        if (o?.Language is not { } requested || requested.Equals("auto", StringComparison.OrdinalIgnoreCase)) return null;
-        var code = BinaryOptions.EbuLanguages.TryGetValue(requested, out var mapped) ? mapped : requested.ToUpperInvariant();
+        if (o?.Language is not { } requested || BinaryOptions.NormalizeLanguage(requested) is not { } code) return null;
+        requested = requested.Trim();
         if (Language.DetectOrNull(written) is not { } detected || !BinaryOptions.EbuLanguages.TryGetValue(detected, out var detectedCode)) return null;
         if (detectedCode.Equals(code, StringComparison.OrdinalIgnoreCase)) return null;
         return new Warning(LanguageMismatchCode,

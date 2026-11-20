@@ -3208,6 +3208,53 @@
           }
         }
       },
+      "EbuHeaderEcho": {
+        "type": "object",
+        "properties": {
+          "language": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "countryOfOrigin": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originalProgrammeTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originalEpisodeTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "translatedProgrammeTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "translatorsName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "publisher": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "FieldError": {
         "required": [
           "pointer",
@@ -3771,6 +3818,16 @@
               "string"
             ],
             "format": "int32"
+          },
+          "header": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EbuHeaderEcho"
+              }
+            ]
           }
         }
       },
