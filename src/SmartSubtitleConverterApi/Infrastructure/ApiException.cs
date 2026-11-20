@@ -64,6 +64,7 @@ public static class ErrorCodes
     public const string UnsafeXml = "unsafe-xml";
     public const string InputLimitsExceeded = "input-limits-exceeded";
     public const string ConversionFailed = "conversion-failed";
+    public const string FrameRateRequired = "frame-rate-required";
     public const string RateLimited = "rate-limited";
     public const string QueueFull = "queue-full";
     public const string ConversionTimeout = "conversion-timeout";
@@ -110,6 +111,7 @@ public static class ErrorCodes
         UnsafeXml => "Unsafe XML",
         InputLimitsExceeded => "Input limits exceeded",
         ConversionFailed => "Conversion failed",
+        FrameRateRequired => "Frame rate required",
         RateLimited => "Rate limited",
         QueueFull => "Queue full",
         ConversionTimeout => "Conversion timeout",

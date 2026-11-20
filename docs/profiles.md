@@ -2,7 +2,8 @@
 
 A **profile** is a JSON document that describes a conversion: source and target format, rules, timing, format
 options and operations. A **preset** is a named profile. The JSON Schema is served at `/v1/schemas/profile.json`;
-validate your own with `POST /v1/profiles/validate`.
+validate your own with `POST /v1/profiles/validate`, which lists every error in one response: schema errors first, then
+format-option errors (an unknown property and a bad `countryOfOrigin` in the same profile give both).
 
 ## Built-in presets
 

@@ -400,6 +400,7 @@ public sealed class StorageHardeningTests : IDisposable
         var added = current.Except(snapshot).ToList(); var removed = snapshot.Except(current).ToList();
         Assert.True(added.Count == 0 && removed.Count == 0, $"libse extension list changed. Added: {string.Join(" ", added)}. Removed: {string.Join(" ", removed)}. Review, then update tests/SmartSubtitleConverterApi.Tests/extension-allowlist.txt.");
         Assert.Contains(".srt", current); Assert.Contains(".stl", current); Assert.DoesNotContain(".env", current); Assert.DoesNotContain(".mkv", current);
+        Assert.DoesNotContain(".ini", current); // libse 5.4 lists it for FFmpeg metadata chapters; not a subtitle name
         Assert.All(current, e => Assert.Equal(e, e.ToLowerInvariant()));
     }
 

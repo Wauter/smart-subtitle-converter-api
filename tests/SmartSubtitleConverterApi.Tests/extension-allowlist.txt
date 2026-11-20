@@ -23,12 +23,16 @@
 .dfxp
 .dtc
 .dv
+.dvbttx
 .edl
 .elr
+.ezt
 .eztxml
 .fcpxml
+.ffmeta
 .flc
 .fpc
+.g608
 .gst
 .html
 .imscr
@@ -50,11 +54,14 @@
 .rtf
 .sbv
 .scc
+.sdb
 .sif
 .smi
+.spc
 .spt
 .sptx
 .srt
+.srv3
 .ssa
 .stl
 .stp
@@ -84,4 +91,5 @@
 .xml
 .xmp
 .xsubtitle
+.ytt
 .zeg

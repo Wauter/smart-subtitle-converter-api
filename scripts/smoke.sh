@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Docker smoke test (design §9): boot the image, wait for /readyz, convert corpus files,
 # check auth (default on, generated key, API_KEYS, disabled), host/origin checks, file storage, and enforce the size budget.
-#   scripts/smoke.sh <image> [platform] [max-mb]
+#   [EXPECT_REVISION=<git sha>] scripts/smoke.sh <image> [platform] [max-mb]
 set -euo pipefail
 IMAGE=$1; PLATFORM=${2:-linux/amd64}; MAX_MB=${3:-200}
 PORT=${PORT:-18080}; DIR=$(cd "$(dirname "$0")/.." && pwd)
@@ -63,6 +63,11 @@ start -e API_KEYS=smoke-key
 code=$(convert sample.srt webvtt); [ "$code" = 401 ] || fail "auth on, no key gave $code"
 code=$(convert sample.srt webvtt -H "Authorization: Bearer smoke-key"); [ "$code" = 200 ] || fail "auth on, good key gave $code"
 curl -sf "localhost:$PORT/healthz" >/dev/null || fail "/healthz not open with auth on"
+# EXPECT_REVISION (CI: github.sha) checks the build stamped the short commit into /healthz.
+if [ -n "${EXPECT_REVISION:-}" ]; then
+  rev=$(curl -sf "localhost:$PORT/healthz" | sed -n 's/.*"revision":"\([^"]*\)".*/\1/p')
+  [ "$rev" = "${EXPECT_REVISION:0:7}" ] || fail "/healthz revision is '$rev', expected ${EXPECT_REVISION:0:7}"
+fi
 echo "ok  auth on/off"
 # Filesystem storage on this architecture (open flags differ between x86_64 and arm64): list, read, write into
 # folders that do not exist yet, and refuse symlinks, hidden folders and missing inputs.

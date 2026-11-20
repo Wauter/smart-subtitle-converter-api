@@ -34,7 +34,7 @@ internal static class FormatDefaults
         Add("publisher", o?.Publisher, h.Publisher);
         Add("countryOfOrigin", o?.CountryOfOrigin, h.CountryOfOrigin);
         string? languageNote = null;
-        var explicitLanguage = o?.Language != null && !o.Language.Equals("auto", StringComparison.OrdinalIgnoreCase);
+        var explicitLanguage = o?.Language != null && !BinaryOptions.IsAutoLanguage(o.Language);
         if (!explicitLanguage && !string.IsNullOrWhiteSpace(h.LanguageCode))
         {
             var detected = Language.DetectOrNull(written);
@@ -43,7 +43,10 @@ internal static class FormatDefaults
             if (o?.Language == null || !fromDetection)
             {
                 fields["language"] = h.LanguageCode.Trim();
-                languageNote = fromDetection ? $"language {h.LanguageCode} (auto-detected: {detected})" : $"language {h.LanguageCode} (fallback: no supported language detected)";
+                languageNote = $"language {h.LanguageCode} " + (fromDetection ? $"(auto-detected: {detected})"
+                    : detected == null ? "(fallback: no language detected)"
+                    : !BinaryOptions.EbuLanguages.ContainsKey(detected) ? $"(fallback: detected {detected} has no built-in EBU mapping; set formatOptions.ebuStl.language to its two-digit upper-case hex code from EBU Tech 3264 Appendix 3)"
+                    : $"(fallback; detected: {detected})");
             }
         }
         if (fields.Count == 0) return null;
@@ -53,6 +56,38 @@ internal static class FormatDefaults
             fields.Count,
             $"Set formatOptions.ebuStl.{string.Join(", ", fields.Keys)} to the delivery's values (headerFromSource reuses an EBU source's header instead).",
             new WarningDetails(Fields: fields));
+    }
+
+    public const string LanguageMismatchCode = "ebu-language-mismatch";
+
+    /// <summary>An explicit EBU STL language code that differs from the language detected in the text. Skipped when detection finds nothing or finds a language without a mapping.</summary>
+    public static Warning? EbuLanguageMismatch(EbuStlOptions? o, Subtitle written)
+    {
+        if (o?.Language is not { } requested || BinaryOptions.NormalizeLanguage(requested) is not { } code) return null;
+        requested = requested.Trim();
+        if (Language.DetectOrNull(written) is not { } detected || !BinaryOptions.EbuLanguages.TryGetValue(detected, out var detectedCode)) return null;
+        if (detectedCode.Equals(code, StringComparison.OrdinalIgnoreCase)) return null;
+        return new Warning(LanguageMismatchCode,
+            $"formatOptions.ebuStl.language \"{requested}\" writes EBU language code {code}, but the text looks like {detected} (EBU code {detectedCode}).",
+            Hint: $"If the text really is {detected}, set formatOptions.ebuStl.language to \"{detectedCode}\" or \"auto\". Keep your value if the delivery's language differs from the text. Detection can be wrong on short text.",
+            Details: new WarningDetails(Fields: new Dictionary<string, string> { ["language"] = code, ["detectedLanguage"] = detected, ["detectedCode"] = detectedCode }));
+    }
+
+    public const string CountryRetiredCode = "country-code-retired";
+
+    /// <summary>An explicit EBU STL countryOfOrigin that is a retired ISO 3166 code (accepted as written, never changed).</summary>
+    public static Warning? EbuCountryRetired(EbuStlOptions? o)
+    {
+        if (o?.CountryOfOrigin == null || CountryCodes.Resolve(o.CountryOfOrigin) != null || RetiredCountryCodes.Find(o.CountryOfOrigin) is not { } r) return null;
+        var current = RetiredCountryCodes.CurrentSuccessors(r);
+        var many = current.Count > 1;
+        return new Warning(CountryRetiredCode,
+            $"countryOfOrigin {r.Alpha3} is a retired ISO 3166 code ({r.Name}, withdrawn {r.WithdrawnYear}); current {(many ? "codes" : "code")} {RetiredCountryCodes.SuccessorList(r)}.",
+            Hint: $"Keep {r.Alpha3} for archive material from when it was valid. For newer material set formatOptions.ebuStl.countryOfOrigin to {(many ? "the successor that applies" : current[0])}.",
+            Details: new WarningDetails(Fields: new Dictionary<string, string>
+            {
+                ["countryOfOrigin"] = r.Alpha3, ["name"] = r.Name, ["withdrawn"] = r.WithdrawnYear.ToString(System.Globalization.CultureInfo.InvariantCulture), ["successors"] = string.Join(", ", RetiredCountryCodes.CurrentSuccessors(r)),
+            }));
     }
 
     /// <summary>Cavena 890: title (libse uses the output file name) and the language libse picked when none was set.</summary>

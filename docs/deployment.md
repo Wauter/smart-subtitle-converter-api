@@ -76,7 +76,9 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
 ## The image
 
 libse is a pinned NuGet package inside the image; `/healthz` (`libse`) and the `X-Libse-Version` header report
-its version.
+its version. `/healthz` and `/readyz` also show `revision`, the short git commit the image was built from: CI passes
+it as the `REVISION` build argument (`docker build --build-arg REVISION=$(git rev-parse HEAD) .` locally), and it is
+`unknown` when not set. It is a public commit id, nothing secret; the image contains no git data.
 
 The image is plain `aspnet:*-noble-chiseled` plus a trimmed ICU/tzdata overlay, so it keeps full globalization
 but is smaller than `-chiseled-extra` (see [design.md §13](design.md#13-v1-implementation-notes-and-deviations)).

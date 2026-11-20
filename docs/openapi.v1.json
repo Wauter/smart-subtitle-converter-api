@@ -3,7 +3,7 @@
   "info": {
     "title": "Smart Subtitle Converter API",
     "description": "Convert subtitles between text and binary broadcast formats (EBU STL, PAC, Cavena 890, ...) with Subtitle Edit\u0027s libse. Errors are RFC 7807 problem\u002Bjson with a stable \u0060code\u0060, a \u0060hint\u0060 and the \u0060requestId\u0060. Send \u0060Authorization: Bearer \u003Ckey\u003E\u0060 when API keys are configured.",
-    "version": "1.4.1"
+    "version": "1.5.0"
   },
   "servers": null,
   "paths": {
@@ -2866,6 +2866,7 @@
               "unsafe-xml",
               "input-limits-exceeded",
               "conversion-failed",
+              "frame-rate-required",
               "rate-limited",
               "queue-full",
               "conversion-timeout",
@@ -3204,6 +3205,53 @@
             "items": {
               "$ref": "#/components/schemas/Warning"
             }
+          }
+        }
+      },
+      "EbuHeaderEcho": {
+        "type": "object",
+        "properties": {
+          "language": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "countryOfOrigin": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originalProgrammeTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originalEpisodeTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "translatedProgrammeTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "translatorsName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "publisher": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -3770,6 +3818,16 @@
               "string"
             ],
             "format": "int32"
+          },
+          "header": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EbuHeaderEcho"
+              }
+            ]
           }
         }
       },
@@ -4548,15 +4606,6 @@
               "null",
               "string"
             ]
-          },
-          "frameRate": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
-            "type": [
-              "null",
-              "number",
-              "string"
-            ],
-            "format": "double"
           }
         }
       }

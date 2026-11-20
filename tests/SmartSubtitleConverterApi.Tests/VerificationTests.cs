@@ -26,7 +26,7 @@ public class VerificationTests : IClassFixture<ApiFactory>
 
     private async Task<JsonObject> Convert(string srt, string target, object? profile = null, string fileName = "in.srt")
     {
-        var r = await _c.PostAsJsonAsync("/v1/convert/json", new { content = srt, fileName, target, profile });
+        var r = await _c.PostAsJsonAsync("/v1/convert/json", new { content = srt, fileName, target, profile = Samples.WithFps(profile, target) });
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         return await r.Json();
     }
@@ -85,14 +85,14 @@ public class VerificationTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Multipart_has_the_verdict_header_and_warnings_header_without_hint_or_details()
     {
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(Greek, "g.srt", ("target", "pac")));
+        var r = await _c.PostAsync("/v1/convert", Samples.Form(Greek, "g.srt", ("target", "pac"), ("profile", """{"source":{"fps":23.976}}""")));
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         Assert.Equal("lossy", r.Header("X-Verification-Verdict"));
         var header = r.Header("X-Warnings");
         Assert.Contains("characters-replaced", header);
         Assert.DoesNotContain("details", header);
         Assert.DoesNotContain("hint", header);
-        var ok = await _c.PostAsync("/v1/convert", Samples.Form(Latin, "l.srt", ("target", "fpc")));
+        var ok = await _c.PostAsync("/v1/convert", Samples.Form(Latin, "l.srt", ("target", "fpc"), ("profile", """{"source":{"fps":23.976}}""")));
         Assert.Contains(ok.Header("X-Verification-Verdict"), new[] { "quantised", "lossless" });
         var text = await _c.PostAsync("/v1/convert", Samples.Form(Latin, "l.srt", ("target", "vtt")));
         Assert.False(text.Headers.Contains("X-Verification-Verdict"));
@@ -125,18 +125,33 @@ public class VerificationTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain("359999999", v.ToJsonString());
     }
 
-    [Fact]
-    public async Task Dropped_cues_are_matched_by_start_time()
+    [Theory]
+    [InlineData("ebustl")]
+    [InlineData("cheetahcaption")]
+    public async Task Zero_length_cue_after_the_start_is_kept_and_the_hint_says_so(string target)
+    {
+        // README example run: the source hint said EBU STL can't store zero-length cues, but STL kept one at 00:00:06.
+        const string srt = "1\r\n00:00:01,000 --> 00:00:02,000\r\nHello\r\n\r\n2\r\n00:00:06,000 --> 00:00:06,000\r\nZero\r\n\r\n3\r\n00:00:08,000 --> 00:00:09,000\r\nBye\r\n";
+        var j = await Convert(srt, target, new { target = new { fps = 25 } });
+        var hint = (string)Warning(j, "zero-length-cue")["hint"]!;
+        Assert.Contains("can't store one at 00:00:00", hint);
+        Assert.DoesNotContain("can't store them", hint);
+        var v = j["outputs"]![0]!["verification"]!;
+        Assert.Null(v["zeroLengthCues"]);
+        Assert.Null(v["missingCues"]);
+        Assert.Equal(3, (int)v["cuesReadBack"]!);
+        Assert.NotEqual("lossy", (string)v["verdict"]!);
+    }
+
+    [Fact] // libse 5.1 dropped a zero-length cue at 00:00:00 from CapMaker Plus (missingCues [1]); 5.4 keeps it.
+    public async Task CapMaker_plus_keeps_a_zero_length_cue_at_the_start()
     {
         var j = await Convert(ZeroLength, "capmakerplus");
         var v = j["outputs"]![0]!["verification"]!;
         Assert.Equal(3, (int)v["cuesWritten"]!);
-        Assert.Equal(2, (int)v["cuesReadBack"]!);
-        Assert.Equal([1], Ints(v["missingCues"]!["cues"]));
-        Assert.Equal(0, (int)v["timing"]!["cuesOverOneFrame"]!); // the other cues still line up
-        var w = j["warnings"]!.AsArray().Single(x => (string)x!["code"]! == "lossy-format" && ((string)x["message"]!).Contains("read back"))!;
-        Assert.Contains("missing: cue(s) 1", (string)w["message"]!);
-        Assert.Contains("zero-length", (string)w["hint"]!);
+        Assert.Equal(3, (int)v["cuesReadBack"]!);
+        Assert.Null(v["missingCues"]);
+        Assert.Contains("zero-length-cue", Codes(j));
     }
 
     [Theory]
@@ -215,23 +230,22 @@ public class VerificationTests : IClassFixture<ApiFactory>
     public async Task Extension_or_explicit_source_format_decides()
     {
         var fpc = System.Convert.ToBase64String(await Fpc());
-        var byName = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = fpc, contentEncoding = "base64", fileName = "x.fpc", target = "srt" })).Json();
+        var byName = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = fpc, contentEncoding = "base64", fileName = "x.fpc", target = "srt", profile = new { source = new { fps = 25 } } })).Json();
         Assert.Equal("pacunicodeunipac", (string)byName["detected"]!["id"]!);
-        var forced = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = fpc, contentEncoding = "base64", target = "srt", profile = new { source = new { format = "fpc" } } })).Json();
+        var forced = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = fpc, contentEncoding = "base64", target = "srt", profile = new { source = new { format = "fpc", fps = 25 } } })).Json();
         Assert.Equal("pacunicodeunipac", (string)forced["detected"]!["id"]!);
-        var asPac = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = fpc, contentEncoding = "base64", target = "srt", profile = new { source = new { format = "pac" } } })).Json();
+        var asPac = await (await _c.PostAsJsonAsync("/v1/convert/json", new { content = fpc, contentEncoding = "base64", target = "srt", profile = new { source = new { format = "pac", fps = 25 } } })).Json();
         Assert.Equal("pacscreenelectronics", (string)asPac["detected"]!["id"]!);
     }
 
-    [Fact] // libse 5.1.0's Cavena 890 reader throws on its own Greek output: we say so instead of staying silent
-    public async Task Unreadable_output_is_unverified_with_a_reason()
+    [Fact] // libse 5.1's Cavena 890 reader threw on its own Greek output (verdict unverified); 5.4 round-trips it.
+    public async Task Cavena_greek_with_language_el_round_trips()
     {
         var j = await Convert("1\r\n00:00:01,000 --> 00:00:02,000\r\nΚαλημέρα\r\n", "cavena890", new { formatOptions = new { cavena890 = new { language = "el" } } });
         var v = j["outputs"]![0]!["verification"]!;
-        Assert.Equal("unverified", (string)v["verdict"]!);
-        Assert.Contains("couldn't be read back", (string)v["reason"]!);
-        Assert.Null(v["cuesReadBack"]);
-        Assert.Contains("verification-failed", Codes(j));
+        Assert.Matches("^(lossless|quantised)$", (string)v["verdict"]!); // text intact; times only rounded to frames
+        Assert.Null(v["replacedChars"]);
+        Assert.DoesNotContain("verification-failed", Codes(j));
     }
 
     // ---------------- unit ----------------
@@ -363,19 +377,19 @@ public class VerificationTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Cavena_greek_keeps_the_libse_limitation_note_and_suggests_nothing()
+    public async Task Cavena_greek_under_another_language_suggests_el()
     {
-        var w = Warning(await Convert(Greek, "cavena890"), "characters-replaced");
+        // libse 5.1 garbled Greek whatever the language (the remedy said so); 5.4 keeps it with language el.
+        var w = Warning(await Convert(Greek, "cavena890", new { formatOptions = new { cavena890 = new { language = "ru" } } }), "characters-replaced");
         var r = w["details"]!["remedy"]!;
-        Assert.Null(r["suggested"]);
-        Assert.Contains("libse's Cavena 890 writer doesn't keep Greek", (string)r["note"]!);
-        Assert.Contains("libse's Cavena 890 writer doesn't keep Greek", (string)w["hint"]!);
+        Assert.Equal("el", (string)r["suggested"]!);
+        Assert.Null(r["note"]);
     }
 
     [Fact]
     public async Task Remedy_stays_out_of_the_x_warnings_header()
     {
-        var r = await _c.PostAsync("/v1/convert", Samples.Form(Greek, "g.srt", ("target", "pac")));
+        var r = await _c.PostAsync("/v1/convert", Samples.Form(Greek, "g.srt", ("target", "pac"), ("profile", """{"source":{"fps":23.976}}""")));
         var h = r.Header("X-Warnings");
         Assert.Contains("characters-replaced", h);
         Assert.DoesNotContain("remedy", h);

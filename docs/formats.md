@@ -62,16 +62,40 @@ heuristic (`"heuristic"`) plus an `encoding-guessed` warning.
 
 ## Frame rates and `target.fps`
 
-`target.fps` is the rate the output is written at. Times are rescaled from one rate to the other only from a known
-source rate: `source.fps`, or a rate the file states or implies (the EBU STL header; SCC drop-frame `;` timecodes or
-frame numbers of 25 and above, which mean 29.97). Time-based sources (SRT, WebVTT, TTML, ASS, …) keep their
-wall-clock times when only `target.fps` is set: a one-hour WebVTT written as SCC with `target.fps: 29.97` still ends
-at one hour. Set `source.fps` as well to rescale on purpose (for example `25` → `23.976`). An EBU STL source written
-with a different `target.fps` is rescaled from its header rate. Frame-based
-sources that state no rate (PAC, Cavena 890, Cheetah, CapMaker, MicroDVD, SCC with only low frame numbers) are read
-at libse's default 23.976 with a `frame-rate-assumed` warning, unless the output is also a frame-based file
-(other than EBU STL) and no `target.fps` is set, so frame numbers carry over unchanged. `detected.formatDetails.frameRate` / `frameRateSource` (`profile`, `header`, `inferred`, `assumed`) say
-which rate was used.
+Frame-based formats store cue times as frame numbers, so a frame rate is needed to turn them into times. Where the
+rate comes from:
+
+- **The request:** `source.fps` for the source, `target.fps` for the output.
+- **The file:** EBU STL records its rate in the header (Disk Format Code; `formatOptions.ebuStl.readFrameRate`
+  overrides it). SCC timecodes can imply 29.97: drop-frame `;` separators, or frame numbers of 25 and above.
+- **Nowhere:** PAC, PAC Unicode (FPC), Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL, MicroDVD and a few other
+  frame-based text formats have no frame-rate field, and neither do SCC files whose timecodes don't reveal it.
+
+The output is written at `target.fps`, else at the source's rate (`source.fps`, or the rate the file records or
+implies). Set only `source.fps` and the output uses the same rate, which is what you want in most cases. Times are
+rescaled from one rate to the other only when `target.fps` differs from a known source rate (for example `25` →
+`23.976`). Time-based sources (SRT, WebVTT, TTML, ASS, …) keep their wall-clock times when only `target.fps` is
+set: a one-hour WebVTT written as SCC with `target.fps: 29.97` still ends at one hour.
+
+The API doesn't guess a rate. When one is needed and neither the file nor the request gives it, the conversion stops
+with [`frame-rate-required`](errors.md#frame-rate-required):
+
+- a source with no recorded rate needs `source.fps` when its frames have to become times: a time-based or SCC
+  output, `target.fps`, or millisecond timing settings (`timing.offsetMs`, `adjustDurationMs`, `bridgeGapsMs`,
+  `minGapMs`);
+- a frame-based output with no rate field (or SCC) needs `target.fps` or `source.fps` when the source is time-based.
+
+No rate is needed to convert between formats that record none (PAC to PAC, PAC to Cavena 890, …) without those
+settings: frame numbers carry over unchanged. SCC drop-frame output is always 29.97. iTunes Timed Text output is
+written with SMPTE frame time codes and declares their rate, so it needs one like a frame-based target. `GET /v1/formats` marks every
+format that stores frames with `frameBased: true`. EBU STL output never needs a rate from the request: its rate is
+`formatOptions.ebuStl.frameRate`, else `target.fps`, else the source's rate when it is an EBU rate, else 25.
+`detected.formatDetails.frameRate` / `frameRateSource` (`profile`, `header`, `inferred`, or `unknown` with no
+`frameRate`) say which rate was used.
+
+**Rounding.** A time exactly halfway between two frames can land on either side: EBU STL rounds it down and PAC
+rounds it up, so 3.500 s at 25 fps becomes 3.480 s in EBU STL and 3.520 s in PAC. Both are within one frame
+(`frame-quantised`).
 
 **EBU STL programme start.** A non-zero Time Code Start of Programme (often `10:00:00:00`) is reported as
 `programme-start-not-applied`; cue times stay as stored. Use `timing.offsetMs` to subtract it.
@@ -79,7 +103,34 @@ which rate was used.
 **Header defaults.** A fresh EBU STL header (SRT/WebVTT/… → STL, or `headerFromSource:false`) and Cavena 890 header
 carry identity fields even when the request sets none: libse's `No Title` / `USA`, a detected or fallback language,
 Cavena's file-name title. These are reported as `format-defaults-applied` with the values written; set the matching
-`formatOptions` for deliveries.
+`formatOptions` for deliveries. A language you set that differs from the detected one is reported as
+`ebu-language-mismatch`.
+
+## EBU STL header options
+
+`formatOptions.ebuStl.language` takes an ISO 639-1 code (`el`) or an EBU Tech 3264 Appendix 3 hex code (`70`), in any
+case and with surrounding whitespace ignored; the file always gets the upper-case hex code. Leave it out to use the
+detected language. `auto` (any case) means the same.
+
+`formatOptions.ebuStl.countryOfOrigin` takes an ISO 3166-1 alpha-3 code (`BEL`), an alpha-2 code (`BE`) or the English
+short name (`Belgium`), in any case; accents, punctuation and whitespace are ignored. Common short forms such as
+`UK`, `Turkey` and `Ivory Coast` work too. The file gets the alpha-3 code. A value that matches no country is
+rejected with `400 format-option-invalid` and up to three suggestions (current countries only). The country table is
+the current ISO 3166-1 list (Debian iso-codes). Former alpha-3 codes from ISO 3166-3 (`BUR`, `ANT`, `YUG`, `SUN`, …)
+are accepted too, because archive material carries them: they are written as given with a
+[`country-code-retired`](errors.md#country-code-retired) warning naming the current code or codes. Retired names are
+not accepted, only the codes; the error hint for `Burma` names `BUR` and `MMR`. EBU Tech 3264
+Appendix 4 is based on the 1988 edition of ISO 3166 and so lists such codes.
+
+Every EBU STL result reports the header it wrote, read back from the output bytes, as `outputs[].header`. Only fields
+that are set appear:
+
+```json
+"header": { "language": "70 (Greek)", "countryOfOrigin": "PRT (Portugal)", "originalProgrammeTitle": "Show" }
+```
+
+The other fields are `originalEpisodeTitle`, `translatedProgrammeTitle`, `translatorsName` and `publisher`. A code
+without a known name appears alone; a retired country code reads `BUR (Burma, retired)`.
 
 ## Format options
 

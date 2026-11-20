@@ -69,12 +69,20 @@ public class FrameRateWarningTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Fires_when_a_fresh_header_drops_the_source_rate()
+    public async Task A_fresh_header_keeps_the_source_rate()
     {
-        // headerFromSource:false and no rate requested: the fresh GSI defaults to STL25.01.
+        // headerFromSource:false and no rate requested: the fresh GSI takes the source header's rate (it used to default to STL25.01).
         var (j, dfc) = await Convert(await Ebu("30"), "in.stl", new { formatOptions = new { ebuStl = new { headerFromSource = false } } });
+        Assert.Equal("STL30.01", dfc);
+        Assert.Null(FrameWarning(j));
+    }
+
+    [Fact]
+    public async Task A_fresh_header_falls_back_to_25_when_the_source_rate_is_no_ebu_rate()
+    {
+        var (j, dfc) = await Convert(Encoding.UTF8.GetBytes(BinaryFormatTests.Srt), "in.srt", new { source = new { fps = 50 } });
         Assert.Equal("STL25.01", dfc);
-        Assert.Contains("source frame rate is 30 fps", (string)FrameWarning(j)!["message"]!);
+        Assert.Contains("source frame rate is 50 fps", (string)FrameWarning(j)!["message"]!);
     }
 
     [Fact]

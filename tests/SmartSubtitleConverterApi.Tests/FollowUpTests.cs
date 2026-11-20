@@ -19,6 +19,9 @@ public class FollowUpTests : IClassFixture<ApiFactory>
 
     private const string Greek =
         "1\r\n00:00:01,000 --> 00:00:02,500\r\nΚαλημέρα κόσμε, τι κάνεις;\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nΔεν είναι εδώ τώρα.\r\nΓιατί όχι;\r\n\r\n3\r\n00:00:06,000 --> 00:00:08,000\r\nΑυτό είναι για μένα και για σένα.\r\n";
+    // Afrikaans: libse detects it (af), and EBU Tech 3264 Appendix 3 has no code for it.
+    private const string UnmappedLanguage =
+        "1\r\n00:00:01,000 --> 00:00:03,500\r\nEk weet nie wat hier aangaan nie, waar gaan jy heen met al die mense in die huis\r\n\r\n2\r\n00:00:04,000 --> 00:00:06,000\r\nEk weet nie wat hier aangaan nie, waar gaan jy heen met al die mense in die huis\r\n";
     private const string Czech =
         "1\r\n00:00:01,000 --> 00:00:02,500\r\nJá nevím, co se to tady děje.\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nŘekni mi, že je to pravda.\r\n\r\n3\r\n00:00:06,000 --> 00:00:08,000\r\nTo není možné, čtyři řeky už teď.\r\n";
     private const string Hebrew =
@@ -38,12 +41,12 @@ public class FollowUpTests : IClassFixture<ApiFactory>
 
     private async Task<byte[]> Binary(string srt, string target, object? profile = null, string fileName = "movie.srt")
     {
-        var j = await Json(new { content = srt, fileName, target, profile });
+        var j = await Json(new { content = srt, fileName, target, profile = Samples.WithFps(profile, target) });
         return Convert.FromBase64String((string)j["outputs"]![0]!["content"]!);
     }
 
     private Task<JsonObject> Read(byte[] bytes, string fileName, string target = "srt", object? profile = null, HttpStatusCode expected = HttpStatusCode.OK) =>
-        Json(new { content = Convert.ToBase64String(bytes), contentEncoding = "base64", fileName, target, profile }, expected);
+        Json(new { content = Convert.ToBase64String(bytes), contentEncoding = "base64", fileName, target, profile = Samples.WithFps(profile, target) }, expected);
 
     private static List<string> Codes(JsonObject j) => j["warnings"]!.AsArray().Select(w => (string)w!["code"]!).ToList();
     private static JsonObject Warning(JsonObject j, string code) => (JsonObject)j["warnings"]!.AsArray().Single(w => (string)w!["code"]! == code)!;
@@ -231,17 +234,6 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         Assert.Contains("00:10:25,", Text(j)); // 600 s × 25 / 23.976 = 625.6 s
     }
 
-    [Fact]
-    public async Task Frame_based_source_without_a_rate_warns_frame_rate_assumed()
-    {
-        var pac = await (await BinaryFormatTests.ToBinary(_c, "pac")).Content.ReadAsByteArrayAsync();
-        var j = await Read(pac, "show.pac", "vtt");
-        Assert.Equal("assumed", (string)Details(j)["frameRateSource"]!);
-        Assert.Contains("frame-rate-assumed", Codes(j));
-        var withRate = await Read(pac, "show.pac", "vtt", new { source = new { fps = 25 } });
-        Assert.DoesNotContain("frame-rate-assumed", Codes(withRate));
-        Assert.Equal("profile", (string)Details(withRate)["frameRateSource"]!);
-    }
 
     // 7. SCC drop-frame
 
@@ -254,17 +246,21 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         var j = await Json(new { content = SccDropFrame, fileName = "a.scc", target = "srt" });
         Assert.Equal(29.97, (double)Details(j)["frameRate"]!, 2);
         Assert.Equal("inferred", (string)Details(j)["frameRateSource"]!);
-        Assert.Contains("00:00:01,50", Text(j)); // 15 frames at 29.97 ≈ 500 ms (at 23.976 it would be 626 ms)
+        // libse 5.4 shows a pop-on caption at its end-of-caption code, 9 words (frames) after 00:00:01;15: frame 24 at
+        // 29.97 ≈ 801 ms (at 23.976 it would be 1001 ms). libse 5.1 used the line's timecode (1.500 s).
+        Assert.Contains("00:00:01,801", Text(j));
         Assert.DoesNotContain("frame-rate-assumed", Codes(j));
     }
 
     [Fact]
-    public async Task Scc_without_a_telling_timecode_warns()
+    public async Task Scc_without_a_telling_timecode_needs_source_fps()
     {
-        var j = await Json(new { content = SccLowFrames, fileName = "a.scc", target = "srt" });
-        Assert.Contains("frame-rate-assumed", Codes(j));
-        var w = Warning(j, "frame-rate-assumed");
-        Assert.Equal(23.976, (double)w["details"]!["frameRate"]!, 3);
+        var p = await Json(new { content = SccLowFrames, fileName = "a.scc", target = "srt" }, HttpStatusCode.UnprocessableEntity);
+        Assert.Equal("frame-rate-required", (string)p["code"]!);
+        Assert.Equal("/source/fps", (string)p["errors"]![0]!["pointer"]!);
+        var j = await Json(new { content = SccLowFrames, fileName = "a.scc", target = "srt", profile = new { source = new { fps = 29.97 } } });
+        Assert.Equal("profile", (string)Details(j)["frameRateSource"]!);
+        Assert.Contains("00:00:01,801", Text(j)); // displayed at the end-of-caption code (libse 5.4)
     }
 
     // 8. Source-cue warnings
@@ -315,6 +311,367 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain("format-defaults-applied", Codes(set));
     }
 
+    /// <summary>The GSI language code (LC, bytes 14-15 as ASCII hex).</summary>
+    private static string GsiLanguage(JsonObject j) => Encoding.ASCII.GetString(Convert.FromBase64String((string)j["outputs"]![0]!["content"]!), 14, 2);
+
+
+    [Theory]
+    [InlineData("Greek", "70")]
+    [InlineData("Hebrew", "6C")]
+    [InlineData("Arabic", "7E")]
+    public async Task Stl_auto_language_writes_the_appendix_3_code_for_detected_non_latin_text(string name, string hex)
+    {
+        var text = name switch { "Greek" => Greek, "Hebrew" => Hebrew, _ => Arabic };
+        var j = await Json(new { content = text, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 } } });
+        Assert.Equal(hex, GsiLanguage(j));
+        var w = Warning(j, "format-defaults-applied");
+        Assert.Equal(hex, (string)w["details"]!["fields"]!["language"]!);
+        Assert.Matches($@"language {hex} \(auto-detected: \w+\)", (string)w["message"]!);
+        Assert.DoesNotContain("fallback", (string)w["message"]!);
+    }
+
+    [Fact]
+    public async Task Stl_language_el_maps_to_70_without_a_warning_about_it()
+    {
+        var j = await Json(new { content = Greek, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = new { language = "el", originalProgrammeTitle = "T", countryOfOrigin = "GRC" } } } });
+        Assert.Equal("70", GsiLanguage(j));
+        Assert.DoesNotContain("format-defaults-applied", Codes(j));
+        Assert.DoesNotContain("ebu-language-mismatch", Codes(j));
+    }
+
+    [Fact]
+    public async Task Stl_explicit_language_that_disagrees_with_the_detected_one_warns()
+    {
+        var j = await Json(new { content = Greek, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = new { language = "14", originalProgrammeTitle = "T", countryOfOrigin = "GRC" } } } });
+        Assert.Equal("14", GsiLanguage(j));
+        var w = Warning(j, "ebu-language-mismatch");
+        Assert.Equal("formatOptions.ebuStl.language \"14\" writes EBU language code 14, but the text looks like el (EBU code 70).", (string)w["message"]!);
+        Assert.Contains("set formatOptions.ebuStl.language to \"70\" or \"auto\"", (string)w["hint"]!);
+        var f = w["details"]!["fields"]!;
+        Assert.Equal("14", (string)f["language"]!); Assert.Equal("el", (string)f["detectedLanguage"]!); Assert.Equal("70", (string)f["detectedCode"]!);
+        // An agreeing value, "auto", and no setting give no mismatch.
+        foreach (var lang in new[] { "70", "el", "auto" })
+        {
+            var ok = await Json(new { content = Greek, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = new { language = lang, originalProgrammeTitle = "T", countryOfOrigin = "GRC" } } } });
+            Assert.DoesNotContain("ebu-language-mismatch", Codes(ok));
+        }
+    }
+
+    [Fact]
+    public async Task Stl_language_mismatch_is_skipped_when_nothing_is_detected()
+    {
+        var j = await Json(new { content = "1\r\n00:00:01,000 --> 00:00:02,000\r\n...\r\n", fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = new { language = "14", originalProgrammeTitle = "T", countryOfOrigin = "GRC" } } } });
+        Assert.DoesNotContain("ebu-language-mismatch", Codes(j));
+    }
+
+    [Fact]
+    public async Task Stl_fallback_for_a_detected_language_without_a_mapping_says_so()
+    {
+        var j = await Json(new { content = UnmappedLanguage, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 } } });
+        var w = Warning(j, "format-defaults-applied");
+        Assert.Matches(@"language 09 \(fallback: detected af has no built-in EBU mapping; set formatOptions\.ebuStl\.language to its two-digit upper-case hex code from EBU Tech 3264 Appendix 3\)", (string)w["message"]!);
+        Assert.DoesNotContain("ISO 639-1 table", (string)w["message"]!);
+    }
+
+    [Fact]
+    public async Task Stl_language_error_lists_every_iso_code_and_the_hex_route()
+    {
+        var j = await Json(new { content = Samples.Srt, target = "ebustl", profile = new { formatOptions = new { ebuStl = new { language = "xx" } } } }, HttpStatusCode.BadRequest);
+        var hint = (string)j["errors"]![0]!["hint"]!;
+        Assert.Equal("'xx' has no EBU STL language code.", (string)j["errors"]![0]!["message"]!);
+        Assert.Contains($"Use one of these ISO 639-1 codes: {string.Join(", ", SmartSubtitleConverterApi.Binary.BinaryOptions.EbuLanguages.Keys)}.", hint);
+        Assert.Contains("el, ", hint);
+        Assert.Contains("two-digit upper-case hex code from EBU Tech 3264 Appendix 3 (for example Dari \"73\")", hint);
+        Assert.Contains("el, ", hint); Assert.Contains("ru, ", hint);
+        Assert.DoesNotContain("...", hint);
+    }
+
+    private Task<JsonObject> StlWith(object ebu, string? content = null, HttpStatusCode? status = null) =>
+        Json(new { content = content ?? Samples.Srt, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = ebu } } }, status ?? HttpStatusCode.OK);
+
+    private static JsonNode Header(JsonObject j) => j["outputs"]![0]!["header"]!;
+
+    [Theory]
+    [InlineData("el")]
+    [InlineData("EL")]
+    [InlineData(" el ")]
+    [InlineData("\n70\n")]
+    [InlineData("70")]
+    [InlineData("  Auto ")]
+    public async Task Stl_language_ignores_case_and_surrounding_whitespace(string lang)
+    {
+        var j = await StlWith(new { language = lang, originalProgrammeTitle = "T", countryOfOrigin = "GRC" }, Greek);
+        Assert.Equal("70", GsiLanguage(j));
+        Assert.Equal("70 (Greek)", (string)Header(j)["language"]!);
+        Assert.DoesNotContain("ebu-language-mismatch", Codes(j));
+    }
+
+    [Fact]
+    public async Task Stl_hex_language_is_written_upper_case()
+    {
+        var j = await StlWith(new { language = " 6c ", originalProgrammeTitle = "T", countryOfOrigin = "ISR" });
+        Assert.Equal("6C", GsiLanguage(j));
+        Assert.Equal("6C (Hebrew)", (string)Header(j)["language"]!);
+    }
+
+    private static string GsiCountry(JsonObject j) => Encoding.ASCII.GetString(Convert.FromBase64String((string)j["outputs"]![0]!["content"]!), 274, 3);
+
+    [Theory]
+    [InlineData("BEL", "BEL")]
+    [InlineData("bel", "BEL")]
+    [InlineData("BE", "BEL")]
+    [InlineData("be", "BEL")]
+    [InlineData(" Belgium ", "BEL")]
+    [InlineData("belgium", "BEL")]
+    [InlineData("\nBELGIUM\t", "BEL")]
+    [InlineData("Cote d'Ivoire", "CIV")]
+    [InlineData("Côte d’Ivoire", "CIV")]
+    [InlineData("United Kingdom", "GBR")]
+    [InlineData("UK", "GBR")]
+    [InlineData("Korea, Republic of", "KOR")]
+    [InlineData("Türkiye", "TUR")]
+    public async Task Stl_country_resolves_to_alpha_3(string input, string alpha3)
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = input, language = "en" });
+        Assert.Equal(alpha3, GsiCountry(j));
+        Assert.StartsWith(alpha3 + " (", (string)Header(j)["countryOfOrigin"]!);
+    }
+
+    [Fact]
+    public async Task Stl_unknown_country_is_rejected_with_suggestions()
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "Belgum" }, status: HttpStatusCode.BadRequest);
+        var e = j["errors"]![0]!;
+        Assert.Equal("format-option-invalid", (string)j["code"]!);
+        Assert.Equal("/formatOptions/ebuStl/countryOfOrigin", (string)e["pointer"]!);
+        Assert.Equal("'Belgum' is not an ISO 3166-1 country.", (string)e["message"]!);
+        var hint = (string)e["hint"]!;
+        Assert.Contains("alpha-3 code (BEL), an alpha-2 code (BE) or the English country name (Belgium)", hint);
+        Assert.Contains("Did you mean Belgium (BEL)?", hint);
+        var none = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "Qwxzv" }, status: HttpStatusCode.BadRequest);
+        Assert.DoesNotContain("Did you mean", (string)none["errors"]![0]!["hint"]!);
+        Assert.True(hint.Split("(").Length - 1 <= 5);
+    }
+
+    [Theory]
+    [InlineData("Germny", "Germany (DEU)")]
+    [InlineData("Untied States", "United States (USA)")]
+    [InlineData("Portugl", "Portugal (PRT)")]
+    [InlineData("Brasil", "Brazil (BRA)")]
+    public async Task Stl_country_suggestions_name_the_likely_country(string typo, string suggestion)
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = typo }, status: HttpStatusCode.BadRequest);
+        Assert.Contains(suggestion, (string)j["errors"]![0]!["hint"]!);
+    }
+
+    [Theory]
+    [InlineData("BUR", "Burma", "1989", "MMR (Myanmar)")]
+    [InlineData(" ant ", "Netherlands Antilles", "2010", "BES (Bonaire, Sint Eustatius and Saba), CUW (Curaçao) and SXM (Sint Maarten (Dutch part))")]
+    [InlineData("CSK", "Czechoslovakia", "1993", "CZE (Czechia) and SVK (Slovakia)")]
+    [InlineData("ddr", "German Democratic Republic", "1990", "DEU (Germany)")]
+    public async Task Stl_accepts_a_retired_country_code_with_a_warning(string input, string name, string year, string successors)
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = input, language = "en" });
+        var code = input.Trim().ToUpperInvariant();
+        Assert.Equal(code, GsiCountry(j));
+        Assert.Equal($"{code} ({name}, retired)", (string)Header(j)["countryOfOrigin"]!);
+        var w = Warning(j, "country-code-retired");
+        Assert.StartsWith($"countryOfOrigin {code} is a retired ISO 3166 code ({name}, withdrawn {year}); current code", (string)w["message"]!);
+        Assert.EndsWith(successors + ".", (string)w["message"]!);
+        Assert.Contains($"Keep {code} for archive material", (string)w["hint"]!);
+        var f = w["details"]!["fields"]!;
+        Assert.Equal(code, (string)f["countryOfOrigin"]!); Assert.Equal(year, (string)f["withdrawn"]!);
+    }
+
+    [Fact]
+    public async Task Stl_retired_code_message_for_a_single_successor_reads_as_documented()
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "BUR", language = "en" });
+        Assert.Equal("countryOfOrigin BUR is a retired ISO 3166 code (Burma, withdrawn 1989); current code MMR (Myanmar).", (string)Warning(j, "country-code-retired")["message"]!);
+    }
+
+    [Fact]
+    public async Task Stl_current_countries_and_ATF_give_no_retired_warning()
+    {
+        foreach (var c in new[] { "MMR", "Myanmar", "ATF", "BEL" })
+        {
+            var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = c, language = "en" });
+            Assert.DoesNotContain("country-code-retired", Codes(j));
+        }
+    }
+
+    [Theory]
+    [InlineData("Belgum", "Belgium (BEL)")]
+    [InlineData("Netherlnds", "Netherlands (NLD)")]
+    [InlineData("Czchia", "Czechia (CZE)")]
+    public async Task Stl_country_suggestions_never_offer_retired_codes(string typo, string suggestion)
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = typo }, status: HttpStatusCode.BadRequest);
+        var hint = (string)j["errors"]![0]!["hint"]!;
+        Assert.Contains(suggestion, hint);
+        foreach (var old in SmartSubtitleConverterApi.Binary.RetiredCountryCodes.All) Assert.DoesNotContain($"({old.Alpha3})", hint);
+        Assert.DoesNotContain("retired", hint);
+    }
+
+    [Theory]
+    [InlineData("Burma", "Did you mean Burma (BUR, retired; current MMR Myanmar)?")]
+    [InlineData("burmaa", "Did you mean Burma (BUR, retired; current MMR Myanmar)?")]
+    [InlineData("Czechoslovakia", "Did you mean Czechoslovakia (CSK, retired; current CZE Czechia / SVK Slovakia)?")]
+    [InlineData("Zaire", "Did you mean Zaire (ZAR, retired; current COD ")]
+    [InlineData("Netherlands Antilles", "Did you mean Netherlands Antilles (ANT, retired; current BES Bonaire, Sint Eustatius and Saba / CUW Curaçao / SXM Sint Maarten (Dutch part)), Netherlands (NLD)")]
+    [InlineData("Yugoslavia", "Did you mean Yugoslavia (YUG, retired; current MNE Montenegro / SRB Serbia)?")]
+    public async Task Stl_retired_country_names_are_rejected_but_the_hint_names_the_code_and_the_successors(string input, string expected)
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = input }, status: HttpStatusCode.BadRequest);
+        var hint = (string)j["errors"]![0]!["hint"]!;
+        Assert.Equal("format-option-invalid", (string)j["code"]!);
+        Assert.Contains(expected, hint);
+        Assert.EndsWith("A retired country is accepted only as its alpha-3 code.", hint);
+    }
+
+    [Fact]
+    public async Task Stl_current_country_typos_still_suggest_current_countries_only_and_without_the_retired_note()
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "Belgum" }, status: HttpStatusCode.BadRequest);
+        var hint = (string)j["errors"]![0]!["hint"]!;
+        Assert.EndsWith("Did you mean Belgium (BEL)?", hint);
+        Assert.DoesNotContain("retired", hint);
+    }
+
+    [Fact]
+    public async Task Stl_retired_name_is_never_accepted_as_input()
+    {
+        foreach (var name in new[] { "Burma", "Czechoslovakia", "USSR", "Zaire" })
+            await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = name }, status: HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Stl_retired_code_that_names_a_retired_successor_resolves_to_current_codes()
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "YUG", language = "en" });
+        var w = Warning(j, "country-code-retired");
+        Assert.Equal("countryOfOrigin YUG is a retired ISO 3166 code (Yugoslavia, withdrawn 2003); current codes MNE (Montenegro) and SRB (Serbia).", (string)w["message"]!);
+        Assert.Equal("MNE, SRB", (string)w["details"]!["fields"]!["successors"]!);
+        Assert.Contains("the successor that applies", (string)w["hint"]!);
+        Assert.DoesNotContain("SCG", (string)w["message"]!);
+    }
+
+    [Fact]
+    public async Task Stl_retired_code_with_many_successors_lists_codes_only()
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "SUN", language = "en" });
+        Assert.EndsWith("current codes ARM, AZE, EST, GEO, KAZ, KGZ, LVA, LTU, MDA, RUS, TJK, TKM, UZB.", (string)Warning(j, "country-code-retired")["message"]!);
+    }
+
+    [Fact]
+    public void Every_retired_code_resolves_to_current_codes_only()
+    {
+        Assert.Equal(30, SmartSubtitleConverterApi.Binary.RetiredCountryCodes.All.Count);
+        foreach (var r in SmartSubtitleConverterApi.Binary.RetiredCountryCodes.All)
+        {
+            var current = SmartSubtitleConverterApi.Binary.RetiredCountryCodes.CurrentSuccessors(r);
+            Assert.NotEmpty(current);
+            Assert.All(current, a => Assert.NotNull(SmartSubtitleConverterApi.Binary.CountryCodes.ByCode(a)));
+            Assert.Equal(current.Count, current.Distinct().Count());
+        }
+    }
+
+    [Fact]
+    public async Task Retired_country_code_is_also_valid_in_validate_profile_and_not_a_warning_there()
+    {
+        var r = await _c.PostAsync("/v1/profiles/validate", new StringContent("""{"target":{"format":"ebustl"},"formatOptions":{"ebuStl":{"countryOfOrigin":"BUR"}}}""", Encoding.UTF8, "application/json"));
+        var v = await r.Json();
+        Assert.True((bool)v["valid"]!);
+    }
+
+    private async Task<JsonObject> Validate(string profile) =>
+        await (await _c.PostAsync("/v1/profiles/validate", new StringContent(profile, Encoding.UTF8, "application/json"))).Json();
+
+    [Fact]
+    public async Task Validate_profile_lists_the_schema_and_the_format_option_errors_together()
+    {
+        var v = await Validate("""{"target":{"format":"ebustl"},"formatOptions":{"ebuStl":{"countryOfOrigin":"Belgique","programmeTitle":"Spring Promo"}}}""");
+        Assert.False((bool)v["valid"]!);
+        var errors = v["errors"]!.AsArray();
+        Assert.Equal(2, errors.Count);
+        // Schema errors first, then format-option errors, always in this order.
+        Assert.Equal("/formatOptions/ebuStl/programmeTitle", (string)errors[0]!["pointer"]!);
+        Assert.Equal("Unknown property 'programmeTitle'.", (string)errors[0]!["message"]!);
+        Assert.Equal("/formatOptions/ebuStl/countryOfOrigin", (string)errors[1]!["pointer"]!);
+        Assert.Contains("Did you mean Belgium (BEL)?", (string)errors[1]!["hint"]!);
+        for (var i = 0; i < 3; i++) Assert.Equal(errors.ToJsonString(), (await Validate("""{"target":{"format":"ebustl"},"formatOptions":{"ebuStl":{"countryOfOrigin":"Belgique","programmeTitle":"Spring Promo"}}}"""))["errors"]!.ToJsonString());
+    }
+
+    [Fact]
+    public async Task Validate_profile_collects_every_error_class()
+    {
+        var v = await Validate("""{"timing":{"ofsetMs":1},"formatOptions":{"ebuStl":{"language":"xx","countryOfOrigin":"Atlantis","frameRate":26,"maxRows":"many"}}}""");
+        var pointers = v["errors"]!.AsArray().Select(e => (string)e!["pointer"]!).ToList();
+        Assert.Equal(["/timing/ofsetMs", "/formatOptions/ebuStl/maxRows", "/formatOptions/ebuStl/frameRate", "/formatOptions/ebuStl/language", "/formatOptions/ebuStl/countryOfOrigin"], pointers);
+    }
+
+    [Fact]
+    public async Task Validate_profile_with_a_malformed_block_reports_the_shape_only()
+    {
+        var v = await Validate("""{"formatOptions":{"ebuStl":"greek"},"operations":[{"id":"SplitLong"},{"id":"DeleteFirst"}]}""");
+        Assert.False((bool)v["valid"]!);
+        var pointers = v["errors"]!.AsArray().Select(e => (string)e!["pointer"]!).ToList();
+        Assert.Contains("/formatOptions/ebuStl", pointers);
+        Assert.Contains("/operations/0/id", pointers);
+    }
+
+    [Fact]
+    public async Task Convert_lists_an_unknown_property_and_a_bad_country_together()
+    {
+        var j = await Json(new { content = Samples.Srt, target = "ebustl", profile = new { formatOptions = new { ebuStl = new { countryOfOrigin = "Belgique", programmeTitle = "T" } } } }, HttpStatusCode.BadRequest);
+        Assert.Equal("invalid-profile", (string)j["code"]!);
+        var pointers = j["errors"]!.AsArray().Select(e => (string)e!["pointer"]!).ToList();
+        Assert.Equal(["/formatOptions/ebuStl/programmeTitle", "/formatOptions/ebuStl/countryOfOrigin"], pointers);
+    }
+
+    [Fact]
+    public async Task Convert_keeps_the_422_for_an_unsupported_target_and_lists_the_option_error_too()
+    {
+        var j = await Json(new { content = Samples.Srt, target = "bluraysup", profile = new { formatOptions = new { ebuStl = new { countryOfOrigin = "Belgique" } } } }, (HttpStatusCode)422);
+        Assert.Equal("format-not-supported", (string)j["code"]!);
+        var pointers = j["errors"]!.AsArray().Select(e => (string)e!["pointer"]!).ToList();
+        Assert.Equal(["/target/format", "/formatOptions/ebuStl/countryOfOrigin"], pointers);
+    }
+
+    [Fact]
+    public async Task Convert_with_only_option_errors_is_still_format_option_invalid()
+    {
+        var j = await Json(new { content = Samples.Srt, target = "ebustl", profile = new { formatOptions = new { ebuStl = new { countryOfOrigin = "Belgique", language = "xx" } } } }, HttpStatusCode.BadRequest);
+        Assert.Equal("format-option-invalid", (string)j["code"]!);
+        Assert.Equal(2, j["errors"]!.AsArray().Count);
+    }
+
+    [Fact]
+    public async Task Stl_result_echoes_the_header_that_was_written()
+    {
+        var gr = await StlWith(new { language = "el", originalProgrammeTitle = "Show", originalEpisodeTitle = "Ep 1", translatedProgrammeTitle = "Εκπομπή", translatorsName = "A. B.", publisher = "Pub", countryOfOrigin = "GRC" }, Greek);
+        var h = Header(gr);
+        Assert.Equal("70 (Greek)", (string)h["language"]!);
+        Assert.Equal("GRC (Greece)", (string)h["countryOfOrigin"]!);
+        Assert.Equal("Show", (string)h["originalProgrammeTitle"]!);
+        Assert.Equal("Ep 1", (string)h["originalEpisodeTitle"]!);
+        Assert.Equal("A. B.", (string)h["translatorsName"]!);
+        Assert.Equal("Pub", (string)h["publisher"]!);
+
+        var es = await StlWith(new { language = "es", originalProgrammeTitle = "Show", countryOfOrigin = "Spain" });
+        Assert.Equal("ESP (Spain)", (string)Header(es)["countryOfOrigin"]!);
+        Assert.Equal("0A (Spanish)", (string)Header(es)["language"]!);
+        // Empty fields are left out.
+        Assert.Null(Header(es)["publisher"]); Assert.Null(Header(es)["translatorsName"]);
+    }
+
+    [Fact]
+    public async Task Non_ebu_outputs_have_no_header_echo()
+    {
+        var j = await Json(new { content = Samples.Srt, target = "webvtt" });
+        Assert.Null(j["outputs"]![0]!["header"]);
+    }
+
     [Fact]
     public async Task Stl_header_copied_from_the_source_is_not_reported()
     {
@@ -326,11 +683,11 @@ public class FollowUpTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Cavena_title_and_language_defaults_are_reported()
     {
-        var j = await Json(new { content = BinaryFormatTests.Srt, fileName = "episode.srt", target = "cavena890" });
+        var j = await Json(new { content = BinaryFormatTests.Srt, fileName = "episode.srt", target = "cavena890", profile = new { target = new { fps = 25 } } });
         var fields = Warning(j, "format-defaults-applied")["details"]!["fields"]!.AsObject();
         Assert.Equal("episode", (string)fields["title"]!);
         Assert.NotNull(fields["language"]);
-        var set = await Json(new { content = BinaryFormatTests.Srt, fileName = "episode.srt", target = "cavena890", profile = new { formatOptions = new { cavena890 = new { title = "EPISODE", language = "en" } } } });
+        var set = await Json(new { content = BinaryFormatTests.Srt, fileName = "episode.srt", target = "cavena890", profile = new { target = new { fps = 25 }, formatOptions = new { cavena890 = new { title = "EPISODE", language = "en" } } } });
         Assert.DoesNotContain("format-defaults-applied", Codes(set));
     }
 }

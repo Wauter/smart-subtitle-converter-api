@@ -19,6 +19,8 @@ public sealed class FileStorageTests : IDisposable
         Assert.Contains("WEBVTT", File.ReadAllText(output));
         var metadata = File.ReadAllText(output + ".json");
         Assert.Contains((string)j["id"]!, metadata); Assert.DoesNotContain("Hello", metadata);
+        // README example run: the sidecar's output was a bare path; it is a file:// URI like the inputs accept
+        Assert.Equal(new Uri(output).AbsoluteUri, (string)System.Text.Json.Nodes.JsonNode.Parse(metadata)!["outputs"]![0]!["output"]!);
         Assert.DoesNotContain(Directory.GetFiles(root), p => p.EndsWith(".partial"));
         var detect = await c.PostAsJsonAsync("/v1/detect", new { input = Path.Combine(root, "in.srt") });
         Assert.Equal("subrip", (string)(await detect.Json())["id"]!);

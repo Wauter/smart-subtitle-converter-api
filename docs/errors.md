@@ -40,6 +40,7 @@ Setting names are profile fields, written as a path: `source.format` means
 | [`ambiguous-format`](#ambiguous-format) | 422 | Could be PAC or Unicode PAC (FPC) |
 | [`ambiguous-encoding`](#ambiguous-encoding) | 422 | The character set could not be decided |
 | [`input-limits-exceeded`](#input-limits-exceeded) | 422 | Too many cues or a line that is far too long |
+| [`frame-rate-required`](#frame-rate-required) | 422 | The conversion needs a frame rate the file doesn't record |
 | [`conversion-failed`](#conversion-failed) | 422 | An operation or the format writer failed |
 | [`rate-limited`](#rate-limited) | 429 | Too many requests |
 | [`queue-full`](#queue-full) | 503 | The converter is busy |
@@ -73,9 +74,10 @@ Setting names are profile fields, written as a path: `source.format` means
 | [`lossy-format`](#lossy-format) | The target couldn't keep everything (cues, times or styling) |
 | [`frame-quantised`](#frame-quantised) | Times were rounded to whole frames |
 | [`frame-rate-changed`](#frame-rate-changed) | EBU STL stores a different frame rate than intended |
-| [`frame-rate-assumed`](#frame-rate-assumed) | The source's frame rate was not known and a default was used |
 | [`verification-failed`](#verification-failed) | The written binary file couldn't be checked |
 | [`format-defaults-applied`](#format-defaults-applied) | Header fields were filled with defaults you didn't set |
+| [`ebu-language-mismatch`](#ebu-language-mismatch) | The EBU STL language code differs from the language of the text |
+| [`country-code-retired`](#country-code-retired) | `formatOptions.ebuStl.countryOfOrigin` is a retired ISO 3166 code |
 | [`zero-length-cue`](#zero-length-cue) | Source cues with no duration |
 | [`overlapping-cues`](#overlapping-cues) | Source cues that overlap in time |
 | [`long-cue`](#long-cue) | Source cues longer than 30 seconds |
@@ -140,18 +142,24 @@ silently does nothing. An unknown encoding name in `encoding.input` or `encoding
 mean 'webvtt'?"). `POST /v1/profiles/validate` checks a profile without converting.
 
 _For integrators:_ 400. `errors[]` with `pointer`, `message`, `hint`. The JSON Schema is at `/v1/schemas/profile.json`.
+`errors[]` also carries the format-option errors (the `format-option-invalid` kind) found in the same profile, after
+the schema errors, so one response lists everything to fix: the options are checked on a copy of the profile without
+the values the schema rejected. They are not checked when the `extends` chain itself is broken, because inherited
+values are missing then. A target the API can't use keeps its `422`.
 
 ### <a id="format-option-invalid"></a>`format-option-invalid`
 
 **What:** A format option has a well-formed but unusable value.
 
 **Why:** The value is valid JSON but not something the format can store: an EBU STL frame rate that conflicts with
-`target.fps`, a `target.fps` that EBU STL can't store, an unknown code page or language, an EBU header text field
-over 32 bytes, or a Cavena 890 title over 28 ASCII characters.
+`target.fps`, a `target.fps` that EBU STL can't store, an unknown code page or language, a
+`formatOptions.ebuStl.countryOfOrigin` that is not an ISO 3166-1 country, an EBU header text field over 32 bytes, or a Cavena 890 title over 28 ASCII characters.
 
 **What to do:** Use one of the values the hint lists. `GET /v1/formats` shows the options for each format.
 
-_For integrators:_ 400. `errors[]` points at the option, e.g. `/formatOptions/ebuStl/frameRate`.
+_For integrators:_ 400. `errors[]` points at the option, e.g. `/formatOptions/ebuStl/frameRate`. An unknown
+`countryOfOrigin` lists up to three close matches in the hint ("Did you mean Belgium (BEL)?"), including retired
+countries by name with their code ("Burma (BUR, retired; current MMR Myanmar)").
 
 ### <a id="empty-input"></a>`empty-input`
 
@@ -450,6 +458,30 @@ _For integrators:_ 422. `probe`; `candidates` (PAC: code page name strings, may 
 `errors` pointers `/formatOptions/pac/inputCodePage` or `/encoding/input` and `/encoding/language`;
 `debug.scores` (verbose only) has the word counts per candidate. How the probes work: [formats.md](formats.md#detection).
 
+### <a id="frame-rate-required"></a>`frame-rate-required`
+
+**What:** The conversion needs a frame rate, and neither the file nor the request gives one.
+
+**Why:** Some formats store cue times as frame numbers and have no field for the frame rate: PAC, PAC Unicode (FPC),
+Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL, MicroDVD and a few other frame-based text formats, and SCC files
+whose timecodes don't reveal the rate. Frame 50 is 2 seconds at 25 fps but 2.085 seconds at 23.976, so the API asks
+instead of guessing. `errors[0].pointer` says which field is missing:
+
+- `/source/fps`: the source is such a format and its frames have to become times (a time-based or SCC output,
+  `target.fps`, or millisecond timing settings such as `timing.offsetMs`).
+- `/target/fps`: the output is such a format (or SCC, or iTunes Timed Text, which is written with SMPTE frame time
+  codes), and the source is time-based (SRT, WebVTT, TTML, ...), so it
+  gives no rate to write at.
+
+**What to do:** Set `source.fps` to the rate the file was made at (25 for PAL and most European broadcast, 29.97
+for NTSC, 23.976 or 24 for film). The output is written at the same rate unless `target.fps` says otherwise. For a
+time-based source, set `target.fps` (or `source.fps`, which the output then uses). No rate is needed to convert
+between formats that record none (for example PAC to PAC or PAC to Cavena 890) without `target.fps` or millisecond
+timing settings: frame numbers then carry over unchanged. EBU STL never needs it: its header records the rate.
+
+_For integrators:_ 422. `errors[0].pointer`: `/source/fps` or `/target/fps`. `detected.formatDetails.frameRateSource`
+is `unknown` for such a source on `/v1/detect`.
+
 ### <a id="conversion-failed"></a>`conversion-failed`
 
 **What:** An operation or the target format's writer failed on this file.
@@ -689,9 +721,8 @@ and the sidecar. `details` never contains subtitle text, only positions, code po
 | `distinctCodePoints`, `codePoints` | number; `[{codePoint: "U+039A", count}]` (first 20) | `characters-replaced` |
 | `remedy` | object, see [Remedy](#remedy-characters-replaced) | `characters-replaced` |
 | `durations` | `[{cue, durationMs}]` (first 20) | `long-cue` |
-| `fields` | `{field: value written}` | `format-defaults-applied` |
+| `fields` | `{field: value written}` (`ebu-language-mismatch`: `language`, `detectedLanguage`, `detectedCode`; `country-code-retired`: `countryOfOrigin`, `name`, `withdrawn`, `successors`) | `format-defaults-applied`, `ebu-language-mismatch`, `country-code-retired` |
 | `timecode` | `"HH:MM:SS:FF"` | `programme-start-not-applied` |
-| `frameRate` | number | `frame-rate-assumed` |
 
 Cue numbers in source warnings (`zero-length-cue`, `overlapping-cues`, `long-cue`, `source-replacement-chars`) are
 positions in the source. In read-back warnings (`characters-replaced`, `text-truncated`, `lossy-format`) they are
@@ -746,7 +777,9 @@ _For integrators:_ `count` and `details.cues` where cues are involved; also refl
 
 **What:** Times were rounded to whole frames of the target's frame rate, by less than one frame each.
 
-**Why:** Frame-based formats store times as frames, not milliseconds.
+**Why:** Frame-based formats store times as frames, not milliseconds. A time that falls exactly halfway between two
+frames can land on either side depending on the format: EBU STL rounds it down and PAC rounds it up (3.500 s at
+25 fps is 3.480 s in EBU STL and 3.520 s in PAC). Both stay within one frame of the original.
 
 **What to do:** Usually nothing; this is expected. If the frame rate is wrong, set `target.fps` (or the format's
 own frame-rate option).
@@ -794,22 +827,46 @@ these as real programme metadata.
 
 _For integrators:_ `count` = number of fields; `details.fields` maps each field to the value actually written (read
 back from the output). Covered: a freshly built EBU STL header's title fields, translator, publisher, country, and
-`language` when unset (with `language: "auto"`, only when detection fell back); Cavena 890 `title` and `language`.
+`language` when unset (with `language: "auto"`, only when detection fell back; the note then names a detected language that has no built-in EBU mapping); Cavena 890 `title` and `language`.
 Not raised for header fields copied from an EBU STL source (`headerFromSource`).
 
-### <a id="frame-rate-assumed"></a>`frame-rate-assumed`
+### <a id="ebu-language-mismatch"></a>`ebu-language-mismatch`
 
-**What:** The source stores times as frames but doesn't say its frame rate, so a default of 23.976 fps was used to
-read it.
+**What:** You set `formatOptions.ebuStl.language`, and the EBU language code it writes differs from the language
+detected in the subtitle text (for example `14`, Icelandic, for Greek text).
 
-**Why:** Formats such as PAC, Cavena 890, Cheetah CAP, CapMaker Plus, MicroDVD, and SCC without telling
-timecodes have no frame-rate field. If the assumption is wrong, every time in the output is off.
+**Why:** The language code in an EBU STL header tells playout and MAM systems which language the file holds. A code
+copied from another delivery or a typo is easy to miss. Detection reads the text, so it can be wrong on short text.
 
-**What to do:** Set `source.fps` to the file's real frame rate (25 for PAL, 29.97 for NTSC, ...).
+**What to do:** If the detected language is right, set `formatOptions.ebuStl.language` to the code in the hint, or to
+`auto`. If the delivery's language really differs from the text, keep your value and ignore the warning.
 
-_For integrators:_ `details.frameRate`. Not raised when the output is the same kind of frame-based file without
-`target.fps` (frame numbers carry over unchanged). `detected.formatDetails.frameRateSource` is `assumed`. When
-`target.fps` was set, it was applied as the output rate only, without rescaling.
+_For integrators:_ raised only when detection finds a language that has an EBU code; nothing is raised when detection
+finds nothing or a language without a code. `details.fields`: `language` (the two-digit code written),
+`detectedLanguage` (ISO 639-1) and `detectedCode`. No `count`. The conversion is never changed.
+
+### <a id="country-code-retired"></a>`country-code-retired`
+
+**What:** You set `formatOptions.ebuStl.countryOfOrigin` to a code that ISO 3166 has withdrawn (for example `BUR`,
+Burma, withdrawn 1989, now `MMR`). The code is written as given.
+
+**Why:** Archive material is often correctly labelled with the code that was valid when it was made, so the API accepts
+the former alpha-3 codes of ISO 3166-3 instead of rejecting them. Playout and MAM systems that only know current codes
+may not recognise it.
+
+**What to do:** Keep the code for archive material. For new material, or a delivery spec that wants current codes, use
+the current code in the message. When the country split (Czechoslovakia, the USSR, the Netherlands Antilles), the
+message lists every successor; pick the one that applies. A successor that is itself retired is replaced by its own
+successors (`YUG` names `MNE` and `SRB`, not `SCG`).
+
+_For integrators:_ raised only for an explicit option, and only for an alpha-3 code in any case, with surrounding
+whitespace ignored. Names and alpha-2 codes of former countries are not accepted: the alpha-2 codes clash with each
+other and with current ones. `ATF` is current (French Southern Territories), so it never warns. `details.fields`:
+`countryOfOrigin`, `name`, `withdrawn` (year), `successors` (comma-separated current alpha-3 codes, chains resolved).
+More than four successors (`SUN` has 13) are listed as codes only in the message. The header echo shows
+`BUR (Burma, retired)`. No `count`; the output is never changed. A retired country's *name* is not accepted
+(`Burma` gives `format-option-invalid`), but the hint names it with its code and successors: `Did you mean Burma
+(BUR, retired; current MMR Myanmar)?`, then current countries. Close typos (`Burmaa`) get the same hint.
 
 ### <a id="encoding-guessed"></a>`encoding-guessed`
 
@@ -879,8 +936,9 @@ These describe the source file. The API reports them and leaves the times and te
 
 **What:** Some cues in the source have no duration (end time equal to or before the start).
 
-**Why:** These are often metadata or placeholder cues. Some targets can't store them: EBU STL reads them back at
-99:59:59,999 (also reported as `lossy-format`) and CapMaker Plus drops them.
+**Why:** These are often metadata or placeholder cues. Most targets keep them. EBU STL and Cheetah CAP can't store one at
+00:00:00: EBU STL reads it back at 99:59:59,999 and Cheetah CAP at 00:00:00,000 (also reported as `lossy-format` and in
+the output's `verification.zeroLengthCues`).
 
 **What to do:** Check them. Remove them (operations `DeleteFirst` / `DeleteContains`) or give them a duration
 (operation `ApplyDurationLimits` with `rules.minDurationMs`).
@@ -1003,6 +1061,8 @@ _For integrators:_ the subtitle PUT itself is unaffected.
 Every binary output is read back with the same libse reader and compared with the cues that were meant
 to be written. The result is `outputs[].verification` in `POST /v1/convert/json`, the
 `X-Verification-Verdict` header for a single binary output from `POST /v1/convert`.
+EBU STL outputs also carry `outputs[].header`, a short summary of the GSI header that was written (see
+[formats.md](formats.md#ebu-stl-header-options)).
 
 Greek SRT written as PAC with the default latin code page (code points shortened):
 

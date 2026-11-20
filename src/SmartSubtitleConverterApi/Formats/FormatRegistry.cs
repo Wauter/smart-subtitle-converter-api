@@ -28,6 +28,18 @@ public static class FormatKinds
 /// </summary>
 public sealed partial class FormatRegistry
 {
+    /// <summary>
+    /// Cue times stored as frames, so a frame rate is needed to read or write them: binary formats except the few whose
+    /// libse reader stores milliseconds or ticks, SCC (timecodes with a frame part) and libse's frame-based text formats
+    /// (MicroDVD, ...). libse itself flags only some of these (PAC and EBU STL report time-based).
+    /// </summary>
+    internal static bool IsFrameBased(string id, bool binary, SubtitleFormat f) =>
+        binary ? !TimeBasedBinary.Contains(id) : f.IsFrameBased || f is ScenaristClosedCaptions;
+
+    // Binary formats that store times, not frame numbers (DVB Teletext: PES timestamps; its writer's rate is only a bitrate hint).
+    private static readonly HashSet<string> TimeBasedBinary = ["cmaftext", "dvbteletext", "hbogo", "timelinemvt", "videocddat"];
+
+
     // seconv aliases (LibSEIntegration.NormalizeFormatName), plus a few common ones.
     private static readonly Dictionary<string, string> AliasToName = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -90,6 +102,9 @@ public sealed partial class FormatRegistry
 
     public FormatRegistry()
     {
+        // libse 5.4's Chk constructor loads code page 850, so the provider must be in place before the formats are
+        // listed, whoever creates the registry first (Program.cs registers it too; registering twice is harmless).
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
         var list = new List<FormatInfo>();
         var binaryTypes = SubtitleFormat.GetBinaryFormats(true).Select(f => f.GetType()).ToHashSet();
         void Add(SubtitleFormat f)
@@ -102,7 +117,7 @@ public sealed partial class FormatRegistry
             var canRead = !ReadDisabled.Contains(id);
             var canWrite = binary ? typeof(IBinaryPersistableSubtitle).IsAssignableFrom(type) && !WriteDisabled.Contains(id) : true;
             var info = new FormatInfo(id, f.Name, aliases, f.Extension, f.AlternateExtensions?.ToArray() ?? [],
-                !binary, f.IsFrameBased, f.HasStyleSupport, PositionFormats.Contains(id),
+                !binary, IsFrameBased(id, binary, f), f.HasStyleSupport, PositionFormats.Contains(id),
                 CanRead: canRead, CanWrite: canWrite, Source: "libse", MediaType: binary ? BinaryMediaType : MediaTypeFor(id),
                 Kind: binary ? FormatKinds.Binary : FormatKinds.Text, Lossy: LossyFormats.Contains(id), Options: OptionsBlockFor(id));
             _byId[id] = (info, () => (SubtitleFormat)Activator.CreateInstance(type)!);

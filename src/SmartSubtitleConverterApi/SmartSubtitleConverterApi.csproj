@@ -6,13 +6,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <InvariantGlobalization>false</InvariantGlobalization>
-    <Version>1.4.1</Version>
+    <Version>1.5.0</Version>
     <Product>Smart Subtitle Converter API</Product>
     <Title>Smart Subtitle Converter API</Title>
     <AssemblyName>SmartSubtitleConverterApi</AssemblyName>
     <RootNamespace>SmartSubtitleConverterApi</RootNamespace>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <LibseVersion>5.1.0</LibseVersion>
+    <LibseVersion>5.4.0</LibseVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,6 +30,8 @@
 
   <ItemGroup>
     <AssemblyMetadata Include="LibseVersion" Value="$(LibseVersion)" />
+    <!-- Git commit for /healthz and /readyz: the Dockerfile passes -p:SourceRevision=$REVISION. Unset locally ("unknown"). -->
+    <AssemblyMetadata Include="SourceRevision" Value="$(SourceRevision)" Condition="'$(SourceRevision)' != ''" />
   </ItemGroup>
 
   <ItemGroup>

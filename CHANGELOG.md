@@ -6,6 +6,79 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Tagged releases publish multi-arch images to GHCR
 (`ghcr.io/wauter/smart-subtitle-converter-api`); every green push to `main` also publishes `:edge`.
 
+## 1.5.0 — 2026-11-20
+
+- Breaking (frame rates): the API no longer assumes libse's 23.976 fps for frame-based formats that don't record a
+  frame rate (PAC, PAC Unicode, Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL, MicroDVD and similar, and SCC
+  whose timecodes don't reveal it). When a rate is needed and neither the file nor the request gives one, the
+  conversion stops with the new `422 frame-rate-required`, whose `errors[0].pointer` names `/source/fps` or
+  `/target/fps`. The `frame-rate-assumed` warning is gone, and `detected.formatDetails.frameRateSource` is
+  `unknown` (without `frameRate`) instead of `assumed`.
+- The output now uses the source's rate when `target.fps` isn't set: `source.fps`, the EBU STL header, or the rate
+  SCC timecodes imply. A fresh EBU STL header (from a non-EBU source, or `headerFromSource:false`) takes that rate
+  when it is an EBU rate, instead of always 25. EBU STL sources are reported at the rate they were read at (header
+  or `readFrameRate`), never `source.fps`, which libse doesn't apply to them.
+- No rate is needed to convert between frame-based formats that record none (PAC to PAC, PAC to Cavena 890, …)
+  without `target.fps` or millisecond timing settings: frame numbers carry over. SCC drop-frame output is 29.97.
+- `GET /v1/formats`: `frameBased` is now true for every format that stores frames (it followed libse's flag, which
+  is false for PAC, EBU STL and most binary formats).
+- `/healthz` and `/readyz` report `revision`, the short git commit the image was built from (stamped at build time
+  from the `REVISION` build argument; `unknown` for local builds).
+- `409 output-exists` names the output, and a sidecar's `output` is a `file://` URI for filesystem outputs.
+- EBU STL language: libse's ISO to EBU map stops at the Latin table (`01`-`29`), so the API now maps every language
+  that has both an ISO 639-1 code and an EBU Tech 3264 Appendix 3 code (`el` to `70`, `ru` to `56`, `ar` to `7E`,
+  `he` to `6C`, `zh` to `75`, `ja` to `69`, … and `wa` to `2B`). Auto-detected Greek, Russian, Arabic and so on now
+  write their own code instead of English (`09`). The `format-defaults-applied` note for a detected language
+  without a mapping says "has no built-in EBU mapping" and points to the two-digit hex code from Appendix 3, instead
+  of "no supported language detected". The `format-option-invalid` hint for a rejected `language` lists every
+  accepted ISO 639-1 code.
+- New warning `ebu-language-mismatch`: `formatOptions.ebuStl.language` writes a code that differs from the language
+  detected in the text. It names both and never changes the output.
+- EBU STL language and country input is normalised. `formatOptions.ebuStl.language` ignores case and surrounding
+  whitespace (`" EL "`, `"6c"`); the file gets the upper-case hex code. `countryOfOrigin` accepts an ISO 3166-1
+  alpha-3 code, an alpha-2 code (`BE`) or the English short name (`Belgium`, `Côte d'Ivoire`), in any case, and writes
+  alpha-3. The `^[A-Z]{3}$` schema pattern is gone. A value that matches no country now gives
+  `400 format-option-invalid` with up to three suggestions (the pattern used to reject anything but three capitals as
+  `invalid-profile`).
+  The table is the current ISO 3166-1 list (Debian iso-codes, 249 entries); the field descriptions were shortened.
+- Retired ISO 3166-3 alpha-3 codes (`BUR`, `ANT`, `SUN`, `YUG`, … 30 codes) are accepted for `countryOfOrigin`, in any
+  case, instead of `400 format-option-invalid`: archive material correctly carries them. The code is written as
+  given, the header echo reads `BUR (Burma, retired)`, and the new warning `country-code-retired` names the current
+  code (every successor for a split). Typo suggestions still offer only current countries. Codes and withdrawal years
+  come from Debian iso-codes `iso_3166-3.json`, names and successors from the ISO 3166-3 list.
+- `countryOfOrigin`: a retired country's name or a close typo (`Burma`, `Burmaa`, `Netherlands Antilles`) is still
+  rejected (only the alpha-3 codes are accepted), but the hint now names the code and the current successors:
+  `Did you mean Burma (BUR, retired; current MMR Myanmar)?`. A retired code whose successor is itself retired
+  resolves to current codes in `country-code-retired` and `details.fields.successors` (`YUG` gives `MNE` and `SRB`,
+  not `SCG`; it is the only such chain among the 30 codes). A list of more than four successors shows codes only.
+- `POST /v1/profiles/validate` and the profile checks of a conversion report schema errors and format-option errors
+  together. An unknown property used to hide an invalid `countryOfOrigin` (or any other `formatOptions` value): the
+  option checks only ran once the schema check passed. Schema errors come first, then option errors. A target the API
+  can't use keeps `422 format-not-supported`/`format-not-writable`.
+- EBU STL results carry `outputs[].header`: the language (`70 (Greek)`), country (`PRT (Portugal)`) and the title,
+  publisher and translator fields that were written, read back from the output bytes. Empty fields are left out.
+- The `zero-length-cue` hint no longer says EBU STL can't store zero-length cues: it keeps them, except one at
+  00:00:00 (as Cheetah CAP).
+- Docs: EBU STL and PAC round a time halfway between two frames in opposite directions (within one frame); the API
+  reference (`/docs`, `/openapi/v1.json`) needs no key; `.env.example` quick start sets the key file's owner and mode.
+- libse 5.4.0 (was 5.1.0). What changed for API users:
+  - New formats: YouTube timed text (`youtubetimedtextsrv3`, `.ytt`/`.srv3`), DVB Teletext (`dvbteletext`, `.dvbttx`,
+    read and write), Grid 608, DVD Junior SPC and FFmpeg metadata chapters, and read-only EZTitles binary and CANVASs
+    SSTG1, among others; `GET /v1/formats` lists them. Their extensions join the storage allowlist,
+    except `.ini` (an alternate name for FFmpeg metadata chapters), which stays refused.
+  - SCC: a pop-on caption now starts at its end-of-caption code (one frame per code word after the line's timecode),
+    as CEA-608 displays it, instead of at the line's timecode.
+  - Cavena 890 keeps Greek, Cyrillic and Arabic with the matching `formatOptions.cavena890.language` (`el`, `ru`,
+    `ar`); the `characters-replaced` remedy suggests it instead of saying libse can't.
+  - CapMaker Plus keeps a zero-length cue at 00:00:00 (5.1 dropped it).
+  - iTunes Timed Text output needs a frame rate (`target.fps` or the source's): it is written with SMPTE frame time
+    codes at that rate.
+  - The SubRip reader was rewritten upstream (more tolerant of damaged files); the API's SRT, encoding and
+    hardening tests pass unchanged. The PAC code-page probe no longer counts one- and two-letter words from libse's
+    larger Greek word list, which Latin text read through PAC's Greek table also forms.
+- CI: GitHub Actions moved to their Node 24 releases; the size comparison against the old `-chiseled-extra` base is
+  gone (the size budget on the shipped image stays).
+
 ## 1.4.1 — 2026-11-12
 
 - Security hardening: client-influenced values (HTTP method, path, request id, format, preset, key name, error code,
@@ -87,7 +160,7 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - Fix: a percent-encoded control character in a file or S3 location (for example `file:///data/a.srt%00.txt`) is
   `422 storage-location-rejected` before any filesystem call, instead of `500 internal-error`.
 
-## 1.3.1 — Unreleased
+## 1.3.1 — not tagged (shipped in 1.4.0, 2026-11-12)
 
 - Job and storage errors have their own problem `title` instead of the generic "Internal error": `job-not-found`, `job-input-not-stored`, `job-output-not-stored`, `job-not-ready`, `job-file-gone`, `job-location-not-replayable`, `storage-location-rejected`, `storage-not-found`, `storage-io-failed` and `output-exists`. Codes and status codes are unchanged.
 - `job-output-not-stored` explains the usual cause: a conversion without an `output` location returns its result in the response and stores nothing, so to read a result later, convert with an `output` location. A failed conversion gets its own detail and hint. `job-input-not-stored` points to the original file or an `input` location. See [errors](docs/errors.md#job-output-not-stored).
@@ -124,7 +197,7 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - Docs: [S3 permissions](docs/deployment.md#s3-permissions) lists each S3 call, its IAM action and resource, what
   fails without it, per input/output access pattern, plus SSE-KMS, a minimal policy and MinIO notes.
 
-## 1.3.0 — Unreleased
+## 1.3.0 — 2026-11-06
 
 Broadcast-tester follow-ups:
 
@@ -158,7 +231,7 @@ Broadcast-tester follow-ups:
 - Breaking: remove ZIP batch input/output and failFast. Submit one subtitle per request. Multiple targets from one subtitle return JSON rather than ZIP.
 - Paired with MCP 1.3.0.
 
-## 1.2.1 (unreleased)
+## 1.2.1 — not tagged (merged to main 2026-10-17; first tagged release 1.3.0)
 
 `characters-replaced` remedies state facts instead of guessing (approved by Wauter).
 
@@ -175,7 +248,7 @@ Broadcast-tester follow-ups:
   Latin languages share one table; PAC characters lost only next to certain neighbours (e.g. `ť` before `o`) can't
   be fixed by a code page.
 
-## 1.2.0 (unreleased)
+## 1.2.0 — not tagged (merged to main 2026-10-17; first tagged release 1.3.0)
 
 Conversion verification and diagnostics (client feedback 2026-10-17, approved by Wauter).
 
@@ -207,7 +280,7 @@ Conversion verification and diagnostics (client feedback 2026-10-17, approved by
 - Known libse 5.1.0 limits now visible through verification: Cavena 890 doesn't round-trip Greek,
   Cyrillic or Arabic (garbled, or its reader throws on its own Greek output); Hebrew and Chinese do.
 
-## 1.1.1 (unreleased)
+## 1.1.1 — not tagged (merged to main 2026-10-17; first tagged release 1.3.0)
 
 - Default host port is now **4041** instead of 8080 (8080 is often in use): `docker-compose.yml` publishes
   `127.0.0.1:4041:8080`, bound to localhost only by default (README "Ports" explains how to expose it on other
@@ -215,7 +288,7 @@ Conversion verification and diagnostics (client feedback 2026-10-17, approved by
   `http://localhost:4041`. The container still listens on 8080 internally (`ASPNETCORE_HTTP_PORTS`, `EXPOSE`,
   healthcheck unchanged). No API contract change.
 
-## 1.1.0 (unreleased)
+## 1.1.0 — not tagged (merged to main 2026-10-17; first tagged release 1.3.0)
 
 Binary broadcast formats milestone (PR #4) plus the `frame-rate-changed` warning.
 
@@ -232,7 +305,7 @@ Binary broadcast formats milestone (PR #4) plus the `frame-rate-changed` warning
   ([docs/errors.md](docs/errors.md#warning-codes), design §13 row 23).
 - `/healthz` and OpenAPI `info.version` now report `1.1.0`; OpenAPI `info.version` follows the csproj.
 
-## 1.0.0 (unreleased)
+## 1.0.0 — not tagged (merged to main 2026-10-17; first tagged release 1.3.0)
 
 First text-to-text version: `/v1/convert`, `/v1/convert/json`, `/v1/detect`, formats, presets,
 profiles and schema endpoints, FIFO conversion queue, optional API keys.

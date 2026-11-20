@@ -162,6 +162,7 @@ public sealed class JobFileTests : IDisposable
         using var f = Factory(new() { ["STORAGE_FILE_ATOMIC"] = atomic.ToString() }); var c = f.CreateClient(); var output = Path.Combine(root, "out.vtt"); File.WriteAllText(output, "old"); File.WriteAllText(output + ".json", "old metadata");
         var collision = await c.PostAsJsonAsync("/v1/convert/json", new { content = Samples.Srt, output, target = "vtt" });
         Assert.Equal("output-exists", await Code(collision, 409)); Assert.Contains("error | replace", (string)(await collision.Json())["hint"]!); Assert.Equal("old", File.ReadAllText(output));
+        Assert.Contains($"The output {new Uri(output).AbsoluteUri} already exists", (string)(await collision.Json())["detail"]!);
         HttpResponseMessage replaced;
         if (multipart) {
             using var form = new MultipartFormDataContent { { new StringContent(Path.Combine(root, "in.srt")), "input" }, { new StringContent(output), "output" }, { new StringContent("vtt"), "target" }, { new StringContent("true"), "sidecar" }, { new StringContent("replace"), "ifExists" } };

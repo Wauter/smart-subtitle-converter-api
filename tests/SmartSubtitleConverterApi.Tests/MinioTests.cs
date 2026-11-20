@@ -69,7 +69,7 @@ public class MinioTests
             Assert.Equal(200, (int)b.StatusCode);
             using (var result = await client.GetObjectAsync("subs", "out/show.srt")) { using var r = new StreamReader(result.ResponseStream); Assert.Contains("Hello", await r.ReadToEndAsync()); }
             using (var sidecar = await client.GetObjectAsync("subs", "out/show.srt.json")) { using var r = new StreamReader(sidecar.ResponseStream); var text = await r.ReadToEndAsync(); Assert.Contains("stats", text); Assert.DoesNotContain("Hello", text); }
-            var binary = await c.PostAsJsonAsync("/v1/convert/json", new { input = output, output = "s3://subs/out/show.pac", target = "pac", sidecar = true });
+            var binary = await c.PostAsJsonAsync("/v1/convert/json", new { input = output, output = "s3://subs/out/show.pac", target = "pac", sidecar = true, profile = new { target = new { fps = 25 } } });
             Assert.Equal(200, (int)binary.StatusCode);
             using (var sidecar = await client.GetObjectAsync("subs", "out/show.pac.json")) { using var r = new StreamReader(sidecar.ResponseStream); Assert.Contains("verification", await r.ReadToEndAsync()); }
             var h = await c.PostAsJsonAsync("/v1/convert/json", new { input = "https://mam.example.com/show.srt", output = "s3://subs/out/from-https.vtt", target = "vtt" });
