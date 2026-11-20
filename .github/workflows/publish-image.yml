@@ -8,8 +8,8 @@ on:
       ref:
         description: Existing source ref (never moved)
         type: choice
-        options: [main, v1.3.0, v1.4.0, v1.4.1]
-        default: v1.4.1
+        options: [main, v1.3.0, v1.4.0, v1.4.1, v1.5.0]
+        default: v1.5.0
         required: true
 
 permissions:

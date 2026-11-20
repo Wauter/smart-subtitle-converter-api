@@ -6,7 +6,7 @@ All notable API changes. Versions follow [semver](https://semver.org/); the vers
 for the bump rule. Tagged releases publish multi-arch images to GHCR
 (`ghcr.io/wauter/smart-subtitle-converter-api`); every green push to `main` also publishes `:edge`.
 
-## Unreleased
+## 1.5.0 — 2026-11-20
 
 - Breaking (frame rates): the API no longer assumes libse's 23.976 fps for frame-based formats that don't record a
   frame rate (PAC, PAC Unicode, Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL, MicroDVD and similar, and SCC
