@@ -46,6 +46,11 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
   given, the header echo reads `BUR (Burma, retired)`, and the new warning `country-code-retired` names the current
   code (every successor for a split). Typo suggestions still offer only current countries. Codes and withdrawal years
   come from Debian iso-codes `iso_3166-3.json`, names and successors from the ISO 3166-3 list.
+- `countryOfOrigin`: a retired country's name or a close typo (`Burma`, `Burmaa`, `Netherlands Antilles`) is still
+  rejected (only the alpha-3 codes are accepted), but the hint now names the code and the current successors:
+  `Did you mean Burma (BUR, retired; current MMR Myanmar)?`. A retired code whose successor is itself retired
+  resolves to current codes in `country-code-retired` and `details.fields.successors` (`YUG` gives `MNE` and `SRB`,
+  not `SCG`; it is the only such chain among the 30 codes). A list of more than four successors shows codes only.
 - `POST /v1/profiles/validate` and the profile checks of a conversion report schema errors and format-option errors
   together. An unknown property used to hide an invalid `countryOfOrigin` (or any other `formatOptions` value): the
   option checks only ran once the schema check passed. Schema errors come first, then option errors. A target the API

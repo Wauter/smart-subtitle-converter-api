@@ -513,6 +513,69 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain("retired", hint);
     }
 
+    [Theory]
+    [InlineData("Burma", "Did you mean Burma (BUR, retired; current MMR Myanmar)?")]
+    [InlineData("burmaa", "Did you mean Burma (BUR, retired; current MMR Myanmar)?")]
+    [InlineData("Czechoslovakia", "Did you mean Czechoslovakia (CSK, retired; current CZE Czechia / SVK Slovakia)?")]
+    [InlineData("Zaire", "Did you mean Zaire (ZAR, retired; current COD ")]
+    [InlineData("Netherlands Antilles", "Did you mean Netherlands Antilles (ANT, retired; current BES Bonaire, Sint Eustatius and Saba / CUW Curaçao / SXM Sint Maarten (Dutch part)), Netherlands (NLD)")]
+    [InlineData("Yugoslavia", "Did you mean Yugoslavia (YUG, retired; current MNE Montenegro / SRB Serbia)?")]
+    public async Task Stl_retired_country_names_are_rejected_but_the_hint_names_the_code_and_the_successors(string input, string expected)
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = input }, status: HttpStatusCode.BadRequest);
+        var hint = (string)j["errors"]![0]!["hint"]!;
+        Assert.Equal("format-option-invalid", (string)j["code"]!);
+        Assert.Contains(expected, hint);
+        Assert.EndsWith("A retired country is accepted only as its alpha-3 code.", hint);
+    }
+
+    [Fact]
+    public async Task Stl_current_country_typos_still_suggest_current_countries_only_and_without_the_retired_note()
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "Belgum" }, status: HttpStatusCode.BadRequest);
+        var hint = (string)j["errors"]![0]!["hint"]!;
+        Assert.EndsWith("Did you mean Belgium (BEL)?", hint);
+        Assert.DoesNotContain("retired", hint);
+    }
+
+    [Fact]
+    public async Task Stl_retired_name_is_never_accepted_as_input()
+    {
+        foreach (var name in new[] { "Burma", "Czechoslovakia", "USSR", "Zaire" })
+            await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = name }, status: HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Stl_retired_code_that_names_a_retired_successor_resolves_to_current_codes()
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "YUG", language = "en" });
+        var w = Warning(j, "country-code-retired");
+        Assert.Equal("countryOfOrigin YUG is a retired ISO 3166 code (Yugoslavia, withdrawn 2003); current codes MNE (Montenegro) and SRB (Serbia).", (string)w["message"]!);
+        Assert.Equal("MNE, SRB", (string)w["details"]!["fields"]!["successors"]!);
+        Assert.Contains("the successor that applies", (string)w["hint"]!);
+        Assert.DoesNotContain("SCG", (string)w["message"]!);
+    }
+
+    [Fact]
+    public async Task Stl_retired_code_with_many_successors_lists_codes_only()
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "SUN", language = "en" });
+        Assert.EndsWith("current codes ARM, AZE, EST, GEO, KAZ, KGZ, LVA, LTU, MDA, RUS, TJK, TKM, UZB.", (string)Warning(j, "country-code-retired")["message"]!);
+    }
+
+    [Fact]
+    public void Every_retired_code_resolves_to_current_codes_only()
+    {
+        Assert.Equal(30, SmartSubtitleConverterApi.Binary.RetiredCountryCodes.All.Count);
+        foreach (var r in SmartSubtitleConverterApi.Binary.RetiredCountryCodes.All)
+        {
+            var current = SmartSubtitleConverterApi.Binary.RetiredCountryCodes.CurrentSuccessors(r);
+            Assert.NotEmpty(current);
+            Assert.All(current, a => Assert.NotNull(SmartSubtitleConverterApi.Binary.CountryCodes.ByCode(a)));
+            Assert.Equal(current.Count, current.Distinct().Count());
+        }
+    }
+
     [Fact]
     public async Task Retired_country_code_is_also_valid_in_validate_profile_and_not_a_warning_there()
     {

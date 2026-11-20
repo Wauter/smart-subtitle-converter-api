@@ -138,10 +138,16 @@ public static class BinaryOptions
                 errors.Add(new($"{b}/language", $"'{lang.Trim()}' has no EBU STL language code.", $"Use one of these ISO 639-1 codes: {string.Join(", ", EbuLanguages.Keys)}. For any other language, use its two-digit upper-case hex code from EBU Tech 3264 Appendix 3 (for example Dari \"73\"), or \"auto\"."));
             if (e.CountryOfOrigin is { } country && CountryCodes.Resolve(country) == null && RetiredCountryCodes.Find(country) == null)
             {
-                var near = CountryCodes.Suggest(country);
+                // An exact retired name comes first, then current countries, then close retired names; at most 3 in all.
+                var oldNames = RetiredCountryCodes.Suggest(country);
+                var exact = oldNames.Where(r => CountryCodes.Key(r.Name) == CountryCodes.Key(country)).ToList();
+                var suggestions = exact.Select(RetiredCountryCodes.Suggestion)
+                    .Concat(CountryCodes.Suggest(country).Select(c => $"{c.DisplayName} ({c.Alpha3})"))
+                    .Concat(oldNames.Except(exact).Select(RetiredCountryCodes.Suggestion)).Take(3).ToList();
                 errors.Add(new($"{b}/countryOfOrigin", $"'{country.Trim()}' is not an ISO 3166-1 country.",
                     "Use an alpha-3 code (BEL), an alpha-2 code (BE) or the English country name (Belgium)." +
-                    (near.Count > 0 ? $" Did you mean {string.Join(", ", near.Select(c => $"{c.DisplayName} ({c.Alpha3})"))}?" : "")));
+                    (suggestions.Count > 0 ? $" Did you mean {string.Join(", ", suggestions)}?" : "") +
+                    (oldNames.Count > 0 ? " A retired country is accepted only as its alpha-3 code." : "")));
             }
             var cp = Encoding.GetEncoding(int.Parse(e.CodePage ?? "850", CultureInfo.InvariantCulture));
             foreach (var (name, value) in new[] { ("originalProgrammeTitle", e.OriginalProgrammeTitle), ("originalEpisodeTitle", e.OriginalEpisodeTitle),

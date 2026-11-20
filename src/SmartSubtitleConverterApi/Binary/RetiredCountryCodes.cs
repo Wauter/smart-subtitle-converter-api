@@ -59,10 +59,58 @@ public static class RetiredCountryCodes
         return up.Length == 3 && CountryCodes.ByCode(up) == null && ByAlpha3.TryGetValue(up, out var r) ? r : null;
     }
 
-    /// <summary>The successors as "MMR (Myanmar)" or "CZE (Czechia) and SVK (Slovakia)"; a successor that is itself retired says so.</summary>
+    /// <summary>The current successor codes: a successor that is itself retired is replaced by its own successors (YUG to SCG to MNE and SRB), without repeats.</summary>
+    public static List<string> CurrentSuccessors(Retired r)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string> { r.Alpha3 };
+        void Walk(Retired x)
+        {
+            foreach (var a in x.Successors)
+            {
+                if (ByAlpha3.TryGetValue(a, out var old) && CountryCodes.ByCode(a) == null) { if (seen.Add(a)) Walk(old); }
+                else if (!result.Contains(a)) result.Add(a);
+            }
+        }
+        Walk(r);
+        return result;
+    }
+
+    /// <summary>More successors than this are listed as codes only (the USSR has 13).</summary>
+    private const int NamedSuccessorsMax = 4;
+
+    private static string Name(string a3) => CountryCodes.ByCode(a3)?.DisplayName ?? a3;
+
+    /// <summary>For the warning: "MMR (Myanmar)", "CZE (Czechia) and SVK (Slovakia)", or bare codes for a long list.</summary>
     public static string SuccessorList(Retired r)
     {
-        var parts = r.Successors.Select(a => CountryCodes.ByCode(a) is { } c ? $"{a} ({c.DisplayName})" : ByAlpha3.TryGetValue(a, out var old) ? $"{a} ({old.Name}, retired)" : a).ToList();
+        var codes = CurrentSuccessors(r);
+        if (codes.Count > NamedSuccessorsMax) return string.Join(", ", codes);
+        var parts = codes.Select(a => $"{a} ({Name(a)})").ToList();
         return parts.Count == 1 ? parts[0] : string.Join(", ", parts.Take(parts.Count - 1)) + " and " + parts[^1];
+    }
+
+    /// <summary>For the typo hint: "Burma (BUR, retired; current MMR Myanmar)"; several successors are separated by " / ".</summary>
+    public static string Suggestion(Retired r)
+    {
+        var codes = CurrentSuccessors(r);
+        var now = codes.Count > NamedSuccessorsMax ? string.Join(", ", codes) : string.Join(" / ", codes.Select(a => $"{a} {Name(a)}"));
+        return $"{r.Name} ({r.Alpha3}, retired; current {now})";
+    }
+
+    /// <summary>Retired countries whose name is the input or close to it. Never used to accept a value: only the alpha-3 code is accepted.</summary>
+    public static List<Retired> Suggest(string input, int max = 3)
+    {
+        var k = CountryCodes.Key(input);
+        if (k.Length < 4) return [];
+        var hits = new List<(Retired R, int Score)>();
+        foreach (var r in ByAlpha3.Values)
+        {
+            var nk = CountryCodes.Key(r.Name);
+            var d = CountryCodes.Distance(k, nk);
+            if (nk.StartsWith(k)) d = Math.Min(d, 1);
+            if (d <= Math.Max(2, k.Length / 4)) hits.Add((r, d));
+        }
+        return hits.OrderBy(h => h.Score).ThenBy(h => h.R.Name, StringComparer.Ordinal).Take(max).Select(h => h.R).ToList();
     }
 }

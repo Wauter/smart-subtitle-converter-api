@@ -118,7 +118,8 @@ short name (`Belgium`), in any case; accents, punctuation and whitespace are ign
 rejected with `400 format-option-invalid` and up to three suggestions (current countries only). The country table is
 the current ISO 3166-1 list (Debian iso-codes). Former alpha-3 codes from ISO 3166-3 (`BUR`, `ANT`, `YUG`, `SUN`, …)
 are accepted too, because archive material carries them: they are written as given with a
-[`country-code-retired`](errors.md#country-code-retired) warning naming the current code or codes. EBU Tech 3264
+[`country-code-retired`](errors.md#country-code-retired) warning naming the current code or codes. Retired names are
+not accepted, only the codes; the error hint for `Burma` names `BUR` and `MMR`. EBU Tech 3264
 Appendix 4 is based on the 1988 edition of ISO 3166 and so lists such codes.
 
 Every EBU STL result reports the header it wrote, read back from the output bytes, as `outputs[].header`. Only fields

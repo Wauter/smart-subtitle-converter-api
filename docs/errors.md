@@ -158,7 +158,8 @@ values are missing then. A target the API can't use keeps its `422`.
 **What to do:** Use one of the values the hint lists. `GET /v1/formats` shows the options for each format.
 
 _For integrators:_ 400. `errors[]` points at the option, e.g. `/formatOptions/ebuStl/frameRate`. An unknown
-`countryOfOrigin` lists up to three close matches in the hint ("Did you mean Belgium (BEL)?").
+`countryOfOrigin` lists up to three close matches in the hint ("Did you mean Belgium (BEL)?"), including retired
+countries by name with their code ("Burma (BUR, retired; current MMR Myanmar)").
 
 ### <a id="empty-input"></a>`empty-input`
 
@@ -855,14 +856,17 @@ may not recognise it.
 
 **What to do:** Keep the code for archive material. For new material, or a delivery spec that wants current codes, use
 the current code in the message. When the country split (Czechoslovakia, the USSR, the Netherlands Antilles), the
-message lists every successor; pick the one that applies.
+message lists every successor; pick the one that applies. A successor that is itself retired is replaced by its own
+successors (`YUG` names `MNE` and `SRB`, not `SCG`).
 
 _For integrators:_ raised only for an explicit option, and only for an alpha-3 code in any case, with surrounding
 whitespace ignored. Names and alpha-2 codes of former countries are not accepted: the alpha-2 codes clash with each
 other and with current ones. `ATF` is current (French Southern Territories), so it never warns. `details.fields`:
-`countryOfOrigin`, `name`, `withdrawn` (year), `successors` (comma-separated alpha-3). The header echo shows
-`BUR (Burma, retired)`. No `count`; the output is never changed. Typo suggestions for an unknown country only offer
-current countries.
+`countryOfOrigin`, `name`, `withdrawn` (year), `successors` (comma-separated current alpha-3 codes, chains resolved).
+More than four successors (`SUN` has 13) are listed as codes only in the message. The header echo shows
+`BUR (Burma, retired)`. No `count`; the output is never changed. A retired country's *name* is not accepted
+(`Burma` gives `format-option-invalid`), but the hint names it with its code and successors: `Did you mean Burma
+(BUR, retired; current MMR Myanmar)?`, then current countries. Close typos (`Burmaa`) get the same hint.
 
 ### <a id="encoding-guessed"></a>`encoding-guessed`
 

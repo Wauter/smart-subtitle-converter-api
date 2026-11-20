@@ -346,7 +346,7 @@ public static class CountryCodes
         return scored.OrderBy(x => x.Score).ThenBy(x => x.C.Name, StringComparer.Ordinal).Take(max).Select(x => x.C).ToList();
     }
 
-    private static int Distance(string a, string b)
+    internal static int Distance(string a, string b)
     {
         var prev = new int[b.Length + 1];
         var cur = new int[b.Length + 1];
