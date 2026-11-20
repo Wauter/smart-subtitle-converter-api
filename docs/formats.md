@@ -103,7 +103,8 @@ rounds it up, so 3.500 s at 25 fps becomes 3.480 s in EBU STL and 3.520 s in PAC
 **Header defaults.** A fresh EBU STL header (SRT/WebVTT/… → STL, or `headerFromSource:false`) and Cavena 890 header
 carry identity fields even when the request sets none: libse's `No Title` / `USA`, a detected or fallback language,
 Cavena's file-name title. These are reported as `format-defaults-applied` with the values written; set the matching
-`formatOptions` for deliveries.
+`formatOptions` for deliveries. A language you set that differs from the detected one is reported as
+`ebu-language-mismatch`.
 
 ## Format options
 

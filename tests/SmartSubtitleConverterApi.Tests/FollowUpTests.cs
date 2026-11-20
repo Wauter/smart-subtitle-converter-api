@@ -19,6 +19,9 @@ public class FollowUpTests : IClassFixture<ApiFactory>
 
     private const string Greek =
         "1\r\n00:00:01,000 --> 00:00:02,500\r\nΚαλημέρα κόσμε, τι κάνεις;\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nΔεν είναι εδώ τώρα.\r\nΓιατί όχι;\r\n\r\n3\r\n00:00:06,000 --> 00:00:08,000\r\nΑυτό είναι για μένα και για σένα.\r\n";
+    // Afrikaans: libse detects it (af), and EBU Tech 3264 Appendix 3 has no code for it.
+    private const string UnmappedLanguage =
+        "1\r\n00:00:01,000 --> 00:00:03,500\r\nEk weet nie wat hier aangaan nie, waar gaan jy heen met al die mense in die huis\r\n\r\n2\r\n00:00:04,000 --> 00:00:06,000\r\nEk weet nie wat hier aangaan nie, waar gaan jy heen met al die mense in die huis\r\n";
     private const string Czech =
         "1\r\n00:00:01,000 --> 00:00:02,500\r\nJá nevím, co se to tady děje.\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\nŘekni mi, že je to pravda.\r\n\r\n3\r\n00:00:06,000 --> 00:00:08,000\r\nTo není možné, čtyři řeky už teď.\r\n";
     private const string Hebrew =
@@ -308,26 +311,78 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain("format-defaults-applied", Codes(set));
     }
 
-    [Fact]
-    public async Task Stl_language_fallback_names_a_detected_language_outside_the_iso_table()
+    /// <summary>The GSI language code (LC, bytes 14-15 as ASCII hex).</summary>
+    private static string GsiLanguage(JsonObject j) => Encoding.ASCII.GetString(Convert.FromBase64String((string)j["outputs"]![0]!["content"]!), 14, 2);
+
+
+    [Theory]
+    [InlineData("Greek", "70")]
+    [InlineData("Hebrew", "6C")]
+    [InlineData("Arabic", "7E")]
+    public async Task Stl_auto_language_writes_the_appendix_3_code_for_detected_non_latin_text(string name, string hex)
     {
-        // Greek is detected but has no ISO 639-1 entry in EbuLanguages: the note must not claim nothing was detected.
-        var j = await Json(new { content = Greek, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = new { characterTable = "greek" } } } });
+        var text = name switch { "Greek" => Greek, "Hebrew" => Hebrew, _ => Arabic };
+        var j = await Json(new { content = text, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 } } });
+        Assert.Equal(hex, GsiLanguage(j));
         var w = Warning(j, "format-defaults-applied");
-        Assert.Equal("09", (string)w["details"]!["fields"]!["language"]!);
-        Assert.Contains("language 09 (fallback: detected el is not in the ISO 639-1 table; set formatOptions.ebuStl.language to its two-digit EBU code from EBU Tech 3264 Appendix 3)", (string)w["message"]!);
-        Assert.DoesNotContain("no supported language", (string)w["message"]!);
+        Assert.Equal(hex, (string)w["details"]!["fields"]!["language"]!);
+        Assert.Matches($@"language {hex} \(auto-detected: \w+\)", (string)w["message"]!);
+        Assert.DoesNotContain("fallback", (string)w["message"]!);
+    }
+
+    [Fact]
+    public async Task Stl_language_el_maps_to_70_without_a_warning_about_it()
+    {
+        var j = await Json(new { content = Greek, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = new { language = "el", originalProgrammeTitle = "T", countryOfOrigin = "GRC" } } } });
+        Assert.Equal("70", GsiLanguage(j));
+        Assert.DoesNotContain("format-defaults-applied", Codes(j));
+        Assert.DoesNotContain("ebu-language-mismatch", Codes(j));
+    }
+
+    [Fact]
+    public async Task Stl_explicit_language_that_disagrees_with_the_detected_one_warns()
+    {
+        var j = await Json(new { content = Greek, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = new { language = "14", originalProgrammeTitle = "T", countryOfOrigin = "GRC" } } } });
+        Assert.Equal("14", GsiLanguage(j));
+        var w = Warning(j, "ebu-language-mismatch");
+        Assert.Equal("formatOptions.ebuStl.language \"14\" writes EBU language code 14, but the text looks like el (EBU code 70).", (string)w["message"]!);
+        Assert.Contains("set formatOptions.ebuStl.language to \"70\" or \"auto\"", (string)w["hint"]!);
+        var f = w["details"]!["fields"]!;
+        Assert.Equal("14", (string)f["language"]!); Assert.Equal("el", (string)f["detectedLanguage"]!); Assert.Equal("70", (string)f["detectedCode"]!);
+        // An agreeing value, "auto", and no setting give no mismatch.
+        foreach (var lang in new[] { "70", "el", "auto" })
+        {
+            var ok = await Json(new { content = Greek, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = new { language = lang, originalProgrammeTitle = "T", countryOfOrigin = "GRC" } } } });
+            Assert.DoesNotContain("ebu-language-mismatch", Codes(ok));
+        }
+    }
+
+    [Fact]
+    public async Task Stl_language_mismatch_is_skipped_when_nothing_is_detected()
+    {
+        var j = await Json(new { content = "1\r\n00:00:01,000 --> 00:00:02,000\r\n...\r\n", fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 }, formatOptions = new { ebuStl = new { language = "14", originalProgrammeTitle = "T", countryOfOrigin = "GRC" } } } });
+        Assert.DoesNotContain("ebu-language-mismatch", Codes(j));
+    }
+
+    [Fact]
+    public async Task Stl_fallback_for_a_detected_language_without_a_mapping_says_so()
+    {
+        var j = await Json(new { content = UnmappedLanguage, fileName = "a.srt", target = "ebustl", profile = new { target = new { fps = 25 } } });
+        var w = Warning(j, "format-defaults-applied");
+        Assert.Matches(@"language 09 \(fallback: detected af has no built-in EBU mapping; set formatOptions\.ebuStl\.language to its two-digit upper-case hex code from EBU Tech 3264 Appendix 3\)", (string)w["message"]!);
+        Assert.DoesNotContain("ISO 639-1 table", (string)w["message"]!);
     }
 
     [Fact]
     public async Task Stl_language_error_lists_every_iso_code_and_the_hex_route()
     {
-        var j = await Json(new { content = Samples.Srt, target = "ebustl", profile = new { formatOptions = new { ebuStl = new { language = "el" } } } }, HttpStatusCode.BadRequest);
+        var j = await Json(new { content = Samples.Srt, target = "ebustl", profile = new { formatOptions = new { ebuStl = new { language = "xx" } } } }, HttpStatusCode.BadRequest);
         var hint = (string)j["errors"]![0]!["hint"]!;
-        Assert.Equal("'el' has no EBU STL language code.", (string)j["errors"]![0]!["message"]!);
+        Assert.Equal("'xx' has no EBU STL language code.", (string)j["errors"]![0]!["message"]!);
         Assert.Contains($"Use one of these ISO 639-1 codes: {string.Join(", ", SmartSubtitleConverterApi.Binary.BinaryOptions.EbuLanguages.Keys)}.", hint);
-        Assert.Contains("sv, tr.", hint);
-        Assert.Contains("EBU Tech 3264 Appendix 3 (for example Greek \"70\")", hint);
+        Assert.Contains("el, ", hint);
+        Assert.Contains("two-digit upper-case hex code from EBU Tech 3264 Appendix 3 (for example Dari \"73\")", hint);
+        Assert.Contains("el, ", hint); Assert.Contains("ru, ", hint);
         Assert.DoesNotContain("...", hint);
     }
 

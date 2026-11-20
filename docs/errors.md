@@ -76,6 +76,7 @@ Setting names are profile fields, written as a path: `source.format` means
 | [`frame-rate-changed`](#frame-rate-changed) | EBU STL stores a different frame rate than intended |
 | [`verification-failed`](#verification-failed) | The written binary file couldn't be checked |
 | [`format-defaults-applied`](#format-defaults-applied) | Header fields were filled with defaults you didn't set |
+| [`ebu-language-mismatch`](#ebu-language-mismatch) | The EBU STL language code differs from the language of the text |
 | [`zero-length-cue`](#zero-length-cue) | Source cues with no duration |
 | [`overlapping-cues`](#overlapping-cues) | Source cues that overlap in time |
 | [`long-cue`](#long-cue) | Source cues longer than 30 seconds |
@@ -713,7 +714,7 @@ and the sidecar. `details` never contains subtitle text, only positions, code po
 | `distinctCodePoints`, `codePoints` | number; `[{codePoint: "U+039A", count}]` (first 20) | `characters-replaced` |
 | `remedy` | object, see [Remedy](#remedy-characters-replaced) | `characters-replaced` |
 | `durations` | `[{cue, durationMs}]` (first 20) | `long-cue` |
-| `fields` | `{field: value written}` | `format-defaults-applied` |
+| `fields` | `{field: value written}` (`ebu-language-mismatch`: `language`, `detectedLanguage`, `detectedCode`) | `format-defaults-applied`, `ebu-language-mismatch` |
 | `timecode` | `"HH:MM:SS:FF"` | `programme-start-not-applied` |
 
 Cue numbers in source warnings (`zero-length-cue`, `overlapping-cues`, `long-cue`, `source-replacement-chars`) are
@@ -819,8 +820,23 @@ these as real programme metadata.
 
 _For integrators:_ `count` = number of fields; `details.fields` maps each field to the value actually written (read
 back from the output). Covered: a freshly built EBU STL header's title fields, translator, publisher, country, and
-`language` when unset (with `language: "auto"`, only when detection fell back); Cavena 890 `title` and `language`.
+`language` when unset (with `language: "auto"`, only when detection fell back; the note then names a detected language that has no built-in EBU mapping); Cavena 890 `title` and `language`.
 Not raised for header fields copied from an EBU STL source (`headerFromSource`).
+
+### <a id="ebu-language-mismatch"></a>`ebu-language-mismatch`
+
+**What:** You set `formatOptions.ebuStl.language`, and the EBU language code it writes differs from the language
+detected in the subtitle text (for example `14`, Icelandic, for Greek text).
+
+**Why:** The language code in an EBU STL header tells playout and MAM systems which language the file holds. A code
+copied from another delivery or a typo is easy to miss. Detection reads the text, so it can be wrong on short text.
+
+**What to do:** If the detected language is right, set `formatOptions.ebuStl.language` to the code in the hint, or to
+`auto`. If the delivery's language really differs from the text, keep your value and ignore the warning.
+
+_For integrators:_ raised only when detection finds a language that has an EBU code; nothing is raised when detection
+finds nothing or a language without a code. `details.fields`: `language` (the two-digit code written),
+`detectedLanguage` (ISO 639-1) and `detectedCode`. No `count`. The conversion is never changed.
 
 ### <a id="encoding-guessed"></a>`encoding-guessed`
 

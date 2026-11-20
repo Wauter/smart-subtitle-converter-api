@@ -27,6 +27,16 @@ public static class BinaryOptions
         ["eo"] = "0B", ["et"] = "0C", ["eu"] = "0D", ["fo"] = "0E", ["fr"] = "0F", ["fy"] = "10", ["ga"] = "11", ["gd"] = "12", ["gl"] = "13", ["is"] = "14",
         ["it"] = "15", ["la"] = "17", ["lv"] = "18", ["lb"] = "19", ["lt"] = "1A", ["hu"] = "1B", ["mt"] = "1C", ["nl"] = "1D", ["nb"] = "1E", ["no"] = "1E",
         ["oc"] = "1F", ["pl"] = "20", ["pt"] = "21", ["ro"] = "22", ["rm"] = "23", ["sr"] = "24", ["sk"] = "25", ["sl"] = "26", ["fi"] = "27", ["sv"] = "28", ["tr"] = "29",
+        ["wa"] = "2B",
+        // EBU Tech 3264 Appendix 3 "Other languages" (libse's own ISO mapping stops at the Latin table above). Only languages with an
+        // ISO 639-1 code; Dari, Papiamento, Ruthenian, Sranan Tongo, Flemish, Moldavian, Serbo-Croat, Lappish and Ndebele have none
+        // that matches one-to-one and are reached by their two-digit code.
+        ["am"] = "7F", ["ar"] = "7E", ["hy"] = "7D", ["as"] = "7C", ["az"] = "7B", ["bm"] = "7A", ["be"] = "79", ["bn"] = "78", ["bg"] = "77",
+        ["my"] = "76", ["zh"] = "75", ["cv"] = "74", ["ff"] = "72", ["ka"] = "71", ["el"] = "70", ["gu"] = "6F", ["gn"] = "6E", ["ha"] = "6D",
+        ["he"] = "6C", ["hi"] = "6B", ["id"] = "6A", ["ja"] = "69", ["kn"] = "68", ["kk"] = "67", ["km"] = "66", ["ko"] = "65", ["lo"] = "64",
+        ["mk"] = "63", ["mg"] = "62", ["ms"] = "61", ["mr"] = "5F", ["ne"] = "5D", ["or"] = "5C", ["fa"] = "5A", ["pa"] = "59", ["ps"] = "58",
+        ["qu"] = "57", ["ru"] = "56", ["sn"] = "53", ["si"] = "52", ["so"] = "51", ["sw"] = "4F", ["tg"] = "4E", ["ta"] = "4D", ["tt"] = "4C",
+        ["te"] = "4B", ["th"] = "4A", ["uk"] = "49", ["ur"] = "48", ["uz"] = "47", ["vi"] = "46", ["zu"] = "45",
     };
 
     public static readonly string[] PacCodePages =
@@ -79,7 +89,7 @@ public static class BinaryOptions
             if (e.ReadFrameRate is { } rfr && rfr <= 20)
                 errors.Add(new($"{b}/readFrameRate", "readFrameRate must be > 20.", "Typical values: 23.976, 24, 25, 29.97, 30."));
             if (e.Language is { } lang && !lang.Equals("auto", StringComparison.OrdinalIgnoreCase) && !EbuLanguages.ContainsKey(lang) && !IsEbuHex(lang))
-                errors.Add(new($"{b}/language", $"'{lang}' has no EBU STL language code.", $"Use one of these ISO 639-1 codes: {string.Join(", ", EbuLanguages.Keys)}. For any other language, use its two-digit EBU code in upper case from EBU Tech 3264 Appendix 3 (for example Greek \"70\"), or \"auto\"."));
+                errors.Add(new($"{b}/language", $"'{lang}' has no EBU STL language code.", $"Use one of these ISO 639-1 codes: {string.Join(", ", EbuLanguages.Keys)}. For any other language, use its two-digit upper-case hex code from EBU Tech 3264 Appendix 3 (for example Dari \"73\"), or \"auto\"."));
             var cp = Encoding.GetEncoding(int.Parse(e.CodePage ?? "850", CultureInfo.InvariantCulture));
             foreach (var (name, value) in new[] { ("originalProgrammeTitle", e.OriginalProgrammeTitle), ("originalEpisodeTitle", e.OriginalEpisodeTitle),
                          ("translatedProgrammeTitle", e.TranslatedProgrammeTitle), ("translatorsName", e.TranslatorsName), ("publisher", e.Publisher) })

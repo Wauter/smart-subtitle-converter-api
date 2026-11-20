@@ -25,10 +25,15 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 - `/healthz` and `/readyz` report `revision`, the short git commit the image was built from (stamped at build time
   from the `REVISION` build argument; `unknown` for local builds).
 - `409 output-exists` names the output, and a sidecar's `output` is a `file://` URI for filesystem outputs.
-- EBU STL language: the `format-defaults-applied` note no longer says "no supported language detected" when it
-  detected a language outside the ISO 639-1 table (Greek, Russian, …); it names that language and points to the
-  two-digit EBU code from EBU Tech 3264 Appendix 3. The `format-option-invalid` hint for a rejected `language`
-  lists every accepted ISO 639-1 code instead of the first twelve.
+- EBU STL language: libse's ISO to EBU map stops at the Latin table (`01`-`29`), so the API now maps every language
+  that has both an ISO 639-1 code and an EBU Tech 3264 Appendix 3 code (`el` to `70`, `ru` to `56`, `ar` to `7E`,
+  `he` to `6C`, `zh` to `75`, `ja` to `69`, … and `wa` to `2B`). Auto-detected Greek, Russian, Arabic and so on now
+  write their own code instead of English (`09`). The `format-defaults-applied` note for a detected language
+  without a mapping says "has no built-in EBU mapping" and points to the two-digit hex code from Appendix 3, instead
+  of "no supported language detected". The `format-option-invalid` hint for a rejected `language` lists every
+  accepted ISO 639-1 code.
+- New warning `ebu-language-mismatch`: `formatOptions.ebuStl.language` writes a code that differs from the language
+  detected in the text. It names both and never changes the output.
 - The `zero-length-cue` hint no longer says EBU STL can't store zero-length cues: it keeps them, except one at
   00:00:00 (as Cheetah CAP).
 - Docs: EBU STL and PAC round a time halfway between two frames in opposite directions (within one frame); the API

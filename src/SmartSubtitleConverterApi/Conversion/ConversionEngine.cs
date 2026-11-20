@@ -546,6 +546,7 @@ public sealed partial class ConversionEngine(FormatRegistry formats, ApiOptions 
             var frame = 1000.0 / (g.CurrentFrameRate > 1 ? g.CurrentFrameRate : 25);
             var bytes = BinaryIO.Save(format, copy, fileName, header);
             if (format is Ebu && freshEbuHeader && FormatDefaults.Ebu(bytes, fo?.EbuStl, copy) is { } ebuDefaults) warnings.Add(ebuDefaults);
+            if (format is Ebu && FormatDefaults.EbuLanguageMismatch(fo?.EbuStl, copy) is { } languageMismatch) warnings.Add(languageMismatch);
             if (format is Cavena890 && FormatDefaults.Cavena(bytes, fo?.Cavena890, fileName, temp) is { } cavenaDefaults) warnings.Add(cavenaDefaults);
             if (info.Lossy)
                 warnings.Add(new("lossy-format", $"{info.Name} can't store everything: characters outside its table are dropped or replaced, and timing may shift."));

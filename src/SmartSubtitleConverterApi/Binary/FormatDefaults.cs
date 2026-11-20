@@ -45,7 +45,7 @@ internal static class FormatDefaults
                 fields["language"] = h.LanguageCode.Trim();
                 languageNote = $"language {h.LanguageCode} " + (fromDetection ? $"(auto-detected: {detected})"
                     : detected == null ? "(fallback: no language detected)"
-                    : !BinaryOptions.EbuLanguages.ContainsKey(detected) ? $"(fallback: detected {detected} is not in the ISO 639-1 table; set formatOptions.ebuStl.language to its two-digit EBU code from EBU Tech 3264 Appendix 3)"
+                    : !BinaryOptions.EbuLanguages.ContainsKey(detected) ? $"(fallback: detected {detected} has no built-in EBU mapping; set formatOptions.ebuStl.language to its two-digit upper-case hex code from EBU Tech 3264 Appendix 3)"
                     : $"(fallback; detected: {detected})");
             }
         }
@@ -56,6 +56,21 @@ internal static class FormatDefaults
             fields.Count,
             $"Set formatOptions.ebuStl.{string.Join(", ", fields.Keys)} to the delivery's values (headerFromSource reuses an EBU source's header instead).",
             new WarningDetails(Fields: fields));
+    }
+
+    public const string LanguageMismatchCode = "ebu-language-mismatch";
+
+    /// <summary>An explicit EBU STL language code that differs from the language detected in the text. Skipped when detection finds nothing or finds a language without a mapping.</summary>
+    public static Warning? EbuLanguageMismatch(EbuStlOptions? o, Subtitle written)
+    {
+        if (o?.Language is not { } requested || requested.Equals("auto", StringComparison.OrdinalIgnoreCase)) return null;
+        var code = BinaryOptions.EbuLanguages.TryGetValue(requested, out var mapped) ? mapped : requested.ToUpperInvariant();
+        if (Language.DetectOrNull(written) is not { } detected || !BinaryOptions.EbuLanguages.TryGetValue(detected, out var detectedCode)) return null;
+        if (detectedCode.Equals(code, StringComparison.OrdinalIgnoreCase)) return null;
+        return new Warning(LanguageMismatchCode,
+            $"formatOptions.ebuStl.language \"{requested}\" writes EBU language code {code}, but the text looks like {detected} (EBU code {detectedCode}).",
+            Hint: $"If the text really is {detected}, set formatOptions.ebuStl.language to \"{detectedCode}\" or \"auto\". Keep your value if the delivery's language differs from the text. Detection can be wrong on short text.",
+            Details: new WarningDetails(Fields: new Dictionary<string, string> { ["language"] = code, ["detectedLanguage"] = detected, ["detectedCode"] = detectedCode }));
     }
 
     /// <summary>Cavena 890: title (libse uses the output file name) and the language libse picked when none was set.</summary>
