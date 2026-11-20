@@ -103,7 +103,7 @@ public static class ProfileSpec
                 ["translatedProgrammeTitle"] = new StrSpec("GSI TPT, up to 32 bytes."),
                 ["translatorsName"] = new StrSpec("GSI TN, up to 32 bytes."),
                 ["publisher"] = new StrSpec("GSI PUB, up to 32 bytes."),
-                ["countryOfOrigin"] = new StrSpec("Country of origin: ISO 3166-1 alpha-3 (BEL), alpha-2 (BE) or English name (Belgium), any case; written as alpha-3."),
+                ["countryOfOrigin"] = new StrSpec("Country of origin: ISO 3166-1 alpha-3 (BEL), alpha-2 (BE) or English name (Belgium), any case; written as alpha-3. A retired ISO 3166-3 alpha-3 code (BUR) is kept, with a warning."),
                 ["timecodeStartOfProgramme"] = new StrSpec("HH:MM:SS:FF.", Pattern: BinaryOptions.TimecodePattern),
                 ["maxCharsPerRow"] = new NumSpec("GSI MNC.", Integer: true, Min: 1, Max: 99),
                 ["maxRows"] = new NumSpec("GSI MNR.", Integer: true, Min: 1, Max: 99),

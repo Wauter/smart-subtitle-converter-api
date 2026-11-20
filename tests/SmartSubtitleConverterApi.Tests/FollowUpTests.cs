@@ -464,6 +464,63 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         Assert.Contains(suggestion, (string)j["errors"]![0]!["hint"]!);
     }
 
+    [Theory]
+    [InlineData("BUR", "Burma", "1989", "MMR (Myanmar)")]
+    [InlineData(" ant ", "Netherlands Antilles", "2010", "BES (Bonaire, Sint Eustatius and Saba), CUW (Curaçao) and SXM (Sint Maarten (Dutch part))")]
+    [InlineData("CSK", "Czechoslovakia", "1993", "CZE (Czechia) and SVK (Slovakia)")]
+    [InlineData("ddr", "German Democratic Republic", "1990", "DEU (Germany)")]
+    public async Task Stl_accepts_a_retired_country_code_with_a_warning(string input, string name, string year, string successors)
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = input, language = "en" });
+        var code = input.Trim().ToUpperInvariant();
+        Assert.Equal(code, GsiCountry(j));
+        Assert.Equal($"{code} ({name}, retired)", (string)Header(j)["countryOfOrigin"]!);
+        var w = Warning(j, "country-code-retired");
+        Assert.StartsWith($"countryOfOrigin {code} is a retired ISO 3166 code ({name}, withdrawn {year}); current code", (string)w["message"]!);
+        Assert.EndsWith(successors + ".", (string)w["message"]!);
+        Assert.Contains($"Keep {code} for archive material", (string)w["hint"]!);
+        var f = w["details"]!["fields"]!;
+        Assert.Equal(code, (string)f["countryOfOrigin"]!); Assert.Equal(year, (string)f["withdrawn"]!);
+    }
+
+    [Fact]
+    public async Task Stl_retired_code_message_for_a_single_successor_reads_as_documented()
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = "BUR", language = "en" });
+        Assert.Equal("countryOfOrigin BUR is a retired ISO 3166 code (Burma, withdrawn 1989); current code MMR (Myanmar).", (string)Warning(j, "country-code-retired")["message"]!);
+    }
+
+    [Fact]
+    public async Task Stl_current_countries_and_ATF_give_no_retired_warning()
+    {
+        foreach (var c in new[] { "MMR", "Myanmar", "ATF", "BEL" })
+        {
+            var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = c, language = "en" });
+            Assert.DoesNotContain("country-code-retired", Codes(j));
+        }
+    }
+
+    [Theory]
+    [InlineData("Belgum", "Belgium (BEL)")]
+    [InlineData("Netherlnds", "Netherlands (NLD)")]
+    [InlineData("Czchia", "Czechia (CZE)")]
+    public async Task Stl_country_suggestions_never_offer_retired_codes(string typo, string suggestion)
+    {
+        var j = await StlWith(new { originalProgrammeTitle = "T", countryOfOrigin = typo }, status: HttpStatusCode.BadRequest);
+        var hint = (string)j["errors"]![0]!["hint"]!;
+        Assert.Contains(suggestion, hint);
+        foreach (var old in SmartSubtitleConverterApi.Binary.RetiredCountryCodes.All) Assert.DoesNotContain($"({old.Alpha3})", hint);
+        Assert.DoesNotContain("retired", hint);
+    }
+
+    [Fact]
+    public async Task Retired_country_code_is_also_valid_in_validate_profile_and_not_a_warning_there()
+    {
+        var r = await _c.PostAsync("/v1/profiles/validate", new StringContent("""{"target":{"format":"ebustl"},"formatOptions":{"ebuStl":{"countryOfOrigin":"BUR"}}}""", Encoding.UTF8, "application/json"));
+        var v = await r.Json();
+        Assert.True((bool)v["valid"]!);
+    }
+
     private async Task<JsonObject> Validate(string profile) =>
         await (await _c.PostAsync("/v1/profiles/validate", new StringContent(profile, Encoding.UTF8, "application/json"))).Json();
 

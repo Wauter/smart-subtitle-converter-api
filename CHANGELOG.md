@@ -41,6 +41,11 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
   `400 format-option-invalid` with up to three suggestions (the pattern used to reject anything but three capitals as
   `invalid-profile`).
   The table is the current ISO 3166-1 list (Debian iso-codes, 249 entries); the field descriptions were shortened.
+- Retired ISO 3166-3 alpha-3 codes (`BUR`, `ANT`, `SUN`, `YUG`, … 30 codes) are accepted for `countryOfOrigin`, in any
+  case, instead of `400 format-option-invalid`: archive material correctly carries them. The code is written as
+  given, the header echo reads `BUR (Burma, retired)`, and the new warning `country-code-retired` names the current
+  code (every successor for a split). Typo suggestions still offer only current countries. Codes and withdrawal years
+  come from Debian iso-codes `iso_3166-3.json`, names and successors from the ISO 3166-3 list.
 - `POST /v1/profiles/validate` and the profile checks of a conversion report schema errors and format-option errors
   together. An unknown property used to hide an invalid `countryOfOrigin` (or any other `formatOptions` value): the
   option checks only ran once the schema check passed. Schema errors come first, then option errors. A target the API

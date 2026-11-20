@@ -136,7 +136,7 @@ public static class BinaryOptions
                 errors.Add(new($"{b}/readFrameRate", "readFrameRate must be > 20.", "Typical values: 23.976, 24, 25, 29.97, 30."));
             if (e.Language is { } lang && !IsAutoLanguage(lang) && NormalizeLanguage(lang) == null)
                 errors.Add(new($"{b}/language", $"'{lang.Trim()}' has no EBU STL language code.", $"Use one of these ISO 639-1 codes: {string.Join(", ", EbuLanguages.Keys)}. For any other language, use its two-digit upper-case hex code from EBU Tech 3264 Appendix 3 (for example Dari \"73\"), or \"auto\"."));
-            if (e.CountryOfOrigin is { } country && CountryCodes.Resolve(country) == null)
+            if (e.CountryOfOrigin is { } country && CountryCodes.Resolve(country) == null && RetiredCountryCodes.Find(country) == null)
             {
                 var near = CountryCodes.Suggest(country);
                 errors.Add(new($"{b}/countryOfOrigin", $"'{country.Trim()}' is not an ISO 3166-1 country.",
@@ -301,7 +301,7 @@ public static class BinaryOptions
         if (o.TranslatedProgrammeTitle != null) h.TranslatedProgrammeTitle = Pad(o.TranslatedProgrammeTitle, 32);
         if (o.TranslatorsName != null) h.TranslatorsName = Pad(o.TranslatorsName, 32);
         if (o.Publisher != null) h.Publisher = Pad(o.Publisher, 32);
-        if (o.CountryOfOrigin != null) h.CountryOfOrigin = Pad(CountryCodes.Resolve(o.CountryOfOrigin)?.Alpha3 ?? o.CountryOfOrigin.Trim(), 3);
+        if (o.CountryOfOrigin != null) h.CountryOfOrigin = Pad(CountryCodes.Resolve(o.CountryOfOrigin)?.Alpha3 ?? RetiredCountryCodes.Find(o.CountryOfOrigin)?.Alpha3 ?? o.CountryOfOrigin.Trim(), 3);
         if (o.TimecodeStartOfProgramme != null) h.TimeCodeStartOfProgramme = o.TimecodeStartOfProgramme.Replace(":", "");
         if (o.MaxCharsPerRow is { } mc) h.MaximumNumberOfDisplayableCharactersInAnyTextRow = mc.ToString("D2", CultureInfo.InvariantCulture);
         if (o.MaxRows is { } mr) h.MaximumNumberOfDisplayableRows = mr.ToString("D2", CultureInfo.InvariantCulture);

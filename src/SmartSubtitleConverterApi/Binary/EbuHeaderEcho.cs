@@ -15,7 +15,7 @@ public sealed record EbuHeaderEcho(string? Language = null, string? CountryOfOri
         var co = Text(h.CountryOfOrigin)?.ToUpperInvariant();
         return new EbuHeaderEcho(
             lang == null ? null : BinaryOptions.EbuLanguageNames.TryGetValue(lang, out var ln) ? $"{lang} ({ln})" : lang,
-            co == null ? null : CountryCodes.ByCode(co) is { } c ? $"{co} ({c.DisplayName})" : co,
+            co == null ? null : CountryCodes.ByCode(co) is { } c ? $"{co} ({c.DisplayName})" : RetiredCountryCodes.Find(co) is { } old ? $"{co} ({old.Name}, retired)" : co,
             Text(h.OriginalProgrammeTitle), Text(h.OriginalEpisodeTitle), Text(h.TranslatedProgrammeTitle), Text(h.TranslatorsName), Text(h.Publisher));
     }
 }

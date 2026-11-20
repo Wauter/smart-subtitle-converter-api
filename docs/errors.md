@@ -77,6 +77,7 @@ Setting names are profile fields, written as a path: `source.format` means
 | [`verification-failed`](#verification-failed) | The written binary file couldn't be checked |
 | [`format-defaults-applied`](#format-defaults-applied) | Header fields were filled with defaults you didn't set |
 | [`ebu-language-mismatch`](#ebu-language-mismatch) | The EBU STL language code differs from the language of the text |
+| [`country-code-retired`](#country-code-retired) | `formatOptions.ebuStl.countryOfOrigin` is a retired ISO 3166 code |
 | [`zero-length-cue`](#zero-length-cue) | Source cues with no duration |
 | [`overlapping-cues`](#overlapping-cues) | Source cues that overlap in time |
 | [`long-cue`](#long-cue) | Source cues longer than 30 seconds |
@@ -719,7 +720,7 @@ and the sidecar. `details` never contains subtitle text, only positions, code po
 | `distinctCodePoints`, `codePoints` | number; `[{codePoint: "U+039A", count}]` (first 20) | `characters-replaced` |
 | `remedy` | object, see [Remedy](#remedy-characters-replaced) | `characters-replaced` |
 | `durations` | `[{cue, durationMs}]` (first 20) | `long-cue` |
-| `fields` | `{field: value written}` (`ebu-language-mismatch`: `language`, `detectedLanguage`, `detectedCode`) | `format-defaults-applied`, `ebu-language-mismatch` |
+| `fields` | `{field: value written}` (`ebu-language-mismatch`: `language`, `detectedLanguage`, `detectedCode`; `country-code-retired`: `countryOfOrigin`, `name`, `withdrawn`, `successors`) | `format-defaults-applied`, `ebu-language-mismatch`, `country-code-retired` |
 | `timecode` | `"HH:MM:SS:FF"` | `programme-start-not-applied` |
 
 Cue numbers in source warnings (`zero-length-cue`, `overlapping-cues`, `long-cue`, `source-replacement-chars`) are
@@ -842,6 +843,26 @@ copied from another delivery or a typo is easy to miss. Detection reads the text
 _For integrators:_ raised only when detection finds a language that has an EBU code; nothing is raised when detection
 finds nothing or a language without a code. `details.fields`: `language` (the two-digit code written),
 `detectedLanguage` (ISO 639-1) and `detectedCode`. No `count`. The conversion is never changed.
+
+### <a id="country-code-retired"></a>`country-code-retired`
+
+**What:** You set `formatOptions.ebuStl.countryOfOrigin` to a code that ISO 3166 has withdrawn (for example `BUR`,
+Burma, withdrawn 1989, now `MMR`). The code is written as given.
+
+**Why:** Archive material is often correctly labelled with the code that was valid when it was made, so the API accepts
+the former alpha-3 codes of ISO 3166-3 instead of rejecting them. Playout and MAM systems that only know current codes
+may not recognise it.
+
+**What to do:** Keep the code for archive material. For new material, or a delivery spec that wants current codes, use
+the current code in the message. When the country split (Czechoslovakia, the USSR, the Netherlands Antilles), the
+message lists every successor; pick the one that applies.
+
+_For integrators:_ raised only for an explicit option, and only for an alpha-3 code in any case, with surrounding
+whitespace ignored. Names and alpha-2 codes of former countries are not accepted: the alpha-2 codes clash with each
+other and with current ones. `ATF` is current (French Southern Territories), so it never warns. `details.fields`:
+`countryOfOrigin`, `name`, `withdrawn` (year), `successors` (comma-separated alpha-3). The header echo shows
+`BUR (Burma, retired)`. No `count`; the output is never changed. Typo suggestions for an unknown country only offer
+current countries.
 
 ### <a id="encoding-guessed"></a>`encoding-guessed`
 

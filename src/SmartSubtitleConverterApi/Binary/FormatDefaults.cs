@@ -73,6 +73,22 @@ internal static class FormatDefaults
             Details: new WarningDetails(Fields: new Dictionary<string, string> { ["language"] = code, ["detectedLanguage"] = detected, ["detectedCode"] = detectedCode }));
     }
 
+    public const string CountryRetiredCode = "country-code-retired";
+
+    /// <summary>An explicit EBU STL countryOfOrigin that is a retired ISO 3166 code (accepted as written, never changed).</summary>
+    public static Warning? EbuCountryRetired(EbuStlOptions? o)
+    {
+        if (o?.CountryOfOrigin == null || CountryCodes.Resolve(o.CountryOfOrigin) != null || RetiredCountryCodes.Find(o.CountryOfOrigin) is not { } r) return null;
+        var many = r.Successors.Length > 1;
+        return new Warning(CountryRetiredCode,
+            $"countryOfOrigin {r.Alpha3} is a retired ISO 3166 code ({r.Name}, withdrawn {r.WithdrawnYear}); current {(many ? "codes" : "code")} {RetiredCountryCodes.SuccessorList(r)}.",
+            Hint: $"Keep {r.Alpha3} for archive material from when it was valid. For newer material set formatOptions.ebuStl.countryOfOrigin to {(many ? "the successor that applies" : r.Successors[0])}.",
+            Details: new WarningDetails(Fields: new Dictionary<string, string>
+            {
+                ["countryOfOrigin"] = r.Alpha3, ["name"] = r.Name, ["withdrawn"] = r.WithdrawnYear.ToString(System.Globalization.CultureInfo.InvariantCulture), ["successors"] = string.Join(", ", r.Successors),
+            }));
+    }
+
     /// <summary>Cavena 890: title (libse uses the output file name) and the language libse picked when none was set.</summary>
     public static Warning? Cavena(byte[] bytes, Cavena890Options? o, string fileName, JobTemp temp)
     {

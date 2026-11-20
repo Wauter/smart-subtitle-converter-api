@@ -115,8 +115,11 @@ detected language. `auto` (any case) means the same.
 `formatOptions.ebuStl.countryOfOrigin` takes an ISO 3166-1 alpha-3 code (`BEL`), an alpha-2 code (`BE`) or the English
 short name (`Belgium`), in any case; accents, punctuation and whitespace are ignored. Common short forms such as
 `UK`, `Turkey` and `Ivory Coast` work too. The file gets the alpha-3 code. A value that matches no country is
-rejected with `400 format-option-invalid` and up to three suggestions. The country table is the current ISO 3166-1
-list (Debian iso-codes); EBU Tech 3264 Appendix 4 predates it and still lists a few retired codes.
+rejected with `400 format-option-invalid` and up to three suggestions (current countries only). The country table is
+the current ISO 3166-1 list (Debian iso-codes). Former alpha-3 codes from ISO 3166-3 (`BUR`, `ANT`, `YUG`, `SUN`, …)
+are accepted too, because archive material carries them: they are written as given with a
+[`country-code-retired`](errors.md#country-code-retired) warning naming the current code or codes. EBU Tech 3264
+Appendix 4 is based on the 1988 edition of ISO 3166 and so lists such codes.
 
 Every EBU STL result reports the header it wrote, read back from the output bytes, as `outputs[].header`. Only fields
 that are set appear:
@@ -126,7 +129,7 @@ that are set appear:
 ```
 
 The other fields are `originalEpisodeTitle`, `translatedProgrammeTitle`, `translatorsName` and `publisher`. A code
-without a known name appears alone.
+without a known name appears alone; a retired country code reads `BUR (Burma, retired)`.
 
 ## Format options
 
