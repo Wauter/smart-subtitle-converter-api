@@ -32,14 +32,17 @@ public sealed class ProfileResolver(PresetStore store, FormatRegistry formats)
         if (r.Errors.Count > 0)
         {
             var first = r.Errors[0];
-            var missingTarget = r.Errors.All(e => e.Pointer == "/target/format" && e.Message.StartsWith("Required"));
-            if (r.Errors.All(ProfileSpec.IsUnsupportedFormatError))
+            // Option errors are appended after the schema errors; the status is chosen from the schema ones, so a bad
+            // country next to an unknown format is still 422 format-not-supported (the response lists both).
+            var shape = r.Errors.Take(r.Errors.Count - r.SemanticErrors).ToList();
+            var missingTarget = shape.Count > 0 && shape.All(e => e.Pointer == "/target/format" && e.Message.StartsWith("Required"));
+            if (shape.Count > 0 && shape.All(ProfileSpec.IsUnsupportedFormatError))
             {
                 throw new ApiException(422, ErrorCodes.FormatNotSupported, first.Message, first.Hint ?? "See GET /v1/formats.") { Errors = r.Errors };
             }
-            if (r.Errors.All(e => ProfileSpec.IsNotWritableError(e) || ProfileSpec.IsUnsupportedFormatError(e)))
+            if (shape.Count > 0 && shape.All(e => ProfileSpec.IsNotWritableError(e) || ProfileSpec.IsUnsupportedFormatError(e)))
             {
-                var w = r.Errors.First(ProfileSpec.IsNotWritableError);
+                var w = shape.First(ProfileSpec.IsNotWritableError);
                 throw new ApiException(422, ErrorCodes.FormatNotWritable, w.Message, w.Hint ?? "Pick a writable target.") { Errors = r.Errors };
             }
             if (r.SemanticErrors > 0 && r.SemanticErrors == r.Errors.Count)
@@ -66,9 +69,14 @@ public sealed class ProfileResolver(PresetStore store, FormatRegistry formats)
         var errors = new List<FieldError>();
         var warnings = new List<FieldError>();
         ProfileSpec.Validate(top, ProfileSpec.Root, "", errors, formats);
+        var shapeErrors = errors.Count;
+        // The format-option checks run on a copy of the request layer without the values the schema rejected, so one
+        // response lists the schema errors and the option errors together (schema errors first, then option errors).
+        var semanticTop = shapeErrors == 0 ? top : Prune(top, errors);
 
         // Walk the extends chain, top first.
         var chain = new List<JsonObject> { top };
+        var semanticChain = new List<JsonObject> { semanticTop };
         var seen = new HashSet<string>(StringComparer.Ordinal);
         if (selfName != null) seen.Add(selfName);
         string? presetName = null;
@@ -103,6 +111,7 @@ public sealed class ProfileResolver(PresetStore store, FormatRegistry formats)
                 break;
             }
             chain.Add(entry.Raw);
+            semanticChain.Add(entry.Raw);
             current = entry.Raw;
         }
 
@@ -123,14 +132,57 @@ public sealed class ProfileResolver(PresetStore store, FormatRegistry formats)
                 "target.fps without source.fps only sets the output frame rate: time-based sources (SRT, WebVTT, ...) keep their times, frame-based sources are rescaled from the rate the file states or implies (EBU STL header, SCC timecodes), and frame-based sources that record no rate (PAC, Cavena 890, ...) need source.fps.",
                 "Set source.fps too if the times should be rescaled from one frame rate to the other (e.g. 25 -> 23.976)."));
         }
-        // Checks the JSON Schema can't express (plan §2): only once the shape is valid.
+        // Checks the JSON Schema can't express (plan §2). They are skipped only when an extends problem leaves the merged
+        // profile incomplete: a missing inherited value could make them report something that isn't wrong.
         var semantic = 0;
-        if (errors.Count == 0)
+        if (errors.Count == shapeErrors || (errors.Count > shapeErrors && requireTarget && errors.Skip(shapeErrors).All(e => e.Pointer == "/target/format")))
         {
-            var se = Binary.BinaryOptions.Validate(ProfileJson.ToProfile(resolved));
-            semantic = se.Count;
-            errors.AddRange(se);
+            try
+            {
+                var merged = new JsonObject();
+                for (var i = semanticChain.Count - 1; i >= 0; i--) merged = ProfileJson.Merge(merged, semanticChain[i]);
+                merged.Remove("extends"); merged.Remove("$schema"); merged.Remove("name");
+                var se = Binary.BinaryOptions.Validate(ProfileJson.ToProfile(merged));
+                semantic = se.Count;
+                errors.AddRange(se);
+            }
+            catch (Exception ex) when (shapeErrors > 0 && ex is not OutOfMemoryException)
+            {
+                // The rejected shape could not be read as a profile at all: the schema errors already say what to fix.
+            }
         }
         return new ResolveResult(resolved, errors, warnings, presetName, semantic);
+    }
+
+    /// <summary>A copy of a request layer without the nodes the schema check reported (pointers from <see cref="ProfileSpec.Validate"/>).</summary>
+    private static JsonObject Prune(JsonObject top, List<FieldError> schemaErrors)
+    {
+        var copy = (JsonObject)top.DeepClone();
+        var doomed = new List<JsonNode>();
+        foreach (var e in schemaErrors)
+        {
+            JsonNode? node = copy;
+            foreach (var raw in e.Pointer.Split('/').Skip(1))
+            {
+                var key = raw.Replace("~1", "/").Replace("~0", "~");
+                node = node switch
+                {
+                    JsonObject o => o[key],
+                    JsonArray a when int.TryParse(key, out var i) && i >= 0 && i < a.Count => a[i],
+                    _ => null,
+                };
+                if (node == null) break;
+            }
+            if (node != null && node != copy) doomed.Add(node);
+        }
+        foreach (var node in doomed)
+        {
+            switch (node.Parent)
+            {
+                case JsonObject o: o.Remove(node.GetPropertyName()); break;
+                case JsonArray a: a.Remove(node); break;
+            }
+        }
+        return copy;
     }
 }

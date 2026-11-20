@@ -464,6 +464,68 @@ public class FollowUpTests : IClassFixture<ApiFactory>
         Assert.Contains(suggestion, (string)j["errors"]![0]!["hint"]!);
     }
 
+    private async Task<JsonObject> Validate(string profile) =>
+        await (await _c.PostAsync("/v1/profiles/validate", new StringContent(profile, Encoding.UTF8, "application/json"))).Json();
+
+    [Fact]
+    public async Task Validate_profile_lists_the_schema_and_the_format_option_errors_together()
+    {
+        var v = await Validate("""{"target":{"format":"ebustl"},"formatOptions":{"ebuStl":{"countryOfOrigin":"Belgique","programmeTitle":"Spring Promo"}}}""");
+        Assert.False((bool)v["valid"]!);
+        var errors = v["errors"]!.AsArray();
+        Assert.Equal(2, errors.Count);
+        // Schema errors first, then format-option errors, always in this order.
+        Assert.Equal("/formatOptions/ebuStl/programmeTitle", (string)errors[0]!["pointer"]!);
+        Assert.Equal("Unknown property 'programmeTitle'.", (string)errors[0]!["message"]!);
+        Assert.Equal("/formatOptions/ebuStl/countryOfOrigin", (string)errors[1]!["pointer"]!);
+        Assert.Contains("Did you mean Belgium (BEL)?", (string)errors[1]!["hint"]!);
+        for (var i = 0; i < 3; i++) Assert.Equal(errors.ToJsonString(), (await Validate("""{"target":{"format":"ebustl"},"formatOptions":{"ebuStl":{"countryOfOrigin":"Belgique","programmeTitle":"Spring Promo"}}}"""))["errors"]!.ToJsonString());
+    }
+
+    [Fact]
+    public async Task Validate_profile_collects_every_error_class()
+    {
+        var v = await Validate("""{"timing":{"ofsetMs":1},"formatOptions":{"ebuStl":{"language":"xx","countryOfOrigin":"Atlantis","frameRate":26,"maxRows":"many"}}}""");
+        var pointers = v["errors"]!.AsArray().Select(e => (string)e!["pointer"]!).ToList();
+        Assert.Equal(["/timing/ofsetMs", "/formatOptions/ebuStl/maxRows", "/formatOptions/ebuStl/frameRate", "/formatOptions/ebuStl/language", "/formatOptions/ebuStl/countryOfOrigin"], pointers);
+    }
+
+    [Fact]
+    public async Task Validate_profile_with_a_malformed_block_reports_the_shape_only()
+    {
+        var v = await Validate("""{"formatOptions":{"ebuStl":"greek"},"operations":[{"id":"SplitLong"},{"id":"DeleteFirst"}]}""");
+        Assert.False((bool)v["valid"]!);
+        var pointers = v["errors"]!.AsArray().Select(e => (string)e!["pointer"]!).ToList();
+        Assert.Contains("/formatOptions/ebuStl", pointers);
+        Assert.Contains("/operations/0/id", pointers);
+    }
+
+    [Fact]
+    public async Task Convert_lists_an_unknown_property_and_a_bad_country_together()
+    {
+        var j = await Json(new { content = Samples.Srt, target = "ebustl", profile = new { formatOptions = new { ebuStl = new { countryOfOrigin = "Belgique", programmeTitle = "T" } } } }, HttpStatusCode.BadRequest);
+        Assert.Equal("invalid-profile", (string)j["code"]!);
+        var pointers = j["errors"]!.AsArray().Select(e => (string)e!["pointer"]!).ToList();
+        Assert.Equal(["/formatOptions/ebuStl/programmeTitle", "/formatOptions/ebuStl/countryOfOrigin"], pointers);
+    }
+
+    [Fact]
+    public async Task Convert_keeps_the_422_for_an_unsupported_target_and_lists_the_option_error_too()
+    {
+        var j = await Json(new { content = Samples.Srt, target = "bluraysup", profile = new { formatOptions = new { ebuStl = new { countryOfOrigin = "Belgique" } } } }, (HttpStatusCode)422);
+        Assert.Equal("format-not-supported", (string)j["code"]!);
+        var pointers = j["errors"]!.AsArray().Select(e => (string)e!["pointer"]!).ToList();
+        Assert.Equal(["/target/format", "/formatOptions/ebuStl/countryOfOrigin"], pointers);
+    }
+
+    [Fact]
+    public async Task Convert_with_only_option_errors_is_still_format_option_invalid()
+    {
+        var j = await Json(new { content = Samples.Srt, target = "ebustl", profile = new { formatOptions = new { ebuStl = new { countryOfOrigin = "Belgique", language = "xx" } } } }, HttpStatusCode.BadRequest);
+        Assert.Equal("format-option-invalid", (string)j["code"]!);
+        Assert.Equal(2, j["errors"]!.AsArray().Count);
+    }
+
     [Fact]
     public async Task Stl_result_echoes_the_header_that_was_written()
     {

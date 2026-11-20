@@ -41,6 +41,10 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
   `400 format-option-invalid` with up to three suggestions (the pattern used to reject anything but three capitals as
   `invalid-profile`).
   The table is the current ISO 3166-1 list (Debian iso-codes, 249 entries); the field descriptions were shortened.
+- `POST /v1/profiles/validate` and the profile checks of a conversion report schema errors and format-option errors
+  together. An unknown property used to hide an invalid `countryOfOrigin` (or any other `formatOptions` value): the
+  option checks only ran once the schema check passed. Schema errors come first, then option errors. A target the API
+  can't use keeps `422 format-not-supported`/`format-not-writable`.
 - EBU STL results carry `outputs[].header`: the language (`70 (Greek)`), country (`PRT (Portugal)`) and the title,
   publisher and translator fields that were written, read back from the output bytes. Empty fields are left out.
 - The `zero-length-cue` hint no longer says EBU STL can't store zero-length cues: it keeps them, except one at

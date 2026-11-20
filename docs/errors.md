@@ -141,6 +141,10 @@ silently does nothing. An unknown encoding name in `encoding.input` or `encoding
 mean 'webvtt'?"). `POST /v1/profiles/validate` checks a profile without converting.
 
 _For integrators:_ 400. `errors[]` with `pointer`, `message`, `hint`. The JSON Schema is at `/v1/schemas/profile.json`.
+`errors[]` also carries the format-option errors (the `format-option-invalid` kind) found in the same profile, after
+the schema errors, so one response lists everything to fix: the options are checked on a copy of the profile without
+the values the schema rejected. They are not checked when the `extends` chain itself is broken, because inherited
+values are missing then. A target the API can't use keeps its `422`.
 
 ### <a id="format-option-invalid"></a>`format-option-invalid`
 
