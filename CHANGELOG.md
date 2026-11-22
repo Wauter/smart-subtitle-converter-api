@@ -8,7 +8,7 @@ for the bump rule. Tagged releases publish multi-arch images to GHCR
 
 ## 1.5.0 — 2026-11-20
 
-- Breaking (frame rates): the API no longer assumes libse's 23.976 fps for frame-based formats that don't record a
+- Behaviour change (frame rates): the API no longer assumes libse's 23.976 fps for frame-based formats that don't record a
   frame rate (PAC, PAC Unicode, Cavena 890, Cheetah CAP, CapMaker Plus, Avid STL, MicroDVD and similar, and SCC
   whose timecodes don't reveal it). When a rate is needed and neither the file nor the request gives one, the
   conversion stops with the new `422 frame-rate-required`, whose `errors[0].pointer` names `/source/fps` or
